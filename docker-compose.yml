@@ -1,0 +1,26 @@
+name: yolov8-local
+# Recommended: bash scripts/stack.sh up mps
+# This container is only a gateway. Direct compose down does not own a separately started Mac server.
+services:
+  gateway:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: yolov8-local-gateway:latest
+    ports:
+      - "127.0.0.1:8080:8080"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "2"

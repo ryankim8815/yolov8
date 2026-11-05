@@ -1,0 +1,14 @@
+.venv*/
+.conda/
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+*.pyc
+.DS_Store
+.env
+models/*
+!models/.gitkeep
+data/
+artifacts/
+.cache/
+*.log

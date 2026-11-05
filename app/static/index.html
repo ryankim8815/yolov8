@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>YOLOv8 · 실시간 객체 탐지</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <script src="/static/app.js" defer></script>
+</head>
+<body>
+  <main>
+    <header>
+      <div><p class="eyebrow">LOCAL VISION LAB</p><h1>실시간 객체 탐지<span>YOLOv8</span></h1></div>
+      <div class="status" id="status-pill"><i></i><span id="state" role="status">서버 연결 중</span></div>
+    </header>
+    <p class="intro">Mac에 연결된 카메라를 로컬에서 분석합니다. 영상은 저장하지 않습니다.</p>
+    <section class="metrics" aria-label="실시간 성능">
+      <article><span>추론 백엔드</span><strong id="backend">—</strong><small id="model">모델 준비 중</small></article>
+      <article><span>탐지 속도</span><strong><b id="fps">—</b><em> FPS</em></strong><small id="capture-fps">카메라 — / 미리보기 —</small></article>
+      <article><span>서버 지연 p95</span><strong><b id="latency">—</b><em> ms</em></strong><small>수신부터 결과 게시까지</small></article>
+      <article><span>현재 탐지 객체</span><strong id="count">—</strong><small id="frame-id">프레임 대기 중</small></article>
+    </section>
+    <section class="workspace">
+      <article class="camera-panel">
+        <div class="panel-title"><h2>카메라</h2><span id="resolution">입력 대기 중</span></div>
+        <div class="viewport">
+          <img id="preview" alt="객체 탐지 박스가 포함된 카메라 영상" hidden>
+          <div id="placeholder"><div class="camera-icon">◎</div><h3 id="placeholder-title">카메라를 준비하고 있습니다</h3><p id="placeholder-detail">모델이 로드되면 영상이 표시됩니다.</p></div>
+        </div>
+        <footer><span id="frame-age">결과 수신 대기</span><span id="drops">생략한 입력 0</span></footer>
+      </article>
+      <aside class="objects-panel">
+        <div class="panel-title"><h2>탐지 결과</h2><span class="tag">LIVE</span></div>
+        <p class="list-note">객체 목록은 최신 탐지 결과로 갱신됩니다.</p>
+        <ul id="objects"><li class="empty">탐지 결과를 기다리고 있습니다.</li></ul>
+      </aside>
+    </section>
+    <p id="error" class="error" role="alert" hidden></p>
+    <details class="settings"><summary>실행 설정</summary><p id="settings-values">설정을 불러오는 중입니다.</p><small>현재 실행값입니다. 설정 변경은 서버 재시작 후 적용됩니다.</small></details>
+    <div class="bottom"><span>최신 프레임 우선 처리 · 단일 카메라</span><a href="/docs" target="_blank" rel="noopener">API 문서 ↗</a></div>
+  </main>
+</body>
+</html>
