@@ -6,6 +6,7 @@ import re
 import sqlite3
 import threading
 import uuid
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -55,11 +56,21 @@ class Store:
         self.db.execute("CREATE INDEX IF NOT EXISTS records_kind ON records(kind)")
         self.db.commit()
 
-    def put_many(self, records):
+    @contextmanager
+    def write_transaction(self):
+        """Allow read/allocate/write under the same SQLite writer reservation."""
         with self.lock, self.db:
+            self.db.execute("BEGIN IMMEDIATE")
+            yield self._write
+
+    def _write(self, kind, value):
+        self.db.execute("INSERT INTO records VALUES (?,?,?) ON CONFLICT(id) DO UPDATE SET data=excluded.data",
+                        (kind, value["id"], json.dumps(value, ensure_ascii=False, allow_nan=False)))
+
+    def put_many(self, records):
+        with self.write_transaction() as write:
             for kind, value in records:
-                self.db.execute("INSERT INTO records VALUES (?,?,?) ON CONFLICT(id) DO UPDATE SET data=excluded.data",
-                                (kind, value["id"], json.dumps(value, ensure_ascii=False, allow_nan=False)))
+                write(kind, value)
 
     def put(self, kind, value):
         self.put_many([(kind, value)])

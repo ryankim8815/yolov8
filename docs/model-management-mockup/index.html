@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark"><title>모델 관리 · Local Vision Lab 시안</title>
+  <style>
+:root{color-scheme:dark;--bg:#0b1118;--panel:#121c26;--line:#2a3845;--ink:#ecf2f6;--soft:#afbdca;--faint:#889bab;--mint:#80e2c1;--mono:ui-monospace,SFMono-Regular,Menlo,monospace;font:15px/1.5 -apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Noto Sans KR",sans-serif;color:var(--ink);background:var(--bg)}
+*{box-sizing:border-box}body{margin:0}h1,h2,h3,p{margin:0}button,input{font:inherit}button{cursor:pointer}button:disabled{cursor:default}button,input,summary{touch-action:manipulation}button:focus-visible,input:focus-visible,summary:focus-visible{outline:2px solid var(--mint);outline-offset:3px}[hidden]{display:none!important}.symbols{position:absolute;width:0;height:0;overflow:hidden}.sr{position:absolute;clip-path:inset(50%);width:1px;height:1px;overflow:hidden}.shell{width:min(1220px,calc(100% - 72px));margin:auto}.top{border-bottom:1px solid var(--line);background:#101923}.bar,.brand,.intro,.title,.sect-head,.buttons,.actions,.subtitle,.identity,.runtime,.list-heading{display:flex;align-items:center}.bar{height:62px;justify-content:space-between}.brand{gap:12px;font:700 14px var(--mono);letter-spacing:.1em}.brand b{font-weight:500;color:var(--mint)}.brand svg{width:32px;height:32px;color:var(--mint)}.badge,.version,.chip,.ready,.wait{display:inline-flex;align-items:center;white-space:nowrap}.badge{font-size:12px;background:#20303e;color:#c2d3df;border:1px solid #354657;border-radius:20px;padding:3px 10px}.intro{justify-content:space-between;gap:20px;margin:34px 0 24px}.kicker{font:600 10px/1.5 var(--mono);letter-spacing:.15em;color:var(--faint)}.kicker span{padding:0 4px;color:#638074}.intro h1{font-size:clamp(31px,3vw,42px);line-height:1.3;letter-spacing:-.065em;margin:6px 0}.intro p,.subtitle,.aside-note,.footnote,.muted,.actions p,#dialog-copy{color:var(--soft)}.intro p{font-size:14px}.runtime{gap:10px;padding:7px 12px;border:1px solid var(--line);border-radius:8px;background:#131e26;color:var(--soft);font-size:12px}.runtime strong{margin-left:6px;color:var(--ink);font-weight:600;overflow-wrap:anywhere}.dot,.ready:before,.wait:before{width:6px;height:6px;flex:none;border-radius:100%;background:var(--mint)}.layout{display:grid;grid-template-columns:minmax(235px,.42fr) minmax(0,1fr);gap:16px;align-items:start}.panel{border:1px solid var(--line);border-radius:14px;background:var(--panel)}.library{padding:20px 12px 15px}.lib-head{padding:0 9px;margin:0 0 15px}h2,h3,.name{letter-spacing:-.04em}.lib-head h2,.sect-head h3{font-size:19px;line-height:1.4;margin:3px 0 0}h2 small,h3 small{font:500 12px var(--mono);color:var(--soft);vertical-align:middle;margin-left:4px}#list{display:grid;gap:6px}.item{display:grid;grid-template-columns:36px minmax(0,1fr);gap:12px;align-items:center;text-align:left;width:100%;border:1px solid transparent;border-radius:8px;background:transparent;color:inherit;padding:11px 9px}.item:hover{background:#1a2934}.item[aria-current=true]{border-color:#3b766c;background:#1a3334}.item .icon{color:#a6b8c7;background:#21313c;border:1px solid #334451;border-radius:8px;width:36px;height:36px;display:grid;place-items:center}.item svg{width:23px;height:23px}.item[aria-current=true] .icon{background:#1a403c;border-color:#365f57;color:var(--mint)}.list-heading{gap:6px;justify-content:space-between}.name{font-size:15px;font-weight:650;overflow-wrap:anywhere}.mini{display:block;color:var(--soft);font-size:12px;margin-top:3px}.live{white-space:nowrap;font-size:10px;color:var(--mint);font-weight:600}.aside-note{font-size:12px;border-top:1px solid var(--line);padding:14px 6px 0;margin:12px 4px 0}.detail{overflow:hidden}.identity,.facts,.classes,.formats,.actions,details{padding:18px 24px}.identity{justify-content:space-between;gap:14px;background:radial-gradient(ellipse at 95% -90%,#254739,transparent 78%)}.accent{color:var(--mint)}.title{gap:10px;flex-wrap:wrap;margin:5px 0 3px}.title h2{font-size:clamp(25px,2.8vw,35px);line-height:1.25;overflow-wrap:anywhere}.version{border:1px solid #44685e;border-radius:6px;color:#a6eace;background:#203832;font:600 12px var(--mono);padding:3px 7px}.subtitle{gap:9px;font-size:12px}.divider{color:#536a7c}.quiet,.primary{border-radius:7px;padding:7px 12px;white-space:nowrap;font-size:13px;font-weight:600;line-height:1.5}.quiet{background:#1b2935;border:1px solid #3a4a58;color:var(--ink)}.edit{display:flex;gap:7px;align-items:center}.edit svg{width:14px;height:14px}.quiet:hover{background:#293b47}.primary{background:var(--mint);border:1px solid var(--mint);color:#102920}.primary:hover{background:#a0eed4}.primary:disabled{background:#20332f;color:#9ec3b5;border-color:#384e46}.facts{background:#101923;border-block:1px solid var(--line);display:grid;grid-template-columns:1.15fr 1.2fr .75fr;gap:14px;padding-block:14px}.facts>div>span,dt{display:block;color:var(--soft);font-size:12px}.facts strong,.facts button{font-size:14px;font-weight:600;font-variant-numeric:tabular-nums}.facts small{font-size:11px}.facts>div>strong,.facts>div>div{display:block;margin-top:4px}.link{padding:0;border:0;background:none;color:var(--mint);text-align:left;overflow-wrap:anywhere}.link:hover{text-decoration:underline}.sect-head{justify-content:space-between;gap:12px;margin-bottom:12px}.chips{display:flex;gap:7px;flex-wrap:wrap;max-height:192px;overflow:auto;padding:1px}.chip{gap:7px;padding:5px 9px;border-radius:6px;background:#1c2934;border:1px solid #354452;font-size:13px}.chip b{color:#93ada6;font:500 10px var(--mono)}.classes,.formats{border-bottom:1px solid var(--line)}.search input,#new-name{color:var(--ink);border:1px solid #3e505d;background:#0f1922;border-radius:6px;padding:7px 9px}.search input{width:155px;font-size:12px}.scroll{overflow:auto}table{width:100%;border-collapse:collapse;font-size:13px;white-space:nowrap}th,td{text-align:left;padding:7px 8px;border-bottom:1px solid var(--line);font-variant-numeric:tabular-nums}th{background:#17232e;color:var(--soft);font-size:11px}th:nth-child(n+3),td:nth-child(n+3){text-align:right}td:first-child{font-weight:600}.ready,.wait{gap:6px;font-size:12px}.ready{color:var(--mint)}.wait{color:#d8b88b}.ready:before,.wait:before{content:""}.wait:before{background:#d8b88b}.muted,.actions p,.footnote{font-size:12px}.muted{margin-top:10px;color:var(--faint)}details{font-size:13px;padding-block:13px}summary{color:var(--soft);cursor:pointer;font-weight:600}dl{display:grid;grid-template-columns:120px minmax(0,1fr);gap:7px 14px;margin:12px 0 0}dd{margin:0;overflow-wrap:anywhere}dd.code{font:12px/1.5 var(--mono)}.actions{justify-content:space-between;gap:14px;border-top:1px solid var(--line);background:#15232b;padding-block:13px}.actions strong{font-size:13px}.actions p{margin-top:2px}.footnote{text-align:right;margin:14px 0 25px;color:var(--faint)}
+dialog{width:min(420px,calc(100% - 36px));padding:24px;border:1px solid #465966;border-radius:14px;background:#14212c;color:var(--ink);box-shadow:0 16px 80px #0007}dialog::backdrop{background:#050c12bc}dialog h2{margin:7px 0;font-size:23px}#dialog-copy{font-size:14px}#field{display:block;margin:18px 0 0;color:var(--soft);font-size:12px}#new-name{width:100%;margin-top:5px;font-size:16px}#error{font-size:13px;color:#ffab9c;margin-top:6px}.buttons{justify-content:flex-end;gap:8px;margin-top:20px}.toast:not(:empty){position:fixed;bottom:18px;left:50%;transform:translateX(-50%);width:max-content;max-width:90vw;border:1px solid #42695b;border-radius:8px;background:#1e3730;color:var(--ink);padding:8px 14px;font-size:13px}
+@media(max-width:950px){.shell{width:calc(100% - 40px)}.layout{grid-template-columns:minmax(200px,.39fr) minmax(0,1fr);gap:12px}.identity,.facts,.classes,.formats,.actions,details{padding-inline:17px}.intro{margin:22px 0 18px}.runtime{align-self:flex-end}.facts{grid-template-columns:1.1fr 1.1fr .75fr}}
+@media(max-width:720px){.shell{width:calc(100% - 26px)}.intro{align-items:flex-start;flex-direction:column;gap:10px}.runtime{align-self:flex-start}.layout{grid-template-columns:1fr}.library{padding:12px}.lib-head{margin:0 0 8px;padding:0}.lib-head .kicker,.aside-note,.item .icon{display:none}#list{display:flex;overflow-x:auto;gap:5px;padding:3px}.item{display:block;width:auto;min-width:112px;padding:6px 9px;background:#18242e}.list-heading{gap:5px}.lib-head h2{font-size:15px}.name{font-size:13px}.mini{font-size:11px}.intro h1{font-size:30px}.bar{height:50px}.brand{font-size:12px;gap:7px}.brand svg{width:25px}.demo{font-size:10px}.identity{padding-block:15px}.facts{grid-template-columns:1fr 1fr;gap:10px}.facts>div:last-child{grid-column:1/-1;display:flex;align-items:center;gap:7px}.facts>div:last-child strong{margin:0}.footnote{text-align:left}.actions p{max-width:200px}.search input{width:140px}.sect-head{flex-wrap:wrap}th,td{padding-inline:4px}}
+
+</style>
+</head>
+<body>
+<svg xmlns="http://www.w3.org/2000/svg" class="symbols" aria-hidden="true">
+  <symbol id="mark" viewBox="0 0 40 40"><path d="M4 14V5h9m14 0h9v9m0 12v9h-9m-14 0H4v-9" fill="none" stroke="currentColor" stroke-width="2.5"/><path d="m20 10 10 5.5v9L20 30l-10-5.5v-9z M10 15.5l10 6 10-6M20 21.5V30" fill="none" stroke="currentColor" stroke-width="1.6"/></symbol>
+  <symbol id="parts" viewBox="0 0 40 40"><path fill="none" stroke="currentColor" stroke-width="1.6" d="m20 3 14.7 8.5v17L20 37 5.3 28.5v-17z m0 5 10.5 6v12L20 32 9.5 26V14z"/><circle cx="20" cy="20" r="6.4" fill="none" stroke="currentColor" stroke-width="1.8"/></symbol>
+  <symbol id="base" viewBox="0 0 40 40"><g fill="none" stroke="currentColor" stroke-width="1.8"><path d="m20 4 16 8-16 8L4 12zM4 20l16 8 16-8M4 27l16 8 16-8"/></g></symbol>
+  <symbol id="pen" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" d="m4 20 4.5-.8 12-12-3.7-3.7-12 12zM14.8 5.5l3.7 3.7"/></symbol>
+</svg>
+<header class="top"><div class="shell bar"><div class="brand"><svg aria-hidden="true"><use href="#mark"/></svg><span>LOCAL VISION <b>LAB</b></span></div><span class="badge demo">인터랙티브 시안 · 예시 데이터</span></div></header>
+<main class="shell">
+  <div class="intro"><div><div class="kicker">WORKSPACE <span>/</span> MODEL REGISTRY</div><h1>모델 관리</h1><p>버전별 인식 대상과 학습 이력을 확인하고 탐지에 사용할 모델을 선택하세요.</p></div><div class="runtime"><i class="dot"></i><span>실시간 탐지 중 <strong id="active-name"></strong></span></div></div>
+  <div class="layout">
+    <aside class="panel library"><div class="lib-head"><div class="kicker">LIBRARY</div><h2>보관된 모델 <small id="total"></small></h2></div><nav id="list" aria-label="저장된 모델 버전"></nav><p class="aside-note">목록을 선택하면 상세 정보만 바뀝니다.</p></aside>
+    <article class="panel detail" aria-label="선택한 모델 상세 정보">
+      <div class="identity"><div><div class="kicker accent">MODEL PROFILE</div><div class="title"><h2 id="model-name"></h2><span class="version" id="version"></span></div><div class="subtitle"><span id="kind"></span><span class="divider">/</span><span id="active-state"></span></div></div><button type="button" class="quiet edit" id="rename"><svg aria-hidden="true"><use href="#pen"/></svg>이름 변경</button></div>
+      <div class="facts"><div><span>생성일 · KST</span><strong id="date"></strong></div><div><span>기반 모델 <small>(초기 가중치)</small></span><div id="parent"></div></div><div><span>아키텍처</span><strong>YOLOv8n</strong></div></div>
+      <section class="classes"><div class="sect-head"><div><div class="kicker">LABEL MAP</div><h3>인식 클래스 <small id="nclasses"></small></h3></div><label class="search" id="search-box" hidden><span class="sr">클래스 이름 또는 ID</span><input id="query" type="search" placeholder="클래스 이름 또는 ID"></label></div><div id="chips" class="chips"></div></section>
+      <section class="formats"><div class="sect-head"><div><div class="kicker">RUNTIME</div><h3>실행 형식과 성능</h3></div></div>
+        <div class="scroll"><table><thead><tr><th>실행 형식</th><th>상태</th><th>mAP50–95</th><th>추론 p95</th></tr></thead><tbody id="formats"></tbody></table></div>
+        <p class="muted" id="metrics-note"></p></section>
+      <details id="lineage"><summary>학습 이력 및 파일 정보</summary><dl id="metadata"></dl></details>
+      <footer class="actions"><div><strong>실시간 탐지 모델</strong><p>적용하면 연결된 모든 화면에서 사용합니다.</p></div><button type="button" id="apply" class="primary">MPS에 적용</button></footer>
+    </article>
+  </div>
+  <p class="footnote">모든 값은 예시입니다. 시안의 변경 사항은 현재 페이지에서만 유지되며 카메라와 서버에 연결하지 않습니다.</p>
+</main>
+<dialog id="dialog" aria-labelledby="dialog-title"><form id="form"><div class="kicker accent">MODEL REGISTRY</div><h2 id="dialog-title"></h2><p id="dialog-copy"></p><label id="field">표시 이름<input id="new-name" maxlength="80" autocomplete="off" aria-describedby="error"></label><p id="error" role="alert"></p><div class="buttons"><button type="button" id="cancel" class="quiet">취소</button><button type="submit" id="submit" class="primary">저장</button></div></form></dialog>
+<p id="notice" class="toast" role="status"></p>
+<script>
+// Isolated demonstration: no requests, storage, camera, or model changes.
+"use strict";
+const $ = id => document.getElementById(id);
+function el(tag, value, cls) {
+  const n = document.createElement(tag);
+  if (value !== undefined) n.textContent = value;
+  if (cls) n.className = cls;
+  return n;
+}
+const parts = ["베어링", "육각 너트", "와셔"];
+const coco = "person|bicycle|car|motorcycle|airplane|bus|train|truck|boat|traffic light|fire hydrant|stop sign|parking meter|bench|bird|cat|dog|horse|sheep|cow|elephant|bear|zebra|giraffe|backpack|umbrella|handbag|tie|suitcase|frisbee|skis|snowboard|sports ball|kite|baseball bat|baseball glove|skateboard|surfboard|tennis racket|bottle|wine glass|cup|fork|knife|spoon|bowl|banana|apple|sandwich|orange|broccoli|carrot|hot dog|pizza|donut|cake|chair|couch|potted plant|bed|dining table|toilet|tv|laptop|mouse|remote|keyboard|cell phone|microwave|oven|toaster|sink|refrigerator|book|clock|vase|scissors|teddy bear|hair drier|toothbrush".split("|");
+const models = [
+  {id:"demo-parts-02",name:"작업대 부품 탐지",v:"v2",at:"2026.11.05 14:32",parent:"demo-parts-01",classes:parts,data:"부품 촬영 세트 02 · 학습 96장 / 검증 24장",job:"demo-train-02",train:"입력 640 × 640 · batch 4 · 32 epochs",scores:[["82.4%","43 ms"],["82.0%","35 ms"]],hash:"a49b31e82ce8f5d079c8b68fd288decb7012dd25066501c50f6c7557cb71ff92"},
+  {id:"demo-parts-01",name:"작업대 부품 탐지",v:"v1",at:"2026.10.28 09:16",parent:"coco-yolov8n",classes:parts,data:"부품 촬영 세트 01 · 학습 50장 / 검증 14장",job:"demo-train-01",train:"입력 640 × 640 · batch 4 · 25 epochs",scores:[["75.6%","45 ms"],null],hash:"88fb9387bc0f7563c03997559cf6bbb68891d1d5f9486c51f04b350087de0048"},
+  {id:"coco-yolov8n",name:"COCO 객체 탐지",v:"기본",at:null,parent:null,classes:coco,scores:[["—","—"],["—","—"]],hash:null}
+];
+let selected=models[0], active=models[1], action=null, timer;
+const byId = id => models.find(m => m.id===id);
+const builtin = m => m.id==="coco-yolov8n";
+const kind = m => builtin(m) ? "기본 모델" : "사용자 모델";
+function select(id) {
+  selected=byId(id); $("query").value=""; $("lineage").open=false; render();
+}
+function icon(name) {
+  const ns="http://www.w3.org/2000/svg", s=document.createElementNS(ns,"svg"), u=document.createElementNS(ns,"use");
+  u.setAttribute("href","#"+name);s.setAttribute("aria-hidden","true");s.append(u);return s;
+}
+function renderList() {
+  $("list").replaceChildren();
+  for(const m of models){
+    const b=el("button",undefined,"item"),symbol=el("span",undefined,"icon"),wrap=el("span"),head=el("span",undefined,"list-heading");
+    b.type="button";b.setAttribute("aria-current",String(m===selected));symbol.append(icon(builtin(m)?"base":"parts"));head.append(el("span",m.name,"name"));
+    if(m===active)head.append(el("span","● 적용 중","live"));
+    wrap.append(head,el("span",builtin(m)?"YOLOv8n · 기본 모델":m.v+" · "+kind(m),"mini"));b.append(symbol,wrap);b.onclick=()=>{select(m.id);$("list").children[models.indexOf(m)].focus({preventScroll:true});};$("list").append(b);
+  }
+}
+function renderClasses() {
+  const q=$("query").value.trim().toLowerCase();$("chips").replaceChildren();
+  selected.classes.forEach((n,i)=>{if(q && !n.toLowerCase().includes(q) && String(i)!==q)return;
+    const chip=el("span",undefined,"chip");chip.append(el("b","#"+i),document.createTextNode(n));$("chips").append(chip);
+  });
+  if(!$("chips").childElementCount)$("chips").append(el("p","일치하는 클래스가 없습니다.","muted"));
+}
+function render() {
+  const m=selected, base=builtin(m);renderList();
+  $("total").textContent=models.length+"개";$("active-name").textContent=active.name+" "+active.v+" · MPS";
+  $("model-name").textContent=m.name;$("version").textContent=m.v;$("kind").textContent=kind(m);
+  $("active-state").textContent=m===active?"● 실시간 적용 중":"미적용";$("active-state").className=m===active?"accent":"";
+  $("date").textContent=m.at||"미기록";$("parent").replaceChildren();
+  if(m.parent){const p=byId(m.parent),b=el("button",(builtin(p)?"YOLOv8n · COCO":p.name+" "+p.v)+" ↗","link");b.type="button";b.onclick=()=>{select(p.id);$("model-name").setAttribute("tabindex","-1");$("model-name").focus({preventScroll:true});};$("parent").append(b);}
+  else $("parent").append(el("strong","기본 배포 가중치"));
+  $("nclasses").textContent=m.classes.length+"개";$("search-box").hidden=m.classes.length<10;renderClasses();
+  $("formats").replaceChildren();
+  m.scores.forEach((score,i)=>{const row=el("tr"),state=el("td");state.append(el("span",score?"사용 가능":"검증 실패",score?"ready":"wait"));
+    row.append(el("td",["MPS · PT","Core ML · FP16"][i]),state,el("td",score?score[0]:"—"),el("td",score?score[1]:"—"));$("formats").append(row);
+  });
+  $("metrics-note").textContent=base?"기본 모델의 비교 결과는 이 시안에 없습니다. ‘—’는 측정값이 없다는 뜻입니다.":(m.scores[1]?"":"Core ML은 변환 검증 실패로 선택할 수 없습니다. " )+"예시 · 해당 버전의 사용자 검증 세트 기준. p95는 추론 시간입니다.";
+  const rows=[["모델 ID",m.id,true],["데이터셋",m.data||"COCO 사전 학습"],["학습 작업",m.job||"해당 없음"],["학습 설정",m.train||"미기록"],["PT SHA-256",m.hash||"미기록",true]];
+  $("metadata").replaceChildren();for(const [k,v,c] of rows)$("metadata").append(el("dt",k),el("dd",v,c?"code":""));
+  $("apply").disabled=m===active;$("apply").textContent=m===active?"MPS에 적용 중":"MPS에 적용";
+}
+function openAction(mode) {
+  action=mode;const rename=mode==="rename";
+  $("dialog-title").textContent=rename?"모델 이름 변경":"실시간 탐지에 적용";
+  $("dialog-copy").textContent=rename?"이 버전의 표시 이름만 바뀝니다. 버전 번호, 클래스, 가중치는 그대로 유지됩니다.":"선택한 모델: "+selected.name+" "+selected.v+". 시안의 MPS 적용 표시만 변경합니다.";
+  $("field").hidden=!rename;$("error").textContent="";$("new-name").removeAttribute("aria-invalid");
+  $("new-name").value=selected.name;$("submit").textContent=rename?"저장":"적용";$("dialog").showModal();
+  if(rename){$("new-name").focus();$("new-name").select();}else $("cancel").focus();
+}
+function notice(msg){clearTimeout(timer);$("notice").textContent=msg;timer=setTimeout(()=>{$("notice").textContent="";},3000);}
+$("rename").onclick=()=>openAction("rename");$("apply").onclick=()=>openAction("apply");$("cancel").onclick=()=>$("dialog").close();
+$("query").oninput=renderClasses;
+$("form").onsubmit=e=>{e.preventDefault();
+  if(action==="rename"){const v=$("new-name").value.trim();if(!v){$("error").textContent="표시 이름을 한 글자 이상 입력하세요.";$("new-name").setAttribute("aria-invalid","true");$("new-name").focus();return;}selected.name=v;}
+  else active=selected;
+  $("dialog").close();render();notice(action==="rename"?"표시 이름을 변경했습니다.":"시안의 실시간 탐지 모델을 변경했습니다.");
+};
+render();
+
+</script>
+</body></html>

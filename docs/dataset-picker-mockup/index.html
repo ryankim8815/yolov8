@@ -1,0 +1,321 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="dark">
+<title>학습 데이터셋 선택 · Local Vision Lab</title>
+<style>
+:root {
+  color-scheme:dark; --page:#0c121a; --panel:#141e29; --sub:#101923;
+  --line:#30404f; --text:#edf2f7; --muted:#a1b2c2; --mint:#86e4c3;
+  --violet:#b2a6ed; --amber:#f1c37c; --mono:ui-monospace,SFMono-Regular,Menlo,monospace;
+  font:15px/1.55 -apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Noto Sans KR",sans-serif;
+  color:var(--text); background:var(--page);
+}
+* { box-sizing:border-box; }
+body { margin:0; }
+button,input { font:inherit; }
+button { cursor:pointer; }
+button:disabled { cursor:default; opacity:.45; }
+button:focus-visible,input:focus-visible,summary:focus-visible { outline:2px solid var(--mint); outline-offset:3px; }
+[hidden] { display:none!important; }
+h1,h2,h3,h4,p,dl,dd { margin:0; }
+h1,h2,h3,h4 { letter-spacing:-.045em; line-height:1.3; }
+svg { display:block; width:18px; height:18px; }
+.symbols { position:absolute; width:0; height:0; overflow:hidden; }
+.shell { max-width:1160px; width:calc(100% - 64px); margin:auto; }
+.mast { border-bottom:1px solid var(--line); background:#101922; }
+.bar,.brand,.spread,.inline,.dialog-actions,.legend,.tag,.class-chip,.button,.fact-value { display:flex; align-items:center; }
+.bar,.spread,.dialog-actions { justify-content:space-between; gap:14px; }
+.bar { min-height:64px; }
+.brand { gap:11px; font:650 13px var(--mono); letter-spacing:.13em; }
+.brand svg { width:26px; height:26px; color:var(--mint); }
+.brand em { font-style:normal; color:var(--mint); }
+.demo { font-size:12px; color:var(--muted); border:1px solid var(--line); border-radius:20px; padding:3px 10px; }
+main { padding:38px 0; }
+.crumb { color:var(--muted); font-size:12px; }
+main h1 { margin:5px 0 6px; font-size:35px; }
+.lead,.muted,.caption { color:var(--muted); }
+.lead { font-size:14px; }
+.stage { display:grid; grid-template-columns:minmax(0,1.32fr) minmax(245px,.68fr); gap:16px; margin-top:24px; align-items:start; }
+.card { background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:22px; }
+.card h2 { font-size:19px; }
+.card h3 { font-size:15px; }
+.button { justify-content:center; gap:8px; border:1px solid #3c5061; background:#1d2b39; color:var(--text); padding:8px 13px; border-radius:7px; font-size:14px; font-weight:600; }
+.button:hover:not(:disabled) { filter:brightness(1.13); }
+.primary { background:var(--mint); border-color:var(--mint); color:#12271f; }
+.empty { margin:20px 0; padding:22px; border:1px dashed #3a4d5b; border-radius:8px; color:var(--muted); font-size:14px; }
+.selection { padding:20px 0 16px; border-bottom:1px solid var(--line); margin-bottom:16px; }
+.selection h3 { font-size:24px; margin-bottom:4px; }
+.caption,.muted { font-size:13px; }
+.chips { display:flex; flex-wrap:wrap; gap:7px; margin:9px 0; }
+.class-chip { gap:7px; color:var(--text); background:#202e38; border:1px solid #364955; padding:4px 9px; border-radius:6px; font-size:14px; }
+.class-chip b,.class-id { font:500 12px var(--mono); color:#9bb9af; }
+.settings { display:grid; grid-template-columns:1fr auto; gap:10px; font-size:14px; margin:18px 0; }
+.settings dt { color:var(--muted); }
+.settings dd { text-align:right; }
+.wide { width:100%; }
+.alert { margin-top:12px; border-left:3px solid var(--amber); padding:6px 10px; color:var(--amber); font-size:13px; background:#352d2180; }
+.notice { color:var(--mint); font-size:13px; margin-top:12px; }
+.preview-note { color:var(--muted); font-size:12px; margin:15px 0; }
+dialog {
+  width:min(970px,calc(100% - 36px)); max-width:none; max-height:min(800px,calc(100dvh - 36px)); padding:0;
+  border-radius:16px; border:1px solid #425363; color:var(--text); background:var(--panel);
+  box-shadow:0 25px 100px #050910a8; overflow:hidden;
+}
+dialog[open] { display:flex; flex-direction:column; }
+dialog::backdrop { background:rgba(4,9,15,.76); }
+body:has(dialog[open]) { overflow:hidden; }
+.dialog-head,.dialog-foot { flex:none; padding:19px 25px; }
+.dialog-head { border-bottom:1px solid var(--line); }
+.inline { gap:12px; }
+.icon-tile { background:#1a3533; color:var(--mint); border:1px solid #315752; border-radius:10px; display:grid; place-items:center; width:42px; height:42px; flex:none; }
+.icon-tile svg { width:24px; height:24px; }
+.dialog-head h2 { font-size:25px; }
+.dialog-head .caption { margin-top:3px; }
+.icon-button { width:34px; height:34px; display:grid; place-items:center; background:transparent; border:1px solid var(--line); color:var(--muted); border-radius:8px; flex:none; }
+.dialog-body { min-height:0; overflow:auto; display:grid; grid-template-columns:minmax(218px,.86fr) minmax(0,1.7fr); }
+.library { padding:18px 14px; background:var(--sub); border-right:1px solid var(--line); }
+.library h3,.detail h4 { font-size:15px; }
+.count { font:500 12px var(--mono); color:var(--muted); padding-left:3px; }
+.search { margin:10px 0 13px; display:flex; gap:8px; align-items:center; background:#0c141d; border:1px solid #344555; border-radius:7px; padding:6px 9px; color:var(--muted); }
+.search svg { width:15px; }
+.search:focus-within { border-color:var(--mint); }
+.search input { min-width:0; width:100%; border:0; color:var(--text); background:transparent; font-size:13px; padding:2px 0; }
+.search input:focus-visible { outline:none; }
+#list { display:grid; gap:7px; }
+.item { width:100%; display:block; text-align:left; padding:12px; background:#16212c; border:1px solid #293845; border-radius:8px; color:var(--text); }
+.item:hover { background:#1d2c37; }
+.item[aria-current=true] { background:#1b3334; border-color:#508978; }
+.item strong { font-size:15px; }
+.item small { display:block; color:var(--muted); font-size:12px; margin-top:6px; }
+.check { color:var(--mint); flex:none; width:16px; height:16px; }
+.tag { display:inline-flex; width:max-content; align-self:center; gap:5px; color:var(--mint); font-size:11px; font-weight:650; white-space:nowrap; }
+.tag::before { content:""; width:6px; height:6px; border-radius:50%; background:currentColor; }
+.tag.wait { color:var(--amber); }
+.item .tag { margin-top:6px; }
+.detail { padding:22px 25px; min-width:0; }
+.detail h3 { font-size:26px; }
+.detail .stamp { margin:4px 0 15px; color:var(--muted); font-size:12px; }
+.metric-grid { display:grid; grid-template-columns:1fr 1fr 1fr; border:1px solid var(--line); border-radius:8px; background:#111b25; }
+.metric { padding:10px 14px; }
+.metric + .metric { border-left:1px solid var(--line); }
+.metric dt { font-size:12px; color:var(--muted); }
+.fact-value { align-items:baseline; gap:4px; }
+.fact-value b { font-size:24px; font-variant-numeric:tabular-nums; line-height:1.25; }
+.fact-value span { color:var(--muted); font-size:12px; }
+.split { padding:15px 0 16px; border-bottom:1px solid var(--line); }
+.split-bar { display:flex; height:6px; border-radius:6px; overflow:hidden; background:#283643; margin:9px 0; }
+.seg-train { background:var(--mint); }
+.seg-val { background:var(--violet); }
+.legend { justify-content:space-between; flex-wrap:wrap; gap:3px 10px; font-size:12px; color:var(--muted); }
+.legend span { display:inline-flex; gap:6px; align-items:center; }
+.dot { width:7px; height:7px; border-radius:2px; background:var(--mint); }
+.dot.val { background:var(--violet); }
+.class-section { margin-top:15px; }
+.class-section .caption { margin:4px 0 8px; font-size:12px; }
+table { border-collapse:collapse; width:100%; font-size:13px; font-variant-numeric:tabular-nums; }
+th,td { text-align:left; padding:6px 8px; border-bottom:1px solid #2b3a47; }
+thead { background:#1a2834; color:var(--muted); font-size:11px; }
+th:nth-last-child(-n+2),td:nth-last-child(-n+2) { text-align:right; }
+.id-text { font:11px/1.5 var(--mono); color:var(--muted); overflow-wrap:anywhere; }
+details { margin-top:12px; font-size:12px; color:var(--muted); }
+summary { cursor:pointer; width:max-content; }
+details p { margin:4px 0 0; }
+.dialog-foot { border-top:1px solid var(--line); background:#17232d; padding-block:14px; }
+.dialog-foot .caption strong { color:var(--text); font-weight:600; overflow-wrap:anywhere; }
+.dialog-actions { gap:8px; flex:none; }
+.no-results { padding:18px 0; color:var(--muted); font-size:13px; }
+@media(max-width:700px){
+  .shell { width:calc(100% - 30px); } .stage { grid-template-columns:1fr; }
+  .dialog-body { display:block; } .library { border-right:0; border-bottom:1px solid var(--line); padding:12px 16px; }
+  #list { display:flex; overflow-x:auto; padding:3px; } .item { min-width:164px; width:164px; flex:none; }
+  .dialog-head,.dialog-foot,.detail { padding:14px 16px; } .dialog-head h2 { font-size:21px; }
+  .search { margin:6px 0; } .detail h3 { font-size:23px; } .dialog-head .caption { font-size:12px; }
+  .dialog-foot .caption { font-size:12px; } .dialog-foot .button { font-size:13px; padding:7px 9px; }
+  .metric { padding:8px; } .fact-value b { font-size:20px; }
+}
+@media(max-width:440px){
+  .dialog-foot { flex-wrap:wrap; } .dialog-actions { margin-left:auto; } dialog { width:calc(100% - 16px); max-height:calc(100dvh - 16px); }
+  .brand { font-size:12px; } .demo { font-size:10px; } .icon-tile { display:none; }
+}
+</style>
+</head>
+<body>
+<svg class="symbols" aria-hidden="true" xmlns="http://www.w3.org/2000/svg"><defs>
+  <symbol id="layers" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"><path d="m12 3 9 5-9 5-9-5zM3 12l9 5 9-5M3 16l9 5 9-5"/></g></symbol>
+  <symbol id="search-icon" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="10" cy="10" r="6.5"/><path d="m15 15 5 5"/></g></symbol>
+  <symbol id="cross" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" d="m6 6 12 12M18 6 6 18"/></symbol>
+</defs></svg>
+<header class="mast"><div class="bar shell"><div class="brand"><svg aria-hidden="true"><use href="#layers"/></svg><span>LOCAL VISION <em>LAB</em></span></div><span class="demo">인터랙티브 시안</span></div></header>
+<main class="shell">
+  <p class="crumb">사용자 물체 학습　/　학습 작업</p>
+  <h1>새 모델 학습</h1><p class="lead">고정한 데이터셋과 인식할 클래스를 확인한 뒤 학습을 준비하세요.</p>
+  <div class="stage">
+    <section class="card"><div class="spread"><h2>학습 데이터셋</h2><button class="button" id="open-picker" aria-haspopup="dialog">데이터셋 선택</button></div>
+      <div id="empty" class="empty">학습에 사용할 데이터셋을 선택하세요.</div>
+      <div id="committed" hidden><div class="selection"><h3 id="chosen-title"></h3><p class="caption" id="chosen-meta"></p></div>
+        <h3>학습 후 모델의 인식 클래스 <span class="count" id="chosen-count"></span></h3>
+        <div id="chosen-chips" class="chips"></div><p id="chosen-hint" class="caption"></p>
+        <p id="chosen-warning" class="alert" hidden></p>
+      </div>
+    </section>
+    <aside class="card"><h2>학습 설정</h2><dl class="settings"><dt>초기 가중치</dt><dd>YOLOv8n</dd><dt>학습 장치</dt><dd>MPS</dd><dt>입력 크기</dt><dd>640 × 640</dd><dt>Batch / 최대 epochs</dt><dd>4 / 50</dd></dl>
+      <button id="preview-training" class="button primary wide" disabled>학습 시작 미리보기</button>
+      <p id="preview-notice" class="notice" role="status"></p>
+    </aside>
+  </div>
+  <p class="preview-note">2026.11.06 저장된 스냅샷 3개의 메타데이터를 사용한 시안입니다. 선택은 이 페이지에만 반영됩니다.</p>
+</main>
+<dialog id="picker" aria-labelledby="picker-title" aria-describedby="picker-copy">
+  <div class="spread dialog-head"><div class="inline"><div class="icon-tile"><svg aria-hidden="true"><use href="#layers"/></svg></div><div><h2 id="picker-title">학습 데이터셋 선택</h2><p class="caption" id="picker-copy">사진 구성과 클래스별 학습·검증 자료를 확인하세요.</p></div></div><button class="icon-button" id="close-picker" aria-label="닫기"><svg aria-hidden="true"><use href="#cross"/></svg></button></div>
+  <div class="dialog-body">
+    <aside class="library"><h3>고정된 데이터셋 <span id="library-count" class="count"></span></h3>
+      <label class="search"><svg aria-hidden="true"><use href="#search-icon"/></svg><input id="filter" type="search" aria-label="클래스명 또는 데이터셋 ID 검색" placeholder="클래스명 또는 ID 검색"></label>
+      <nav id="list" aria-label="데이터셋 목록"></nav><p id="no-match" class="no-results" hidden>일치하는 데이터셋이 없습니다.</p></aside>
+    <section id="detail" class="detail" aria-label="검토 중인 데이터셋">
+      <div class="spread"><h3 id="detail-name"></h3><span id="detail-state" class="tag"></span></div><p id="stamp" class="stamp"></p>
+      <dl class="metric-grid"><div class="metric"><dt>전체 사진</dt><dd class="fact-value"><b id="total"></b><span>장</span></dd></div><div class="metric"><dt>촬영 환경</dt><dd class="fact-value"><b id="groups"></b><span>개</span></dd></div><div class="metric"><dt>인식 클래스</dt><dd class="fact-value"><b id="labels"></b><span>개</span></dd></div></dl>
+      <section class="split"><h4>사진 분할</h4><div class="split-bar" aria-hidden="true"><div id="train-bar" class="seg-train"></div><div id="val-bar" class="seg-val"></div></div>
+        <div class="legend"><span><i class="dot"></i><b id="train-text"></b></span><span><i class="dot val"></i><b id="val-text"></b></span></div></section>
+      <section class="class-section"><h4>학습 후 모델의 인식 클래스</h4><p class="caption">이 데이터셋으로 생성할 사용자 모델의 출력 라벨입니다.</p>
+        <table aria-label="클래스별 사진 수"><thead><tr><th scope="col">ID</th><th scope="col">클래스</th><th scope="col">학습</th><th scope="col">검증</th></tr></thead><tbody id="class-rows"></tbody></table></section>
+      <p id="detail-warning" class="alert" hidden></p>
+      <details id="ids"><summary>데이터셋 ID 확인</summary><p id="full-id" class="id-text"></p></details>
+    </section>
+    <p id="empty-detail" class="detail muted" hidden>검색어를 바꾸면 데이터셋 상세 정보를 볼 수 있습니다.</p>
+  </div>
+  <div class="spread dialog-foot"><p id="candidate" class="caption" aria-live="polite"></p><div class="dialog-actions"><button class="button" id="cancel">취소</button><button class="button primary" id="confirm">이 데이터셋 선택</button></div></div>
+</dialog>
+<script>
+// Representative immutable snapshots, copied without photos or file paths.
+// Library titles are generated from the frozen label map, as datasets have no display name.
+const datasets = [
+  { id:"dataset-f8ba98dc46394729a327d0d624af90f2", date:"2026.11.06", time:"13:06:23", groups:3, status:"ready",
+    classes:[{id:0,name:"시계",train:18,val:11},{id:1,name:"사이타마",train:9,val:12}] },
+  { id:"dataset-374b4ab45a2147e7b52fe8fc23539205", date:"2026.11.06", time:"11:52:43", groups:2, status:"ready",
+    classes:[{id:0,name:"시계",train:18,val:11}] },
+  { id:"dataset-cb6641c809f14a9097997078a74bc1da", date:"2026.11.06", time:"10:27:07", groups:1, status:"awaiting_validation",
+    classes:[{id:0,name:"시계",train:18,val:0}] }
+];
+const control = id => document.getElementById(id);
+const dialog = control("picker");
+const sum = (dataset, split) => dataset.classes.reduce((n,c) => n+c[split], 0);
+const title = dataset => dataset.classes.map(c => c.name).join(" · ");
+const eligible = dataset => dataset.status === "ready" && sum(dataset,"train")>0 && sum(dataset,"val")>0;
+const label = dataset => eligible(dataset) ? "학습 가능" : "검증 자료 대기";
+const warning = "검증 사진이 0장입니다. 같은 클래스를 다른 촬영 환경에서 추가 촬영·승인한 뒤 새 데이터셋을 고정하세요.";
+let selected = null;
+let candidate = null;
+
+function element(tag, text, className) {
+  const node = document.createElement(tag);
+  if (text !== undefined) node.textContent = text;
+  if (className) node.className = className;
+  return node;
+}
+function matches() {
+  const q = control("filter").value.trim().toLowerCase();
+  return datasets.filter(d => (d.id+" "+title(d)).toLowerCase().includes(q));
+}
+function renderPicker() {
+  const matchesNow = matches();
+  if (!matchesNow.includes(candidate)) candidate = matchesNow[0] || null;
+  control("library-count").textContent = matchesNow.length+"개";
+  const list = control("list");
+  list.replaceChildren();
+  for (const dataset of matchesNow) {
+    const item = element("button",undefined,"item");
+    item.type = "button";
+    item.setAttribute("aria-current", String(candidate === dataset));
+    const heading = element("span",undefined,"spread");
+    heading.append(element("strong",title(dataset)));
+    if (candidate === dataset) {
+      const check = element("span","✓","check");
+      check.setAttribute("aria-hidden","true");
+      heading.append(check);
+    }
+    const total = sum(dataset,"train")+sum(dataset,"val");
+    const info = dataset.date+" "+dataset.time.slice(0,5)+" · "+total+"장";
+    item.append(heading,element("small",info),element("span",label(dataset),"tag"+(eligible(dataset)?"":" wait")));
+    item.onclick = () => {
+      candidate = dataset;
+      control("ids").open = false;
+      renderPicker();
+      list.querySelector('[aria-current="true"]').focus({preventScroll:true});
+    };
+    list.append(item);
+  }
+  control("detail").hidden = !candidate;
+  control("empty-detail").hidden = Boolean(candidate);
+  control("no-match").hidden = Boolean(candidate);
+  control("confirm").disabled = !candidate;
+  control("candidate").replaceChildren();
+  if (!candidate) return;
+  control("candidate").append("검토 중　",element("strong",title(candidate)));
+  const train = sum(candidate,"train"), val = sum(candidate,"val"), total = train+val;
+  const trainPercent = Math.round(100*train/total), valPercent = 100-trainPercent;
+  control("detail-name").textContent = title(candidate);
+  control("detail-state").textContent = label(candidate);
+  control("detail-state").classList.toggle("wait", !eligible(candidate));
+  control("stamp").textContent = "고정일　"+candidate.date+" "+candidate.time+" KST";
+  control("total").textContent = total;
+  control("groups").textContent = candidate.groups;
+  control("labels").textContent = candidate.classes.length;
+  control("train-text").textContent = "학습 "+train+"장 ("+trainPercent+"%)";
+  control("val-text").textContent = "검증 "+val+"장 ("+valPercent+"%)";
+  control("train-bar").style.width = trainPercent+"%";
+  control("val-bar").style.width = valPercent+"%";
+  control("class-rows").replaceChildren(...candidate.classes.map(c => {
+    const row = element("tr");
+    row.append(element("td","#"+c.id,"class-id"),element("th",c.name),element("td",c.train+"장"),element("td",c.val+"장"));
+    row.children[1].scope = "row";
+    return row;
+  }));
+  control("detail-warning").hidden = eligible(candidate);
+  control("detail-warning").textContent = warning;
+  control("full-id").textContent = candidate.id;
+}
+function renderSelection() {
+  control("chosen-title").textContent = title(selected);
+  control("chosen-meta").textContent = selected.date+" "+selected.time+" KST　·　학습 "+sum(selected,"train")+"장 / 검증 "+sum(selected,"val")+"장　·　"+label(selected);
+  control("chosen-count").textContent = selected.classes.length+"개";
+  control("chosen-chips").replaceChildren(...selected.classes.map(c => {
+    const chip = element("span",undefined,"class-chip");
+    chip.append(element("b","#"+c.id),document.createTextNode(c.name));
+    return chip;
+  }));
+  control("chosen-hint").textContent = "선택한 데이터셋의 클래스 ID와 이름을 사용합니다.";
+  control("chosen-warning").textContent = warning;
+  control("chosen-warning").hidden = eligible(selected);
+  control("empty").hidden = true;
+  control("committed").hidden = false;
+  control("open-picker").textContent = "데이터셋 변경";
+  control("preview-training").disabled = !eligible(selected);
+  control("preview-notice").textContent = "";
+}
+function openPicker() {
+  candidate = selected || datasets[0];
+  control("filter").value = "";
+  control("ids").open = false;
+  renderPicker();
+  dialog.showModal();
+  control("list").querySelector('[aria-current="true"]').focus({preventScroll:true});
+}
+control("open-picker").onclick = openPicker;
+control("filter").oninput = renderPicker;
+control("confirm").onclick = () => {
+  if (!candidate) return;
+  selected = candidate;
+  renderSelection();
+  dialog.close();
+};
+control("close-picker").onclick = control("cancel").onclick = () => dialog.close();
+dialog.addEventListener("close", () => control("open-picker").focus({preventScroll:true}));
+control("preview-training").onclick = () => {
+  if (selected && eligible(selected)) control("preview-notice").textContent = "미리보기 완료 · 인식 클래스 "+title(selected)+". 실제 학습은 실행하지 않습니다.";
+};
+openPicker();
+</script>
+</body></html>

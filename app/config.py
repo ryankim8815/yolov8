@@ -29,6 +29,7 @@ class Settings:
     warmup: int = 3
     state_dir: Path = ROOT / "state"
     model_path_explicit: bool = False
+    camera_autostart: bool = True
 
     def __post_init__(self):
         if self.backend not in {"mps", "cpu", "coreml"}:
@@ -48,9 +49,13 @@ class Settings:
     @classmethod
     def from_env(cls):
         backend = os.getenv("YOLO_BACKEND", "mps")
+        autostart = os.getenv("YOLO_CAMERA_AUTOSTART", "1")
+        if autostart not in {"0", "1"}:
+            raise ValueError("YOLO_CAMERA_AUTOSTART must be 0 or 1")
         default_model = "yolov8n.mlpackage" if backend == "coreml" else "yolov8n.pt"
         values = {
             "backend": backend,
+            "camera_autostart": autostart == "1",
             "state_dir": Path(os.getenv("YOLO_STATE_DIR", str(ROOT / "state"))).expanduser().resolve(),
             "model_path_explicit": "YOLO_MODEL_PATH" in os.environ,
             "model_path": Path(os.getenv("YOLO_MODEL_PATH", str(ROOT / "models" / default_model))).expanduser().resolve(),

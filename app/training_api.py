@@ -18,6 +18,11 @@ class Name(Input):
     name: str = Field(min_length=1, max_length=80)
 
 
+class ModelName(Input):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    name: str = Field(min_length=1, max_length=80)
+
+
 class CollectionInput(Input):
     class_id: str
     group_id: str
@@ -181,7 +186,11 @@ def router():
     @api.get("/api/models")
     def models(request: Request):
         rt = runtime(request)
-        return {"active_model_id": rt.model_id, "backend": rt.settings.backend, "models": rt.store.list("model")}
+        return {"active_model_id": rt.model_id, "backend": rt.settings.backend, "models": rt.registry.models()}
+
+    @api.patch("/api/models/{identifier}")
+    def rename_model(identifier: str, body: ModelName, request: Request):
+        return runtime(request).registry.rename(identifier, body.name)
 
     @api.post("/api/models/{identifier}/activate", status_code=202)
     def activate(identifier: str, request: Request):

@@ -40,6 +40,7 @@ class Pipeline:
         self.model_version = settings.model_path.stem
         self.capture_enabled = True
         self.result_callback = None
+        self.labels_callback = None
         self.settings = settings
         self.camera_factory, self.detector_factory, self.encoder = camera_factory, detector_factory, encoder
         self.retry_delays = retry_delays
@@ -137,6 +138,8 @@ class Pipeline:
         try:
             detector = self.detector_factory(self.settings)
             detector.load()
+            if self.labels_callback:
+                self.labels_callback(getattr(detector, "names", {}))
             detector.warmup()
             with self.lock:
                 self.model_ready = True

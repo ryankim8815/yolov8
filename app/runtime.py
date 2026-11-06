@@ -11,6 +11,7 @@ from pathlib import Path
 from .collection import Collector
 from .config import ROOT
 from .datasets import build_dataset, require_training_split, verify_dataset
+from .model_registry import BUILTIN, ModelRegistry, attach_benchmarks, coco_classes
 from .store import DomainError, Store, atomic_json, now, uid
 
 TERMINAL = {"completed", "completed_with_warnings", "failed", "cancelled", "interrupted"}
@@ -27,13 +28,14 @@ class Runtime:
         self.factory = pipeline_factory
         self.train_python = ROOT/".conda/train/bin/python"
         self.store = Store(state_root)
+        self.registry = ModelRegistry(self.store)
         self.lock = threading.RLock()
         self.video_lock = threading.Lock()
         self.shutdown_lock = threading.Lock()
         self.closed = False
         self.stop_event = threading.Event()
         self.pipeline = None
-        self.camera_desired = True
+        self.camera_desired = settings.camera_autostart
         self.busy = None
         self.error = None
         self.subscribers = 0
@@ -44,6 +46,7 @@ class Runtime:
         try:
             self.store.recover()
             self._register_defaults()
+            self.registry.recover_versions()
             self.collector = Collector(self.store)
         except Exception:
             self.store.close()
@@ -59,16 +62,26 @@ class Runtime:
             path = ROOT / "models" / ("yolov8n.mlpackage" if backend == "coreml" else "yolov8n.pt")
             if path.exists():
                 formats[backend] = {"state": "ready", "path": str(path), "sha256": artifact_hash(path)}
-        self.store.put("model", {"id": "coco-yolov8n", "name": "COCO80 · YOLOv8n", "classes": [],
+        attach_benchmarks(formats)
+        self.store.put("model", {"id": BUILTIN, "name": "COCO80 · YOLOv8n", "classes": coco_classes(),
                                  "kind": "builtin", "formats": formats, "created_at": "builtin"})
         current = self.settings.model_path.resolve()
         default = ROOT / "models" / ("yolov8n.mlpackage" if self.settings.backend == "coreml" else "yolov8n.pt")
-        self.model_id = "coco-yolov8n"
+        self.model_id = BUILTIN
         if current != default.resolve():
             self.model_id = "configured-" + __import__("hashlib").sha256(str(current).encode()).hexdigest()[:12]
-            self.store.put("model", {"id": self.model_id, "name": current.name, "kind": "configured", "classes": [],
-                                     "formats": {self.settings.backend: {"state": "ready", "path": str(current), "sha256": artifact_hash(current)}},
-                                     "created_at": now()})
+            digest = artifact_hash(current)
+            try:
+                previous = self.store.get("model", self.model_id)
+            except DomainError:
+                previous = {}
+            # Paths can be reused for different weights. Cache labels by content.
+            same = digest and previous.get("formats", {}).get(self.settings.backend, {}).get("sha256") == digest
+            self.store.put("model", {"id": self.model_id, "name": current.name, "kind": "configured",
+                                     "classes": previous.get("classes", []) if same else [],
+                                     "formats": {self.settings.backend: {"state": "ready" if digest else "unavailable",
+                                                 "path": str(current), "sha256": digest}},
+                                     "created_at": previous.get("created_at") or now()})
         if not self.settings.model_path_explicit:
             try:
                 saved = self.store.get("setting", "selected-" + self.settings.backend)
@@ -88,6 +101,14 @@ class Runtime:
         pipeline.model_version = model_id
         pipeline.capture_enabled = camera
         pipeline.result_callback = self.collector.submit
+        if model_id.startswith("configured-"):
+            def save_labels(names):
+                with self.store.lock:
+                    model = self.store.get("model", model_id)
+                    model["formats"][settings.backend]["state"] = "ready"
+                    model["classes"] = [{"id": int(i), "name": name} for i, name in sorted(names.items())]
+                    self.store.put("model", model)
+            pipeline.labels_callback = save_labels
         with self.video_lock:
             pipeline.subscribe_video(self.subscribers)
             self.pipeline = pipeline
@@ -96,7 +117,8 @@ class Runtime:
 
     def start(self):
         with self.lock:
-            self._new_pipeline(self.settings, self.model_id)
+            if self.camera_desired:
+                self._new_pipeline(self.settings, self.model_id)
 
     def _stop_pipeline(self):
         if self.pipeline:
@@ -270,6 +292,7 @@ class Runtime:
                 self.error = None
         except Exception as exc:
             self.error = f"모델 적용 실패: {exc}"
+            restored_model_id = None
             try:
                 with self.lock:
                     self._stop_pipeline()
@@ -277,9 +300,12 @@ class Runtime:
                     rollback = self._new_pipeline(old_settings, old_model) if self.camera_desired and not self.stop_event.is_set() else None
                 if rollback:
                     self._wait_model(rollback)
+                if not self.stop_event.is_set():
+                    restored_model_id = old_model
             except Exception as recovery:
                 self.error += f"; 이전 모델 복구 실패: {recovery}"
-            self.store.update("operation", operation["id"], state="failed", error=self.error, ended_at=now())
+            self.store.update("operation", operation["id"], state="failed", error=self.error,
+                              restored_model_id=restored_model_id, ended_at=now())
         finally:
             with self.lock:
                 self.busy = None
@@ -415,10 +441,9 @@ class Runtime:
             with self.lock:
                 if self.cancel_event.is_set() or self.stop_event.is_set():
                     raise InterruptedError("작업 취소")
-                atomic_json(Path(job["directory"])/"model.json", model)
                 completed = {**self.store.get("job", job["id"]), "state": "completed_with_warnings" if warning else "completed",
                              "warning": warning, "ended_at": now()}
-                self.store.put_many([("model", model), ("job", completed)])
+                self.registry.publish(model, completed)
         except InterruptedError as exc:
             self.store.update("job", job["id"], state="cancelled", error=str(exc), ended_at=now())
         except Exception as exc:
@@ -441,7 +466,7 @@ class Runtime:
 
     def events(self):
         return {"event": "snapshot", "status": self.status(), "collection": self.collector.snapshot(),
-                "jobs": self.store.list("job"), "models": self.store.list("model"),
+                "jobs": self.store.list("job"), "models": self.registry.models(),
                 "operations": self.store.list("operation")}
 
     def stop(self):

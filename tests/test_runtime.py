@@ -60,6 +60,7 @@ def test_switch_rolls_back_and_stream_session_changes(runtime):
     wait_until(lambda: runtime.store.get("operation",operation["id"])["state"]=="failed")
     wait_until(lambda: runtime.status()["ready"])
     assert runtime.model_id=="v2" and "bad model" in runtime.error
+    assert runtime.store.get("operation", operation["id"])["restored_model_id"] == "v2"
 
 
 def test_model_format_conflict_and_collection_conflicts(runtime):
