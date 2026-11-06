@@ -37,6 +37,9 @@ def percentile(values, fraction):
 class Pipeline:
     def __init__(self, settings, camera_factory=OpenCVCamera, detector_factory=Detector,
                  encoder=encode_jpeg, retry_delays=(1, 2, 4, 8, 10)):
+        self.model_version = settings.model_path.stem
+        self.capture_enabled = True
+        self.result_callback = None
         self.settings = settings
         self.camera_factory, self.detector_factory, self.encoder = camera_factory, detector_factory, encoder
         self.retry_delays = retry_delays
@@ -66,6 +69,8 @@ class Pipeline:
         if self.threads:
             raise RuntimeError("Pipeline cannot be started twice")
         for name, target in (("capture", self._capture), ("inference", self._inference), ("encoder", self._encode)):
+            if name == "capture" and not self.capture_enabled:
+                continue
             thread = threading.Thread(target=target, name=f"yolo-{name}", daemon=True)
             self.threads.append(thread)
             thread.start()
@@ -147,7 +152,7 @@ class Pipeline:
                     "schema_version": 1, "event": "detections", "session_id": self.session_id,
                     "frame_id": packet.frame_id, "captured_at": packet.captured_at,
                     "source_size": {"width": packet.frame.shape[1], "height": packet.frame.shape[0]},
-                    "model": self.settings.model_path.stem,
+                    "model": self.settings.model_path.stem, "model_version": self.model_version,
                     "backend": detector.metadata.get("backend", self.settings.backend),
                     "timing_ms": {"queue_wait": (start - packet.captured_ns) / 1e6,
                                   "predict": (finished - start) / 1e6,
@@ -161,6 +166,8 @@ class Pipeline:
                     self.result_generation = packet.generation
                     self._count("detected")
                     self.latencies.append(result["timing_ms"]["capture_to_result"])
+                if self.result_callback is not None:
+                    self.result_callback(packet, result)
                 self.preview_slot.put((packet, result))
         except Exception as exc:
             log.exception("Inference worker failed")
@@ -237,7 +244,7 @@ class Pipeline:
                 "schema_version": 1, "event": "status", "session_id": self.session_id,
                 "process_id": os.getpid(),
                 "state": state, "ready": state == "ready", "backend": self.settings.backend,
-                "model": self.settings.model_path.name, "detector": dict(self.detector_metadata),
+                "model": self.settings.model_path.name, "model_version": self.model_version, "detector": dict(self.detector_metadata),
                 "configuration": {"imgsz": self.settings.imgsz, "confidence": self.settings.confidence,
                                   "iou": self.settings.iou, "max_det": self.settings.max_det,
                                   "preview_fps": self.settings.preview_fps},

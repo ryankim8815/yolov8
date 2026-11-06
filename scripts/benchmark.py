@@ -39,7 +39,7 @@ def latency(detector, paths, iterations, warmup):
             "note": "Offline images, not camera or browser latency. Warmup excluded."}
 
 
-def accuracy(detector, paths):
+def accuracy(detector, paths, label_paths=None, note=None):
     import cv2
     from pycocotools.coco import COCO
     from pycocotools.cocoeval import COCOeval
@@ -51,7 +51,7 @@ def accuracy(detector, paths):
         frame = cv2.imread(str(path))
         h, w = frame.shape[:2]
         truth["images"].append({"id": image_id, "width": w, "height": h, "file_name": path.name})
-        label_path = ROOT / "data/coco128/labels/train2017" / (path.stem + ".txt")
+        label_path = label_paths[str(path)] if label_paths is not None else ROOT / "data/coco128/labels/train2017" / (path.stem + ".txt")
         # An absent/empty label file represents a negative image in YOLO format.
         lines = label_path.read_text().splitlines() if label_path.exists() else []
         for line in lines:
@@ -81,10 +81,48 @@ def accuracy(detector, paths):
     evaluation.evaluate()
     evaluation.accumulate()
     evaluation.summarize()
-    return {"images": len(paths), "detections": len(predictions),
+    # Operational precision/recall at confidence .25 and IoU .50, separate from low-conf mAP.
+    from app.collection import box_iou
+    diagnostics = []
+    operational = {}
+    for category in truth["categories"]:
+        cid = category["id"]
+        tp = fp = fn = 0
+        for info in truth["images"]:
+            image_id = info["id"]
+            boxes = [a["bbox"] for a in truth["annotations"] if a["image_id"] == image_id and a["category_id"] == cid]
+            targets = [[x, y, x+w, y+h] for x, y, w, h in boxes]
+            used = set()
+            guesses = sorted([p for p in predictions if p["image_id"] == image_id and p["category_id"] == cid and p["score"] >= .25], key=lambda p: -p["score"])
+            image_fp = 0
+            for pred in guesses:
+                x, y, w, h = pred["bbox"]
+                matches = [(box_iou([x,y,x+w,y+h], box), i) for i,box in enumerate(targets) if i not in used]
+                best = max(matches, default=(0, -1))
+                if best[0] >= .5:
+                    tp += 1
+                    used.add(best[1])
+                else:
+                    fp += 1
+                    image_fp += 1
+            missing = len(targets)-len(used)
+            fn += missing
+            if (image_fp or missing) and len(diagnostics) < 20:
+                diagnostics.append({"image": info["file_name"], "class_id": cid-1, "false_positives": image_fp, "false_negatives": missing})
+        operational[cid] = {"precision_at_025_iou50": tp/(tp+fp) if tp+fp else 0.,
+                            "recall_at_025_iou50": tp/(tp+fn) if tp+fn else 0., "tp": tp, "fp": fp, "fn": fn}
+    per_class = []
+    for index, category in enumerate(truth["categories"]):
+        precision = evaluation.eval["precision"][:, :, index, 0, -1]
+        recall = evaluation.eval["recall"][:, index, 0, -1]
+        valid = precision[precision >= 0]
+        per_class.append({**operational[category["id"]], "class_id": category["id"] - 1, "name": category["name"],
+                          "map50_95": float(valid.mean()) if valid.size else None,
+                          "recall": float(recall[recall >= 0].mean()) if (recall >= 0).any() else None})
+    return {"images": len(paths), "detections": len(predictions), "per_class": per_class, "error_examples": diagnostics,
             "map50_95": float(evaluation.stats[0]), "map50": float(evaluation.stats[1]),
             "recall_at_max_det": float(evaluation.stats[8]),
-            "note": "COCO128 train-derived sample; conversion sanity check, not held-out deployment accuracy."}
+            "note": note or "COCO128 train-derived sample; conversion sanity check, not held-out deployment accuracy."}
 
 
 def main():

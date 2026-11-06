@@ -12,3 +12,6 @@ data/
 artifacts/
 .cache/
 *.log
+
+# Local training photos, immutable datasets, jobs and SQLite metadata
+state/

@@ -1,6 +1,6 @@
 "use strict";
 const $ = (id) => document.getElementById(id);
-const names = {starting:"모델 준비 중",ready:"실시간 탐지 중",camera_unavailable:"카메라 연결 대기",stale:"영상 수신 지연",error:"실행 오류",stopped:"서버 종료",offline:"서버 연결 끊김"};
+const names = {starting:"모델 준비 중",ready:"실시간 탐지 중",camera_unavailable:"카메라 연결 대기",stale:"영상 수신 지연",error:"실행 오류",stopped:"서버 종료",offline:"서버 연결 끊김",camera_off:"카메라 꺼짐",training:"학습·평가·변환 중",switching_model:"모델 전환 중"};
 let currentStatus = null;
 let streamActive = false;
 let socket = null;
@@ -15,12 +15,15 @@ function clearObjects(message) {
   $("objects").append(li); $("count").textContent = "—";
 }
 function updateStatus(status) {
+  if(currentStatus?.session_id !== status.session_id){streamActive=false;$("preview").removeAttribute("src");$("preview").hidden=true;clearObjects("새 모델 결과 대기 중");}
   currentStatus = status;
   $("state").textContent = names[status.state] || status.state;
   $("status-pill").classList.toggle("ready", Boolean(status.ready));
   $("error").hidden = !status.last_error; $("error").textContent = status.last_error || "";
   if (status.backend) $("backend").textContent = status.backend.toUpperCase();
   if (status.model) $("model").textContent = status.model;
+  if($("active-version")) $("active-version").textContent = status.model_version || "";
+  window.dispatchEvent(new CustomEvent("vision-status", {detail:status}));
   if (status.configuration) {
     const c=status.configuration;
     $("settings-values").textContent=`입력 ${c.imgsz} × ${c.imgsz} · 최소 confidence ${c.confidence} · NMS IoU ${c.iou} · 최대 ${c.max_det}개 객체 · 미리보기 최대 ${c.preview_fps} FPS`;
@@ -31,6 +34,7 @@ function updateStatus(status) {
   $("drops").textContent = `생략한 입력 ${status.input_dropped ?? 0}`;
   $("frame-age").textContent = status.frame_age_ms != null ? `최근 결과 입력 ${status.frame_age_ms.toFixed(0)} ms 전` : "결과 수신 대기";
   const size = status.camera?.actual_size;
+  if(size) document.querySelector(".viewport").style.aspectRatio=`${size.width}/${size.height}`;
   $("resolution").textContent = size ? `${size.width} × ${size.height}` : "입력 대기 중";
   if (status.ready) {
     if (!streamActive) {streamActive = true; $("preview").src = `/stream.mjpg?t=${Date.now()}`;}
@@ -44,7 +48,8 @@ function updateStatus(status) {
 function updateDetections(packet) {
   if (!currentStatus?.ready) return;
   if (packet.session_id !== lastSession) {lastSession = packet.session_id; lastFrame = -1;}
-  if (packet.frame_id <= lastFrame) return;
+  if (packet.session_id !== currentStatus.session_id || packet.frame_id <= lastFrame) return;
+  window.dispatchEvent(new CustomEvent("vision-detections", {detail:packet}));
   lastFrame = packet.frame_id; $("frame-id").textContent = `프레임 #${packet.frame_id}`;
   $("objects").replaceChildren();
   if (!packet.objects.length) clearObjects("감지된 객체가 없습니다.");

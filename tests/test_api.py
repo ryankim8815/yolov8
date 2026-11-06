@@ -2,6 +2,7 @@ import asyncio
 import threading
 import time
 import unittest
+import tempfile
 from unittest.mock import patch
 
 from fastapi.testclient import TestClient
@@ -17,8 +18,12 @@ def factory(config):
 
 
 class APITests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+
     def test_ready_json_static_and_websocket_contract(self):
-        application = create_app(settings(), pipeline_factory=factory)
+        application = create_app(settings(), pipeline_factory=factory, state_root=self.temp.name)
         with TestClient(application) as client:
             self.assertEqual(client.get("/healthz").status_code, 200)
             self.assertIn("실시간 객체 탐지", client.get("/").text)
@@ -41,7 +46,7 @@ class APITests(unittest.TestCase):
                 raise RuntimeError("expected initialization failure")
         def delayed(config):
             return Pipeline(config, camera_factory=Camera, detector_factory=Delayed, encoder=encode)
-        with TestClient(create_app(settings(), pipeline_factory=delayed)) as client:
+        with TestClient(create_app(settings(), pipeline_factory=delayed, state_root=self.temp.name)) as client:
             self.assertEqual(client.get("/healthz").status_code, 200)
             self.assertEqual(client.get("/readyz").status_code, 503)
             self.assertEqual(client.get("/api/detections/latest").status_code, 503)
@@ -50,7 +55,7 @@ class APITests(unittest.TestCase):
             self.assertEqual(client.get("/healthz").status_code, 200)
 
     def test_stale_result_is_not_served(self):
-        application = create_app(settings(), pipeline_factory=factory)
+        application = create_app(settings(), pipeline_factory=factory, state_root=self.temp.name)
         with TestClient(application) as client:
             wait_until(lambda: client.get("/readyz").status_code == 200)
             original = application.state.pipeline.status
@@ -61,6 +66,25 @@ class APITests(unittest.TestCase):
                 self.assertEqual(client.get("/api/detections/latest").status_code, 503)
                 with client.websocket_connect("/ws/detections") as socket:
                     self.assertEqual(socket.receive_json()["state"], "stale")
+
+    def test_single_environment_can_be_saved_and_listed_but_not_trained(self):
+        from tests.test_datasets import add_sample
+        application = create_app(settings(), pipeline_factory=factory, state_root=self.temp.name)
+        with TestClient(application) as client:
+            store = application.state.pipeline.store
+            cls = store.named("class", "시계")
+            group = store.named("group", "실내")
+            add_sample(store, cls["id"], group["id"], 106)
+            response = client.post("/api/datasets", headers={"Origin": "http://localhost:8080"})
+            self.assertEqual(response.status_code, 201)
+            saved = response.json()
+            self.assertEqual(saved["counts"], {"train": 1, "val": 0})
+            self.assertEqual(client.get("/api/datasets").json()[0]["status"], "awaiting_validation")
+            self.assertEqual(client.get("/api/datasets/" + saved["id"]).json(), saved)
+            rejected = client.post("/api/training/jobs", json={"dataset_id": saved["id"]})
+            self.assertEqual(rejected.status_code, 422)
+            self.assertIn("저장되어 있습니다", rejected.json()["detail"])
+            self.assertEqual(client.get("/api/training/jobs").json(), [])
 
 
 class StreamTests(unittest.IsolatedAsyncioTestCase):

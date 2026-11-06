@@ -27,6 +27,8 @@ class Settings:
     stale_seconds: float = 1.0
     send_timeout: float = 5.0
     warmup: int = 3
+    state_dir: Path = ROOT / "state"
+    model_path_explicit: bool = False
 
     def __post_init__(self):
         if self.backend not in {"mps", "cpu", "coreml"}:
@@ -49,6 +51,8 @@ class Settings:
         default_model = "yolov8n.mlpackage" if backend == "coreml" else "yolov8n.pt"
         values = {
             "backend": backend,
+            "state_dir": Path(os.getenv("YOLO_STATE_DIR", str(ROOT / "state"))).expanduser().resolve(),
+            "model_path_explicit": "YOLO_MODEL_PATH" in os.environ,
             "model_path": Path(os.getenv("YOLO_MODEL_PATH", str(ROOT / "models" / default_model))).expanduser().resolve(),
         }
         fields = {

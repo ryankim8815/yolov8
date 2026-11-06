@@ -11,6 +11,9 @@ from starlette.requests import ClientDisconnect
 
 from .config import Settings
 from .pipeline import Pipeline
+from .runtime import Runtime
+from .store import DomainError
+from .training_api import router
 
 STATIC = Path(__file__).parent / "static"
 log = logging.getLogger(__name__)
@@ -39,35 +42,45 @@ async def jpeg_frames(pipeline):
     previous_id = None
     try:
         while not pipeline.stop_event.is_set():
-            if pipeline.status()["ready"]:
-                jpeg = pipeline.latest_jpeg()
-                if jpeg is not None:
-                    frame_id, captured_ns, data = jpeg
+            if (await asyncio.to_thread(pipeline.status))["ready"]:
+                if hasattr(pipeline, "video_packet"):
+                    video = pipeline.video_packet()
+                else:
+                    jpeg = pipeline.latest_jpeg()
+                    video = (pipeline.session_id, pipeline.model_version, *jpeg) if jpeg else None
+                if video is not None:
+                    session_id, model_version, frame_id, captured_ns, data = video
                     fresh = (time.monotonic_ns() - captured_ns) / 1e9 <= pipeline.settings.stale_seconds
-                    if fresh and frame_id != previous_id:
-                        previous_id = frame_id
+                    if fresh and (session_id, frame_id) != previous_id:
+                        previous_id = (session_id, frame_id)
                         header = (f"--frame\r\nContent-Type: image/jpeg\r\nContent-Length: {len(data)}\r\n"
-                                  f"X-Frame-Id: {frame_id}\r\n\r\n").encode("ascii")
+                                  f"X-Frame-Id: {frame_id}\r\nX-Session-Id: {session_id}\r\nX-Model-Version: {model_version}\r\n\r\n").encode("ascii")
                         yield header + data + b"\r\n"
             await asyncio.sleep(0.03)
     finally:
         pipeline.subscribe_video(-1)
 
 
-def create_app(settings=None, pipeline_factory=Pipeline):
+def create_app(settings=None, pipeline_factory=Pipeline, state_root=None):
     settings = settings or Settings.from_env()
 
     @asynccontextmanager
     async def lifespan(application):
-        pipeline = pipeline_factory(settings)
+        pipeline = await asyncio.to_thread(Runtime, settings, pipeline_factory, state_root or settings.state_dir)
         application.state.pipeline = pipeline
-        pipeline.start()
         try:
+            pipeline.start()
             yield
         finally:
             await asyncio.to_thread(pipeline.stop)
 
     application = FastAPI(title="YOLOv8 Local Camera", version="0.1.0", lifespan=lifespan)
+    application.include_router(router())
+
+    @application.exception_handler(DomainError)
+    async def domain_error(request, exc):
+        return JSONResponse({"detail": str(exc)}, status_code=exc.status)
+
     application.mount("/static", StaticFiles(directory=STATIC), name="static")
 
     @application.get("/")
@@ -80,20 +93,21 @@ def create_app(settings=None, pipeline_factory=Pipeline):
 
     @application.get("/api/status")
     async def status():
-        return JSONResponse(application.state.pipeline.status(), headers={"Cache-Control": "no-store"})
+        current = await asyncio.to_thread(application.state.pipeline.status)
+        return JSONResponse(current, headers={"Cache-Control": "no-store"})
 
     @application.get("/readyz")
     async def ready():
-        current = application.state.pipeline.status()
+        current = await asyncio.to_thread(application.state.pipeline.status)
         return JSONResponse(current, status_code=200 if current["ready"] else 503,
                             headers={"Cache-Control": "no-store"})
 
     @application.get("/api/detections/latest")
     async def latest():
         pipeline = application.state.pipeline
-        current = pipeline.status()
+        current = await asyncio.to_thread(pipeline.status)
         result = pipeline.latest_result()
-        if not current["ready"] or result is None:
+        if not current["ready"] or result is None or result["session_id"] != current["session_id"]:
             return JSONResponse({"error": current["state"], "status": current}, status_code=503,
                                 headers={"Cache-Control": "no-store"})
         return JSONResponse(result, headers={"Cache-Control": "no-store"})
@@ -111,16 +125,18 @@ def create_app(settings=None, pipeline_factory=Pipeline):
         last_status_time = 0.0
         try:
             while not pipeline.stop_event.is_set():
-                current = pipeline.status()
-                if current["state"] != last_state or time.monotonic() - last_status_time >= 1:
+                current = await asyncio.to_thread(pipeline.status)
+                state_key = (current["state"], current.get("session_id"), current.get("model_version"))
+                if state_key != last_state or time.monotonic() - last_status_time >= 1:
                     await asyncio.wait_for(websocket.send_json(current), timeout=settings.send_timeout)
-                    last_state = current["state"]
+                    last_state = state_key
                     last_status_time = time.monotonic()
                 if current["ready"]:
                     result = pipeline.latest_result()
-                    if result and result["frame_id"] != last_id:
+                    if (result and result["session_id"] == current["session_id"]
+                            and (result["session_id"], result["frame_id"]) != last_id):
                         await asyncio.wait_for(websocket.send_json(result), timeout=settings.send_timeout)
-                        last_id = result["frame_id"]
+                        last_id = (result["session_id"], result["frame_id"])
                 await asyncio.sleep(0.03)
         except (WebSocketDisconnect, TimeoutError, OSError, RuntimeError):
             log.debug("WebSocket subscriber disconnected", exc_info=True)

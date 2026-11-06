@@ -3,7 +3,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 backend="${1:-mps}"
-case "$backend" in mps|coreml) ;; *) echo "Usage: bash scripts/setup.sh [mps|coreml]" >&2; exit 2;; esac
+case "$backend" in mps|coreml|train) ;; *) echo "Usage: bash scripts/setup.sh [mps|coreml|train]" >&2; exit 2;; esac
 manager="${YOLO_CONDA_EXE:-}"
 if [[ -z "$manager" ]]; then
   for candidate in mamba conda "$HOME/miniforge3/bin/mamba" "$HOME/miniforge3/bin/conda"; do

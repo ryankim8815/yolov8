@@ -12,15 +12,17 @@ arm64 Miniforge와 macOS 카메라 접근 권한이 필요합니다. Mamba가 �
 cd /Users/ryankim/Documents/robotics/yolov8
 bash scripts/setup.sh mps
 bash scripts/setup.sh coreml
+bash scripts/setup.sh train
 ```
 
-Python 3.11과 패키지는 프로젝트의 `.conda/mps`, `.conda/coreml`에 설치합니다. Python은 conda-forge에서, PyTorch·Ultralytics 등은 각 conda 환경 내부의 pip로 설치합니다. 가상환경이나 Homebrew Python 설치는 필요하지 않습니다.
+Python 3.11과 패키지는 프로젝트의 `.conda/mps`, `.conda/coreml`, `.conda/train`에 설치합니다. Python은 conda-forge에서, PyTorch·Ultralytics 등은 각 conda 환경 내부의 pip로 설치합니다. 가상환경이나 Homebrew Python 설치는 필요하지 않습니다.
 
 직접 실행하려면:
 
 ```bash
 mamba env create -p ./.conda/mps -f environment-mps.yml
 mamba env create -p ./.conda/coreml -f environment-coreml.yml
+mamba env create -p ./.conda/train -f environment-train.yml
 ```
 
 `mamba` 대신 `conda`도 사용할 수 있습니다. 명령을 찾지 못하면 `YOLO_CONDA_EXE="$HOME/miniforge3/bin/mamba" bash scripts/setup.sh mps`처럼 설치 경로를 지정합니다. 이미 존재하는 환경은 setup 스크립트가 자동으로 변경하지 않습니다.
@@ -183,3 +185,48 @@ conda create -p ./.conda/reproduced-mps --file conda-mps.osx-arm64.lock.txt
 아키텍처와 초기 설계는 [설계 문서](docs/yolov8-m1-pro-realtime-detection-architecture.md)를 참고하세요.
 
 화면 배치, 상태별 동작과 추가 개선안은 [UI 제안서](docs/ui-proposal.md)를 참고하세요.
+
+## 8. 사용자 물체 수집·학습·모델 버전
+
+학습 기능은 [최종 설계 및 API](docs/custom-object-training-proposal.md), 검증 결과는 [학습 검증 보고서](docs/custom-object-training-validation.md)에 정리했습니다.
+
+추가 오류 재현·수정은 [구현 후 검토 보고서](docs/post-implementation-review.md), 실제 카메라·브라우저·학습 결과와 당시 자동 검사 결과는 [직접 실행 검증 보고서](docs/direct-execution-review.md)를 참고하세요. UI 경합 검사는 Node 설치 시 `node --test tests/training_ui.test.cjs`로 실행할 수 있습니다. 서버 실행에는 Node가 필요하지 않습니다.
+
+1. `학습 데이터 수집`에서 클래스 이름과 촬영 환경 그룹을 등록하거나 선택합니다. 같은 환경은 기존 그룹을 재사용합니다.
+2. 수집 모델을 선택하고 **사진 수집 시작**을 누릅니다. 중앙에 탐지되는 물체 하나가 3프레임 연속 유지되면 기본 250ms 간격으로 원본 사진과 자동 박스를 저장합니다. 탐지되지 않으면 저장하지 않습니다.
+3. **사진 저장 중지** 후 사진을 불러와 개별 또는 선택 일괄 승인/제외합니다. 유사 묶음과 박스를 확인하세요. **카메라 끄기**는 별도 버튼입니다.
+4. **누적 승인 자료로 데이터셋 고정**을 누릅니다. 한 촬영 환경의 사진도 저장되며 **검증 자료 대기**로 표시됩니다. 학습하려면 같은 클래스를 다른 배경·조명에서 추가 촬영·승인한 뒤 다시 고정하세요. 이전 버전을 유지하면서 누적 승인 자료로 새 버전을 만듭니다.
+5. `학습 작업`에서 데이터셋, 초기 가중치, batch/epochs/patience를 선택해 실행합니다. 기본값은 MPS·640·batch 4·50 epochs·patience 10입니다. 메모리 부족 시 batch를 낮춰 새 작업으로 재시도합니다.
+6. 학습·평가·Core ML 변환 동안 실시간 카메라를 해제합니다. 끝나면 이전 모델의 탐지를 재개합니다. 사진 저장과 새 모델 적용은 자동 실행하지 않습니다. 작업 중 카메라를 끄면 자동 재개도 취소됩니다.
+7. `모델 버전`에서 지표와 PT/Core ML 상태를 확인하고 **실시간 탐지에 적용**을 누릅니다. 현재 백엔드에 해당하는 검증 형식만 선택할 수 있습니다. Core ML 변환이 실패해도 검증된 PT는 남습니다. MPS 서버로 재시작해 사용할 수 있습니다.
+
+선택한 모델은 백엔드별로 기억합니다. `YOLO_MODEL_PATH`를 직접 export하면 시작 시 그 경로를 우선합니다. 신규 클래스 모델은 사용자 클래스 전용이며 원본 COCO80 모델을 대체하거나 합치지 않습니다. 사용자 물체의 정확도는 충분한 별도 검증 자료로 확인해야 합니다.
+
+`state/`에 사용자 사진·SQLite DB·데이터셋·모델·로그를 보관하며 Git에서 제외합니다. `YOLO_STATE_DIR`로 경로를 변경할 수 있습니다. 서버를 종료한 뒤 전체 폴더를 백업하세요. 브라우저를 닫으면 10초 안에 **사진 저장만** 중지되고 카메라는 계속 동작합니다. 서버 시작 시 카메라는 자동으로 켜집니다. `bash scripts/stack.sh down` 또는 `bash scripts/stop.sh`는 소유 학습·변환 프로세스도 종료합니다.
+
+### 재현 및 짧은 실장비 검증
+
+```bash
+# 학습 환경 설치 후 자동 검사
+bash scripts/python.sh train -m pytest -q
+
+# 기존 서버를 중지한 뒤 실행. 카메라를 열지 않으며 공개 10장으로 1 epoch 기능 검사
+bash scripts/python.sh train -m scripts.smoke_training
+
+# 테스트와 pip check를 통과한 환경 잠금 파일 생성
+bash scripts/python.sh train -m scripts.lock_environment --backend train
+
+# 제공한 잠금 파일로 새 학습 환경 재현
+conda create -p ./.conda/reproduced-train --file conda-train.osx-arm64.lock.txt
+./.conda/reproduced-train/bin/python -m pip install -r requirements-train.lock.txt
+```
+
+Smoke test의 모델은 `artifacts/training-smoke-*/`의 별도 레지스트리에만 생성되며 실제 서비스 버전 목록에 자동 추가되지 않습니다. 이 모델의 정확도 수치는 사용자 물체 학습 성능으로 해석하지 않습니다.
+
+### 한 환경의 데이터셋 저장과 학습 조건
+
+`POST /api/datasets`는 요청 본문 없이 누적 승인 자료를 저장합니다. 승인 사진이 한 환경 그룹에만 있으면 **201 Created**, `status: "awaiting_validation"`으로 저장합니다. 모든 이미지·라벨을 train에 보관하고 val은 비워 둡니다. 예를 들어 한 환경의 승인 사진 18장이면 `counts: {"train": 18, "val": 0}`입니다. 이 버전은 목록에서 확인할 수 있지만 학습 버튼은 비활성화되고 학습 API는 422를 반환합니다.
+
+여러 환경에서 수집했다면 환경 그룹과 동일·유사 사진을 분리하지 않고 묶어서 train/val을 구성합니다. 모든 클래스가 양쪽에 있으면 `status: "ready"`가 됩니다. 여러 환경이 유사 사진으로 연결되거나 특정 클래스의 독립 그룹이 부족해 분할할 수 없을 때는 기존처럼 422와 원인을 표시합니다. 승인 사진이 없거나 파일이 누락·변경된 경우에도 저장하지 않습니다.
+
+연속 촬영한 거의 같은 사진을 학습과 검증 양쪽에 넣으면 처음 보는 장면에서의 성능을 과대평가할 수 있습니다. 같은 클래스를 유지한 채 배경·조명·각도를 바꾸고 **새 환경 등록 → 사진 수집 → 저장 중지 → 사진 불러오기 → 승인 → 누적 승인 자료로 데이터셋 고정**을 진행하세요. 그룹 이름만 추가하거나 같은 사진을 복제하는 것으로는 독립 검증 자료가 생기지 않습니다.

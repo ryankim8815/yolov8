@@ -6,6 +6,7 @@
   <title>YOLOv8 · 실시간 객체 탐지</title>
   <link rel="stylesheet" href="/static/style.css">
   <script src="/static/app.js" defer></script>
+  <script src="/static/training.js" defer></script>
 </head>
 <body>
   <main>
@@ -13,7 +14,25 @@
       <div><p class="eyebrow">LOCAL VISION LAB</p><h1>실시간 객체 탐지<span>YOLOv8</span></h1></div>
       <div class="status" id="status-pill"><i></i><span id="state" role="status">서버 연결 중</span></div>
     </header>
-    <p class="intro">Mac에 연결된 카메라를 로컬에서 분석합니다. 영상은 저장하지 않습니다.</p>
+    <p class="intro">실시간 분석과 사용자 물체 학습을 이 Mac에서 실행합니다. 사진은 수집 시작 후에만 저장합니다.</p>
+    <nav class="tabs" aria-label="기능 메뉴">
+      <button class="active" data-tab="live">실시간 객체 탐지</button><button data-tab="collect">학습 데이터 수집</button><button data-tab="jobs">학습 작업</button><button data-tab="models">모델 버전</button>
+    </nav>
+    <p id="action-message" role="status" hidden></p>
+    <div class="controls"><label>현재 백엔드의 모델 <select id="live-model"></select></label><button id="activate-model">모델 적용</button><button id="camera-on">카메라 켜기</button><button class="secondary" id="camera-off">카메라 끄기</button><span id="active-version"></span></div>
+    <p class="hint">모델 적용과 카메라 제어는 이 서버에 연결된 모든 화면에 적용됩니다. 백엔드는 서버 재시작으로 변경합니다.</p>
+    <section id="collect-controls" class="tab-page" hidden>
+      <h2>중앙 물체 촬영</h2><p>현재 수집 모델이 탐지하는 물체만 촬영합니다. 중앙에 물체 하나를 놓고 각도·배경을 바꿔 수집하세요.</p>
+      <div class="form-grid">
+        <label>라벨 클래스<select id="class-select"></select></label><label>새 클래스 이름<input id="class-name" maxlength="80" placeholder="예: 내 보온병"></label><button id="add-class">클래스 등록</button>
+        <label>촬영 환경 그룹<select id="group-select"></select></label><label>새 환경 이름<input id="group-name" maxlength="80" placeholder="예: 창가 · 오전 · 책상"></label><button id="add-group">새 환경 등록</button>
+        <label>수집 모델<select id="teacher-model"></select></label><label>저장 간격 (ms)<input id="interval" type="number" min="100" max="2000" value="250"></label><label>최소 confidence<input id="collection-conf" type="number" min="0.01" max="0.99" step="0.05" value="0.50"></label>
+      </div>
+      <p class="hint">같은 환경에서 중지·재시작할 때는 기존 그룹을 재사용하세요. 독립된 배경·조명·각도로 바꾼 경우에만 새 환경을 등록하세요.</p>
+      <div class="controls"><button id="collect-start">사진 수집 시작</button><button id="collect-stop" class="danger">사진 저장 중지</button><strong id="collection-state" role="status">사진 저장 중지</strong></div>
+      <p id="collection-counts" class="hint"></p>
+    </section>
+    <div id="vision">
     <section class="metrics" aria-label="실시간 성능">
       <article><span>추론 백엔드</span><strong id="backend">—</strong><small id="model">모델 준비 중</small></article>
       <article><span>탐지 속도</span><strong><b id="fps">—</b><em> FPS</em></strong><small id="capture-fps">카메라 — / 미리보기 —</small></article>
@@ -24,6 +43,8 @@
       <article class="camera-panel">
         <div class="panel-title"><h2>카메라</h2><span id="resolution">입력 대기 중</span></div>
         <div class="viewport">
+          <div id="center-roi" hidden><span>중앙에 물체 하나</span></div>
+          <div id="candidate-box" hidden></div>
           <img id="preview" alt="객체 탐지 박스가 포함된 카메라 영상" hidden>
           <div id="placeholder"><div class="camera-icon">◎</div><h3 id="placeholder-title">카메라를 준비하고 있습니다</h3><p id="placeholder-detail">모델이 로드되면 영상이 표시됩니다.</p></div>
         </div>
@@ -36,6 +57,21 @@
       </aside>
     </section>
     <p id="error" class="error" role="alert" hidden></p>
+    </div>
+    <section id="review-page" class="tab-page" hidden>
+      <h2>데이터 검토</h2><p>자동 박스가 물체 전체를 정확히 감싸는 사진만 승인하세요. 유사 묶음은 검토 보조 정보이며 자동 삭제하지 않습니다.</p>
+      <div class="controls"><label>촬영 세션<select id="review-session"></select></label><button id="load-samples">사진 불러오기</button><button id="select-samples">전체 선택 / 해제</button><button id="approve-samples">선택 승인</button><button class="secondary" id="exclude-samples">선택 제외</button></div>
+      <p id="review-summary"></p><div id="samples" class="samples"></div>
+      <div class="controls"><button id="build-dataset">누적 승인 자료로 데이터셋 고정</button><span class="hint">한 환경의 승인 사진도 데이터셋으로 저장할 수 있습니다. 학습하려면 각 클래스에 독립 검증 자료가 필요합니다.</span></div>
+    </section>
+    <section id="jobs-page" class="tab-page" hidden>
+      <h2>학습 작업</h2><p>학습·평가·변환 동안 카메라를 해제합니다. 완료 후 이전 모델로 탐지를 재개하며 사진 저장은 재개하지 않습니다.</p>
+      <div class="form-grid"><label>고정 데이터셋<select id="dataset-select"></select></label><label>초기 가중치<select id="initial-model"><option value="">YOLOv8n 사전 학습 가중치</option></select></label><label>Batch<input id="train-batch" type="number" value="4" min="1" max="16"></label><label>최대 epochs<input id="train-epochs" type="number" value="50" min="1" max="300"></label><label>Patience<input id="train-patience" type="number" value="10" min="1" max="100"></label><button id="train-start" disabled aria-describedby="dataset-note">새 버전 학습 시작</button></div>
+      <p id="dataset-note" class="hint" aria-live="polite"></p>
+      <p class="hint">MPS · 640 × 640 · workers 0 · RAM cache 끔. 메모리 부족 시 batch를 줄여 새 작업으로 재시도하세요.</p>
+      <div id="jobs-list" class="record-list"></div><pre id="job-log" hidden></pre>
+    </section>
+    <section id="models-page" class="tab-page" hidden><h2>모델 버전</h2><p>새 버전은 자동 적용하지 않습니다. 검증된 형식만 현재 백엔드에서 선택할 수 있습니다. 사용자 데이터 평가와 COCO128 결과는 별개입니다.</p><div id="models-list" class="record-list"></div></section>
     <details class="settings"><summary>실행 설정</summary><p id="settings-values">설정을 불러오는 중입니다.</p><small>현재 실행값입니다. 설정 변경은 서버 재시작 후 적용됩니다.</small></details>
     <div class="bottom"><span>최신 프레임 우선 처리 · 단일 카메라</span><a href="/docs" target="_blank" rel="noopener">API 문서 ↗</a></div>
   </main>

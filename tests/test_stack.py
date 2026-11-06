@@ -17,6 +17,7 @@ class StackTests(unittest.TestCase):
 
     def test_stop_native_targets_matched_processes_and_waits(self):
         process = Mock(pid=42)
+        process.children.return_value = []
         with patch.object(stack, "project_servers", return_value=[process]), \
              patch.object(stack.psutil, "wait_procs", return_value=([process], [])) as wait:
             stack.stop_native()
@@ -25,6 +26,7 @@ class StackTests(unittest.TestCase):
 
     def test_discovered_process_timeout_does_not_force_kill(self):
         process = Mock(pid=42)
+        process.children.return_value = []
         with patch.object(stack, "project_servers", return_value=[process]), \
              patch.object(stack.psutil, "wait_procs", return_value=([], [process])):
             with self.assertRaisesRegex(RuntimeError, "did not exit"):
@@ -89,3 +91,18 @@ class StackTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_training_cleanup_only_matches_actual_owned_worker():
+    parent=Mock()
+    child=Mock()
+    child.cmdline.return_value=[str(stack.ROOT/".conda/train/bin/python"),"-m","scripts.training_worker","--request","test"]
+    child.cwd.return_value=str(stack.ROOT)
+    unrelated=Mock()
+    unrelated.cmdline.return_value=["python","-m","other_worker"]
+    parent.children.return_value=[child,unrelated]
+    assert stack.training_children([parent])==[child]
+    with patch.object(stack.psutil,"wait_procs",return_value=([child],[])):
+        stack.finish_training_children([child])
+    child.terminate.assert_called_once()
+    unrelated.terminate.assert_not_called()
