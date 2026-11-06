@@ -60,6 +60,7 @@ class Pipeline:
         self.result_ns = None
         self.result_generation = None
         self.jpeg = None
+        self.preview_result = None
         self.subscribers = 0
         self.detector_metadata = {}
         self.counts = {"captured": 0, "detected": 0, "encoded": 0}
@@ -88,6 +89,7 @@ class Pipeline:
             log.error("Native worker did not stop within 5 seconds; restart the process: %s", alive)
         with self.lock:
             self.jpeg = None
+            self.preview_result = None
 
     def _count(self, name):
         # Caller holds self.lock.
@@ -204,6 +206,7 @@ class Pipeline:
                 data = self.encoder(packet.frame, result["objects"], self.settings.jpeg_quality)
                 with self.lock:
                     self.jpeg = (packet.frame_id, packet.captured_ns, data)
+                    self.preview_result = result
                     self._count("encoded")
                 next_encode = time.monotonic() + 1 / self.settings.preview_fps
         except Exception as exc:
@@ -222,6 +225,13 @@ class Pipeline:
     def latest_jpeg(self):
         with self.lock:
             return self.jpeg
+
+    def latest_preview(self):
+        """Return detections and the shared encoded JPEG from the same camera frame."""
+        with self.lock:
+            if self.jpeg is not None:
+                _, captured_ns, data = self.jpeg
+                return captured_ns, self.preview_result, data
 
     def status(self):
         now = time.monotonic()

@@ -87,6 +87,10 @@ def create_app(settings=None, pipeline_factory=Pipeline, state_root=None):
     async def index():
         return FileResponse(STATIC / "index.html", headers={"Cache-Control": "no-store"})
 
+    @application.get("/training", include_in_schema=False)
+    async def training_workspace():
+        return FileResponse(STATIC / "training.html", headers={"Cache-Control": "no-store"})
+
     @application.get("/healthz")
     async def health():
         return {"status": "ok"}
@@ -117,12 +121,14 @@ def create_app(settings=None, pipeline_factory=Pipeline, state_root=None):
         return TimedStreamingResponse(jpeg_frames(application.state.pipeline), settings.send_timeout)
 
     @application.websocket("/ws/detections")
-    async def detections(websocket: WebSocket):
+    async def detections(websocket: WebSocket, preview: bool = False):
         await websocket.accept()
         pipeline = application.state.pipeline
         last_id = None
         last_state = None
         last_status_time = 0.0
+        if preview:
+            pipeline.subscribe_video(1)
         try:
             while not pipeline.stop_event.is_set():
                 current = await asyncio.to_thread(pipeline.status)
@@ -132,15 +138,26 @@ def create_app(settings=None, pipeline_factory=Pipeline, state_root=None):
                     last_state = state_key
                     last_status_time = time.monotonic()
                 if current["ready"]:
-                    result = pipeline.latest_result()
+                    jpeg = None
+                    if preview:
+                        frame = pipeline.latest_preview()
+                        result = None
+                        if frame and time.monotonic_ns() - frame[0] <= settings.stale_seconds * 1e9:
+                            _, result, jpeg = frame
+                    else:
+                        result = pipeline.latest_result()
                     if (result and result["session_id"] == current["session_id"]
                             and (result["session_id"], result["frame_id"]) != last_id):
                         await asyncio.wait_for(websocket.send_json(result), timeout=settings.send_timeout)
+                        if jpeg is not None:
+                            await asyncio.wait_for(websocket.send_bytes(jpeg), timeout=settings.send_timeout)
                         last_id = (result["session_id"], result["frame_id"])
                 await asyncio.sleep(0.03)
         except (WebSocketDisconnect, TimeoutError, OSError, RuntimeError):
             log.debug("WebSocket subscriber disconnected", exc_info=True)
         finally:
+            if preview:
+                pipeline.subscribe_video(-1)
             try:
                 await asyncio.wait_for(websocket.close(), timeout=settings.send_timeout)
             except (WebSocketDisconnect, TimeoutError, OSError, RuntimeError):

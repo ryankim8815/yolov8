@@ -22,11 +22,31 @@ class APITests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
 
+    def test_preview_sends_metadata_and_jpeg_from_the_same_frame(self):
+        application = create_app(settings(preview_fps=5), pipeline_factory=factory, state_root=self.temp.name)
+        with TestClient(application) as client:
+            with client.websocket_connect("/ws/detections?preview=true") as socket:
+                ids = []
+                while len(ids) < 3:
+                    packet = socket.receive_json()
+                    if packet["event"] == "detections":
+                        frame_id = packet["frame_id"]
+                        self.assertEqual(socket.receive_bytes(), f"fake-jpeg-{frame_id}".encode())
+                        ids.append(frame_id)
+                self.assertEqual(ids, sorted(set(ids)))
+            wait_until(lambda: application.state.pipeline.status()["video_subscribers"] == 0)
+
     def test_ready_json_static_and_websocket_contract(self):
         application = create_app(settings(), pipeline_factory=factory, state_root=self.temp.name)
         with TestClient(application) as client:
             self.assertEqual(client.get("/healthz").status_code, 200)
-            self.assertIn("실시간 객체 탐지", client.get("/").text)
+            dashboard = client.get("/").text
+            self.assertIn('/static/packing.js', dashboard)
+            self.assertNotIn('/static/training.js', dashboard)
+            training = client.get("/training").text
+            self.assertIn("실시간 객체 탐지", training)
+            self.assertIn('/static/training.js', training)
+            self.assertNotIn('/static/packing.js', training)
             self.assertEqual(client.get("/static/app.js").status_code, 200)
             wait_until(lambda: client.get("/readyz").status_code == 200)
             data = client.get("/api/detections/latest").json()

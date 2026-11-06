@@ -6,7 +6,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const tick = () => new Promise(resolve => setImmediate(resolve));
 
-function harness(gatePath, failStop=false, datasets=[], failOnce=null) {
+function harness(gatePath, failStop=false, datasets=[], failOnce=null, initialHash='') {
   const elements = new Map(), calls = [], intervals = [];
   let release, cameraOn = false, collecting = false;
   const gate = new Promise(resolve => release = resolve);
@@ -21,7 +21,18 @@ function harness(gatePath, failStop=false, datasets=[], failOnce=null) {
   }
   class Option {constructor(text,value){this.text=text;this.value=value;}}
   const el = id => {if(!elements.has(id))elements.set(id,new Element());return elements.get(id);};
-  const tabs = ['live','collect','jobs','models'].map(name=>{const button=new Element();button.dataset.tab=name;return button;});
+  const tabs = ['live','collect','jobs','models'].map(name=>{const link=new Element();link.dataset.tab=name;return link;});
+  const listeners = {};
+  let hash = initialHash;
+  const location = {
+    protocol: 'http:', host: 'localhost',
+    get hash() { return hash; },
+    set hash(value) {
+      if (hash === value) return;
+      hash = value;
+      listeners.hashchange();
+    }
+  };
   const model = {id:'base',name:'base',classes:[],formats:{mps:{state:'ready'}}};
   async function fetch(url, options={}) {
     calls.push({url,method:options.method||'GET',body:options.body && JSON.parse(options.body)});
@@ -48,8 +59,8 @@ function harness(gatePath, failStop=false, datasets=[], failOnce=null) {
   const context=vm.createContext({
     document:{getElementById:el,createElement:()=>new Element(),createTextNode:text=>text,
       querySelectorAll:selector=>selector==='[data-tab]'?tabs:[]},
-    window:{addEventListener(){}},Option,fetch,console,
-    location:{protocol:'http:',host:'localhost'},WebSocket:class {},
+    window:{addEventListener(name, handler){listeners[name]=handler;},scrollTo(){}},Option,fetch,console,
+    location,WebSocket:class {},
     setInterval(fn){intervals.push(fn);},setTimeout:(fn)=>setImmediate(fn),
     currentStatus:{model_version:'base',collection:{id:null}}
   });
@@ -57,11 +68,41 @@ function harness(gatePath, failStop=false, datasets=[], failOnce=null) {
   vm.runInContext(fs.readFileSync(path.join(__dirname,'../app/static/dataset-picker.js'),'utf8'),context);
   vm.runInContext(fs.readFileSync(path.join(__dirname,'../app/static/training.js'),'utf8'),context);
   const click=id=>el(id).handlers.click();
-  return {calls,release,click,el,tabs,heartbeat:()=>intervals.forEach(fn=>fn()),state:()=>({cameraOn,collecting}),async ready(){
-    await tick();tabs.find(b=>b.dataset.tab==='collect').handlers.click();await tick();
+  return {calls,release,click,el,tabs,location,leave:()=>listeners.pagehide(),heartbeat:()=>intervals.forEach(fn=>fn()),state:()=>({cameraOn,collecting}),async ready(){
+    await tick();location.hash='#collect';await tick();
     el('interval').value='250';el('collection-conf').value='.5';
   }};
 }
+
+test('training deep links select the intended tab and returning to live detection stops photo collection',async()=>{
+  const h=harness(null,false,[],null,'#models');
+  assert.equal(h.tabs.find(link=>link.dataset.tab==='models')['aria-current'],'page');
+  assert.equal(h.el('models-page').hidden,false);
+  await h.ready();
+  await h.click('collect-start');
+  h.location.hash='#live';
+  await tick();
+  assert.equal(h.tabs.find(link=>link.dataset.tab==='live')['aria-current'],'page');
+  assert.equal(h.el('vision').hidden,false);
+  assert.equal(h.state().collecting,false);
+  assert.equal(h.state().cameraOn,true);
+});
+
+test('leaving the real workspace while collection starts does not keep saving photos',async()=>{
+  const startPath='/api/collections/c1/start';
+  const h=harness(startPath);
+  await h.ready();
+  const starting=h.click('collect-start');
+  for(let i=0;i<20&&!h.calls.some(c=>c.url===startPath);i++)await tick();
+  assert.ok(h.calls.some(c=>c.url===startPath));
+  h.leave();
+  assert.ok(h.calls.some(c=>c.url==='/api/collections/c1/stop'));
+  h.release();
+  await starting;
+  h.heartbeat();
+  assert.equal(h.state().collecting,false);
+  assert.ok(!h.calls.some(c=>c.url==='/api/collections/c1/heartbeat'));
+});
 
 for(const scenario of ['photo stop while preparing','camera off while preparing','photo stop while start request is pending']) {
   test(scenario,async()=>{

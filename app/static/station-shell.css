@@ -1,0 +1,55 @@
+.station-shell {
+  display: grid;
+  grid-template-columns: 184px minmax(0, 1fr);
+  margin: 0;
+  min-height: 100vh;
+}
+.station-shell > main { width: 100%; min-width: 0; margin: 0 auto; }
+.station-rail, .station-rail * { box-sizing: border-box; }
+.station-rail {
+  position: sticky;
+  top: 0;
+  align-self: start;
+  display: flex;
+  flex-direction: column;
+  gap: 34px;
+  height: 100dvh;
+  overflow-y: auto;
+  padding: 26px 12px 17px;
+  background: #15232c;
+  color: #f0f7f5;
+  font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
+}
+.station-icon { width: 17px; height: 17px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+.station-brand { display: flex; align-items: center; gap: 10px; padding-left: 5px; font-size: 20px; font-weight: 650; letter-spacing: -.04em; }
+.station-brand small { display: block; color: #bac9cb; font: 500 9px/1.6 ui-monospace, monospace; letter-spacing: .1em; }
+.brand-mark { display: grid; place-items: center; width: 34px; height: 36px; border-radius: 8px; background: #93edc9; color: #133b31; }
+.brand-mark .station-icon { width: 24px; height: 24px; }
+.station-nav { display: grid; gap: 4px; }
+.nav-group { color: #a4b5ba; font-size: 11px; font-weight: 550; padding: 0 10px 5px; }
+.nav-group:not(:first-child) { margin-top: 19px; }
+.station-nav a {
+  display: flex; align-items: center; gap: 10px;
+  min-height: 39px; padding: 8px 12px; border-radius: 7px;
+  color: #cbd8d9; text-decoration: none; font-weight: 560;
+}
+.station-nav a:hover { background: #20323d; color: #eff5f3; }
+.station-nav a[aria-current="page"] { color: #a1f3d1; background: #28443e; }
+.station-nav a:focus-visible { outline: 2px solid #93edc9; outline-offset: 1px; }
+.rail-status { margin-top: auto; padding: 14px 6px 0; border-top: 1px solid #37464e; color: #c1d1d1; font-size: 12px; }
+.rail-status::before { display: inline-block; content: ""; border-radius: 50%; width: 7px; height: 7px; background: #74ceaa; margin-right: 7px; }
+@media (max-width: 960px) {
+  .station-shell { grid-template-columns: 152px minmax(0,1fr); }
+  .station-rail { padding-inline: 8px; }
+}
+@media (max-width: 750px) {
+  .station-shell { display: block; }
+  .station-rail { position: static; display: block; height: auto; padding: 10px 12px; }
+  .station-brand { font-size: 16px; padding: 0; margin-bottom: 8px; }
+  .brand-mark { width: 24px; height: 24px; }
+  .brand-mark .station-icon { width: 17px; height: 17px; }
+  .station-brand small, .nav-group, .rail-status { display: none; }
+  .station-nav { grid-template-columns: repeat(3, minmax(0,1fr)); gap: 3px; }
+  .station-nav a { padding: 7px; min-height: 36px; gap: 5px; font-size: 13px; }
+}
+@media (pointer: coarse) { .station-nav a { min-height: 44px; } }

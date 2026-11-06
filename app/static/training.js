@@ -88,8 +88,32 @@
     if(attempt){attempt.cancelled=true;attempt.cameraOff ||= cameraOff;}
     return attempt;
   }
-  function showTab(value){tab=value;el("live-controls").hidden=tab==="models";if(tab!=="collect")cancelCollectionStart();document.querySelectorAll("[data-tab]").forEach(b=>b.classList.toggle("active",b.dataset.tab===tab));el("vision").hidden=!["live","collect"].includes(tab);el("collect-controls").hidden=tab!=="collect";el("review-page").hidden=tab!=="collect";el("jobs-page").hidden=tab!=="jobs";el("models-page").hidden=tab!=="models";el("center-roi").hidden=tab!=="collect";el("candidate-box").hidden=true;if(tab!=="collect"&&ownedCollection){const id=ownedCollection;ownedCollection=null;api(`/api/collections/${id}/stop`,"POST").then(refresh).catch(e=>message(e.message,true));}refresh().catch(e=>message(e.message,true));}
-  document.querySelectorAll("[data-tab]").forEach(b=>b.addEventListener("click",()=>showTab(b.dataset.tab)));
+  function showCurrentPage() {
+    const route = location.hash.slice(1);
+    tab = ["live", "jobs", "models"].includes(route) ? route : "collect";
+    const collecting = tab === "collect";
+    el("live-intro").hidden = tab !== "live";
+    for (const link of document.querySelectorAll("[data-tab]")) {
+      link.setAttribute("aria-current", link.dataset.tab === tab ? "page" : "false");
+    }
+    el("live-controls").hidden = tab === "models";
+    el("vision").hidden = tab !== "live" && !collecting;
+    el("collect-controls").hidden = !collecting;
+    el("review-page").hidden = !collecting;
+    el("jobs-page").hidden = tab !== "jobs";
+    el("models-page").hidden = tab !== "models";
+    el("center-roi").hidden = !collecting;
+    el("candidate-box").hidden = true;
+    if (!collecting) {
+      cancelCollectionStart();
+      if (ownedCollection) {
+        const id = ownedCollection;
+        ownedCollection = null;
+        api(`/api/collections/${id}/stop`, "POST").then(refresh).catch(e => message(e.message, true));
+      }
+    }
+    refresh().catch(e => message(e.message, true));
+  }
   async function activate(id) {
     const operation = await api(`/api/models/${encodeURIComponent(id)}/activate`, "POST");
     message("실시간 탐지 모델을 전환하고 있습니다.");
@@ -185,7 +209,12 @@
     message("사진 저장 중지 완료 · 카메라 미리보기는 계속됩니다.");
   });
   setInterval(()=>{if(ownedCollection&&tab==="collect")api(`/api/collections/${ownedCollection}/heartbeat`,"POST").catch(e=>{ownedCollection=null;message(e.message,true);});},3000);
-  window.addEventListener("pagehide",()=>{if(ownedCollection)fetch(`/api/collections/${ownedCollection}/stop`,{method:"POST",keepalive:true}).catch(()=>{});});
+  window.addEventListener("pagehide", () => {
+    const pending = cancelCollectionStart();
+    const id = ownedCollection || (pending?.startRequested && pending.id);
+    ownedCollection = null;
+    if (id) fetch(`/api/collections/${id}/stop`, {method:"POST", keepalive:true}).catch(() => {});
+  });
   window.addEventListener("vision-status",e=>{const c=e.detail.collection;displayActive(e.detail.model_version);if(!c)return;el("collection-state").textContent=c.state==="stopping"?"저장 마무리 중":`${c.id?"수집 활성 · ":""}${reasons[c.reason]||c.reason}`;el("collection-counts").textContent=`저장 ${c.saved}장 · 대기열 ${c.queue_size}/8 · ${c.error?`오류 ${c.error} · `:""}생략 ${Object.entries(c.skipped||{}).map(([k,v])=>`${reasons[k]||k} ${v}`).join(" / ")||"없음"}`;if(ownedCollection&&c.id===ownedCollection)ownedObserved=true;if(ownedCollection&&ownedObserved&&c.id!==ownedCollection)ownedCollection=null;for(const id of ["class-select","class-name","group-select","group-name","teacher-model","interval","collection-conf","collect-start"])el(id).disabled=Boolean(c.id)||Boolean(e.detail.active_job)||el(id).dataset.pending==="1";if(!e.detail.ready)el("candidate-box").hidden=true;});
   async function loadSamples(){if(!el("review-session").value)return;samples=await api(`/api/collections/${el("review-session").value}/samples`);renderSamples();}
   function renderSamples(){el("samples").replaceChildren();el("review-summary").textContent=`${samples.length}장 · 승인 ${samples.filter(s=>s.review==="approved").length} · 제외 ${samples.filter(s=>s.review==="excluded").length}`;for(const s of samples.slice().sort((a,b)=>a.similar_group-b.similar_group)){const card=node("article",undefined,`sample ${s.review}`),figure=node("div",undefined,"sample-figure"),image=node("img"),box=node("div",undefined,"sample-box");figure.style.aspectRatio=`${s.width}/${s.height}`;image.src=s.image_url;image.loading="lazy";image.alt=`자동 라벨 검토 사진 ${s.frame_id}`;const [x1,y1,x2,y2]=s.box;Object.assign(box.style,{left:`${x1/s.width*100}%`,top:`${y1/s.height*100}%`,width:`${(x2-x1)/s.width*100}%`,height:`${(y2-y1)/s.height*100}%`});figure.append(image,box);const caption=node("div",undefined,"caption"),label=node("label"),check=node("input");check.type="checkbox";check.value=s.id;check.className="sample-check";label.append(check,document.createTextNode(`프레임 ${s.frame_id} · ${s.review}`));caption.append(label,node("small",`유사 묶음 ${s.similar_group+1} · ${(s.prediction.confidence*100).toFixed(1)}%`));const actions=node("div",undefined,"actions");for(const [text,value]of [["승인","approved"],["제외","excluded"]]){const button=node("button",text);button.onclick=()=>api(`/api/samples/${s.id}`,"PATCH",{review:value}).then(loadSamples).catch(e=>message(e.message,true));actions.append(button);}card.append(figure,caption,actions);el("samples").append(card);}}
@@ -197,7 +226,7 @@
     message(datasetIsTrainable(dataset)
       ? `데이터셋 고정 완료 · 학습 ${dataset.counts.train}장, 검증 ${dataset.counts.val}장`
       : `데이터셋 저장 완료 · ${dataset.counts.train}장 · 검증 자료 대기`);
-    showTab("jobs");
+    location.hash = "#jobs";
   });
 
   action("train-start", async () => {
@@ -225,8 +254,10 @@
     eventSocket.onclose = () => setTimeout(events, 2000);
     eventSocket.onerror = () => eventSocket.close();
   }
-  if (location.hash === "#jobs") showTab("jobs");
-  else if (location.hash === "#models") showTab("models");
-  else refresh().catch(e => message(e.message, true));
+  window.addEventListener("hashchange", () => {
+    showCurrentPage();
+    window.scrollTo(0, 0);
+  });
+  showCurrentPage();
   events();
 })();
