@@ -63,6 +63,12 @@ docker compose run --rm --no-deps doosan-driver timeout 15 check-e0509</pre>
               <p id="control-result" role="status" hidden></p></div>
             <button id="control-reclaim" type="button" disabled>제어권 회수</button>
           </div>
+          <div class="robot-control">
+            <div><label for="direct-teach"><strong>직접 교시 허용</strong></label>
+              <p id="teach-status" class="meta" role="status">운전 모드 확인 중</p>
+              <p id="teach-result" role="status" hidden></p></div>
+            <input id="direct-teach" type="checkbox" role="switch" aria-describedby="teach-status" disabled>
+          </div>
         </section>
         <dialog id="control-dialog" aria-labelledby="control-title" aria-describedby="control-description">
           <h2 id="control-title">제어권을 회수할까요?</h2>
@@ -74,6 +80,26 @@ docker compose run --rm --no-deps doosan-driver timeout 15 check-e0509</pre>
         <section class="panel">
           <div class="panel-head"><h2>관절 위치</h2><span id="joint-age" class="meta">수신 대기 · °</span></div>
           <div class="robot-joints" id="robot-joints"></div>
+        </section>
+        <section class="panel" aria-labelledby="work-points-title">
+          <div class="panel-head"><h2 id="work-points-title">주요 좌표값 설정</h2><span class="meta">로봇 베이스 기준 · BASE</span></div>
+          <div class="pose-body">
+            <p class="work-point-help">공구 끝점(TCP)의 위치 X·Y·Z는 mm, 방향 A·B·C는 °(ZYZ)로 입력하세요. 좌표를 저장해도 로봇 이동이나 RFID 스캔은 시작되지 않습니다.</p>
+            <div id="work-points"></div>
+            <p id="work-point-source" class="meta">현재 위치 수신 상태 확인 중</p>
+          </div>
+          <template id="work-point-template">
+            <form class="work-point">
+              <div class="work-point-heading"><h3></h3><span class="meta" data-state></span></div>
+              <div class="pose-fields"></div>
+              <div class="pose-actions">
+                <button type="button" data-read disabled>현재 위치 불러오기</button>
+                <button type="button" data-reset hidden>저장값 불러오기</button>
+                <button type="submit" disabled>좌표 저장</button>
+              </div>
+              <p class="work-point-feedback" role="status"></p>
+            </form>
+          </template>
         </section>
         <section class="panel" aria-labelledby="pose-title">
           <div class="panel-head"><h2 id="pose-title">자세 테스트</h2><span class="meta" id="pose-bridge">rosbridge 확인 중</span></div>

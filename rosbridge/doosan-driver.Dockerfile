@@ -27,6 +27,7 @@ COPY --from=doosan dsr_controller2/ src/dsr_controller2/
 COPY --from=doosan dsr_description2/ src/dsr_description2/
 COPY --from=doosan dsr_bringup2/ src/dsr_bringup2/
 COPY gl010117.patch ./
+COPY direct_teach.hpp src/dsr_controller2/src/direct_teach.hpp
 RUN cd src && sed -i 's/\r$//' dsr_hardware2/src/dsr_hw_interface2.cpp dsr_controller2/src/dsr_controller2.cpp dsr_bringup2/launch/dsr_bringup2_rviz.launch.py && patch -p1 < ../gl010117.patch
 RUN source install/setup.bash && colcon build --executor sequential --packages-skip dsr_msgs2 --cmake-args -DBUILD_TESTING=OFF && \
     source install/setup.bash && for p in dsr_hardware2 dsr_controller2; do \

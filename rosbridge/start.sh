@@ -14,5 +14,5 @@ exec ros2 launch rosbridge_server rosbridge_websocket_launch.xml \
   "address:=${ROBOT_BRIDGE_BIND_IP:-127.0.0.1}" "port:=${ROBOT_ROSBRIDGE_PORT:-9090}" \
   "topics_sub_glob:=\"['$root/joint_states','$root/monitor/joint_states','$root/error','$root/robot_disconnection']\"" \
   "topics_pub_glob:=\"['/__unused_pose_test_topic']\"" \
-  "services_glob:=\"['/rosapi/publishers','/rosapi/service_type','$root/system/get_robot_state','$root/system/reclaim_control','$root/motion/move_joint']\"" \
+  "services_glob:=\"['/rosapi/publishers','/rosapi/service_type','$root/monitor/get_current_pose','$root/system/get_robot_state','$root/system/reclaim_control','$root/system/direct_teach_status','$root/system/set_direct_teach','$root/motion/move_joint']\"" \
   "call_services_in_new_thread:=true" "default_call_service_timeout:=150.0"

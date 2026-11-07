@@ -14,13 +14,22 @@ from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel, ConfigDict, StrictBool
 from websockets.asyncio.client import connect
 from websockets.exceptions import ConnectionClosed
 
 from .robot_poses import PoseInput, PoseRevision, PoseTests
+from .robot_work_points import PointName, WorkPointInput, WorkPoints
 from .store import DomainError
 
 RECLAIM_SERVICE = "system/reclaim_control"
+TEACH_STATUS = "system/direct_teach_status"
+TEACH_SET = "system/set_direct_teach"
+
+
+class TeachRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    enabled: StrictBool
 
 @dataclass(frozen=True)
 class RobotSettings:
@@ -86,7 +95,12 @@ class RobotMonitor:
         self.pending = {}
         self.reclaim_available = False
         self.reclaim_pending = False
+        self.teach_mode = "unavailable"
+        self.teach_message = ""
+        self.teach_pending = False
+        self.teach_lock = asyncio.Lock()
         self.pose_tests = PoseTests(self, state_dir) if state_dir is not None else None
+        self.work_points = WorkPoints(self.pose_tests.path.with_name("work-points.json")) if self.pose_tests else None
 
     def start(self):
         if self.settings.ros_pc_ip and self.task is None:
@@ -140,6 +154,7 @@ class RobotMonitor:
                 self.socket = None
                 self.joint_publishers = None
                 self.reclaim_available = False
+                self.teach_mode, self.teach_message = "unavailable", ""
                 if graph_task is not None:
                     graph_task.cancel()
                     with suppress(asyncio.CancelledError):
@@ -170,9 +185,66 @@ class RobotMonitor:
                     self.reclaim_available = info.get("type") in ("std_srvs/srv/Trigger", "std_srvs/Trigger")
                 except (TimeoutError, RuntimeError, OSError, ConnectionClosed):
                     self.reclaim_available = False
+                if not self.teach_pending:
+                    async with self.teach_lock:
+                        await self.read_teach_mode(socket)
             await asyncio.sleep(5)
 
+    async def read_teach_mode(self, socket):
+        mode, message = "unavailable", "직접 교시 서비스 대기 · 실장비 드라이버 연결을 확인하세요."
+        if self.reclaim_available and socket is self.socket and self.connected:
+            try:
+                result = await self.call_service(socket, TEACH_STATUS, {}, timeout=3)
+                value = result.get("message")
+                if result.get("success") is True and value in ("auto", "manual", "unconfirmed"):
+                    mode, message = value, ""
+                elif isinstance(value, str):
+                    message = value
+            except (TimeoutError, RuntimeError, OSError, ConnectionClosed):
+                pass
+        if socket is self.socket:
+            self.teach_mode, self.teach_message = mode, message
+
+    async def current_work_pose(self):
+        socket = self.socket
+        if not self.connected or socket is None or self.snapshot()["topics"][3]["state"] != "live":
+            raise DomainError("현재 위치를 읽으려면 제어기와 읽기 전용 관절 모니터가 연결되어야 합니다.", 503)
+        try:
+            result = await self.call_service(socket, "monitor/get_current_pose", {"space_type": 1}, timeout=4)
+        except (TimeoutError, RuntimeError, OSError, ConnectionClosed):
+            result = {}
+        pose = result.get("pos")
+        if (socket is not self.socket or not self.connected or result.get("success") is not True
+                or not isinstance(pose, list) or len(pose) != 6
+                or not all(type(v) in (float, int) and math.isfinite(v) for v in pose)):
+            raise DomainError("제어기에서 현재 작업 좌표를 읽지 못했습니다. 좌표는 변경되지 않았습니다.", 503)
+        return {"pose": pose}
+
+    async def set_direct_teach(self, enabled):
+        socket = self.socket
+        if not self.connected or not socket or self.teach_mode == "unavailable":
+            raise DomainError("직접 교시 서비스와 드라이버 제어권을 확인하세요.", 503)
+        if self.teach_pending or self.reclaim_pending or (self.pose_tests and self.pose_tests.snapshot()["busy"]):
+            raise DomainError("진행 중인 로봇 명령이 끝난 뒤 전환하세요.", 409)
+        self.teach_pending = True
+        try:
+            async with self.teach_lock:
+                result = await self.call_service(socket, TEACH_SET, {"data": enabled}, timeout=6)
+                await self.read_teach_mode(socket)
+                if result.get("success") is not True:
+                    raise DomainError(str(result.get("message") or "운전 모드를 변경하지 못했습니다."), 409)
+                if self.teach_mode != ("manual" if enabled else "auto") or self.socket is not socket:
+                    raise DomainError("변경 후 운전 모드를 확인할 수 없습니다.", 503)
+                return {"mode": self.teach_mode, "message": result["message"]}
+        except (TimeoutError, RuntimeError, OSError, ConnectionClosed):
+            self.teach_mode, self.teach_message = "unavailable", "운전 모드를 다시 확인하고 있습니다."
+            raise DomainError("드라이버 응답이 없어 전환 결과를 확인할 수 없습니다.", 503) from None
+        finally:
+            self.teach_pending = False
+
     async def reclaim_control(self):
+        if self.teach_pending:
+            raise DomainError("직접 교시 모드 전환이 끝난 뒤 회수하세요.", 409)
         if self.reclaim_pending:
             raise DomainError("이미 제어권 회수를 요청했습니다. 응답을 기다려 주세요.", 409)
         if not self.connected or not self.socket or not self.reclaim_available:
@@ -315,8 +387,10 @@ class RobotMonitor:
                 "state": state, "bridge_connected": self.connected,
                 "reclaim_available": self.connected and self.reclaim_available,
                 "reclaim_pending": self.reclaim_pending,
+                "direct_teach": {"mode": self.teach_mode, "message": self.teach_message, "pending": self.teach_pending},
                 "error": self.error, "topics": topics, "joint_publishers": self.joint_publishers,
                 "display_joint_topic": displayed["name"],
+                "work_points": self.work_points.points if self.work_points else None,
                 "pose_tests": self.pose_tests.snapshot() if self.pose_tests else None}
 
 
@@ -344,9 +418,25 @@ async def reclaim_control(request: Request):
     return await request.app.state.robot.reclaim_control()
 
 
+@router.put("/control/direct-teach", dependencies=[Depends(same_site_json)])
+async def set_direct_teach(body: TeachRequest, request: Request):
+    return await request.app.state.robot.set_direct_teach(body.enabled)
+
+
 @router.put("/poses/{slot}", dependencies=[Depends(same_site_json)])
 async def save_pose(slot: int, body: PoseInput, request: Request):
     return request.app.state.robot.pose_tests.save(slot, body)
+
+
+@router.get("/work-points/current")
+async def current_work_pose(request: Request):
+    pose = await request.app.state.robot.current_work_pose()
+    return JSONResponse(pose, headers={"Cache-Control": "no-store"})
+
+
+@router.put("/work-points/{name}", dependencies=[Depends(same_site_json)])
+async def save_work_point(name: PointName, body: WorkPointInput, request: Request):
+    return request.app.state.robot.work_points.save(name, body)
 
 
 @router.post("/poses/{slot}/execute", status_code=202, dependencies=[Depends(same_site_json)])

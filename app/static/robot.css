@@ -82,6 +82,21 @@
 #pose-dialog p, #control-dialog p { margin: 10px 0; font-size: 13px; }
 .robot-control { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; padding: 16px 20px; border-top: 1px solid var(--line); }
 .robot-control p { margin-top: 5px; font-size: 13px; }
+#direct-teach { appearance: none; width: 44px; height: 26px; margin: 0; border: 1px solid var(--line); border-radius: 16px; background: var(--sub); cursor: pointer; }
+#direct-teach::before { content: ""; display: block; width: 18px; height: 18px; margin: 3px; border-radius: 50%; background: var(--surface); }
+#direct-teach:checked { background: var(--mint); }
+#direct-teach:checked::before { transform: translateX(18px); }
+#direct-teach:indeterminate::before { transform: translateX(9px); }
+#direct-teach:disabled { opacity: .55; cursor: default; }
+#direct-teach:focus-visible { outline: 2px solid var(--mint); outline-offset: 3px; }
 #control-result[data-success="true"] { color: var(--mint); }
 #control-result[data-success="false"] { color: var(--amber); }
 @media (max-width: 700px) { .pose-fields { grid-template-columns: repeat(3,minmax(0,1fr)); } }
+.work-point-help { font-size: 13px; color: var(--sub); line-height: 1.6; }
+.work-point { padding: 16px 0; border-top: 1px solid var(--line); }
+.work-point:last-child { padding-bottom: 0; }
+.work-point-heading { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+.work-point-heading h3 { font-size: 15px; }
+.work-point-feedback { font-size: 13px; margin-top: 8px; }
+.work-point-feedback:empty { display: none; }
+.work-point button[type="submit"]:enabled { background: var(--mint); border-color: var(--mint); color: var(--surface); }

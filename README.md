@@ -255,7 +255,7 @@ python3 scripts/check_robot_sdk_host.py --force-request-access
 
 `--force-request-access`는 로봇이 `STANDBY` 또는 `SAFE_OFF`이고 SDK 초기화가 완료되면 `MANAGE_ACCESS_CONTROL_FORCE_REQUEST`를 한 번 보냅니다. 승인되면 기존 보유자가 제어권을 잃을 수 있습니다. `Forced access request sent`는 전송 성공이며, `Access callback: GRANT`가 이 검사기 세션의 획득을 확인합니다. `DENY`는 거절, `LOSS`는 제어권 상실, 10초간 응답이 없으면 결과 미확인입니다. 검사기는 서보나 이동 명령을 보내지 않고 결과를 출력한 뒤 연결을 닫습니다. 일반 인계 요청은 `--request-access`, 읽기 전용 조회는 옵션 없이 실행하세요.
 
-실장비 작업 공간이 준비되었을 때 아래 명령을 실행하세요. Docker의 `hardware` 프로필은 ROS 2 드라이버를 `--force-request-access`로 시작합니다. 드라이버는 자신의 SDK 세션에서 강제 인계를 한 번 요청하며, 승인되면 기존 보유자가 제어권을 잃을 수 있습니다. 로그의 `Forced access request sent`는 전송, `Access control granted`는 승인입니다. 드라이버는 승인 시 `SAFE_OFF`이면 서보 ON을 요청하고 `STANDBY`를 확인한 뒤 자동 모드를 설정합니다. Compose는 6축 관절 토픽과 상태·이동 서비스가 발견될 때까지 기다립니다.
+실장비 작업 공간이 준비되었을 때 아래 명령을 실행하세요. Docker의 `hardware` 프로필은 ROS 2 드라이버를 `--force-request-access`로 시작합니다. 드라이버는 자신의 SDK 세션에서 강제 인계를 한 번 요청하며, 승인되면 기존 보유자가 제어권을 잃을 수 있습니다. 로그의 `Forced access request sent`는 전송, `Access control granted`는 승인입니다. 드라이버는 승인 시 `SAFE_OFF`이면 서보 ON을 요청하고 `STANDBY`를 확인합니다. 시작할 때 제어기의 수동·자동 운전 모드를 유지합니다. Compose는 6축 관절 토픽과 상태·이동 서비스가 발견될 때까지 기다립니다.
 
 ```bash
 docker compose --profile hardware up -d --build --wait --wait-timeout 150
@@ -266,6 +266,8 @@ docker compose logs --tail 60 doosan-driver
 화면의 **rosbridge 연결 대기**는 웹이 WebSocket에 재연결 중이라는 뜻입니다. **회수 서비스 대기**는 WebSocket은 연결됐고 `/<namespace>/system/reclaim_control`이 아직 발견되지 않은 상태입니다. 이때는 `docker compose ps doosan-driver`와 `docker compose logs --tail 100 doosan-driver`로 SDK 연결 및 초기화 오류를 확인하세요.
 
 드라이버가 실행 중에 제어권을 잃으면 [로봇 모니터링](http://localhost:8080/robot)에서 **제어권 회수**를 누르고 대상 제어기를 확인한 뒤 **회수 요청**을 선택하세요. 드라이버가 기존 SDK 연결로 한 번 요청하고 화면에 결과를 표시합니다. 이미 보유 중이면 즉시 알려줍니다. 이 버튼은 서보를 켜거나 로봇을 움직이지 않습니다. 버튼에 서비스 대기가 표시되면 `hardware` 프로필의 드라이버가 실행 중인지 확인하세요.
+
+**직접 교시 허용**을 켜면 제어권을 가진 E0509 드라이버가 `STANDBY`에서 수동 모드를 요청합니다. 실제 툴과 페이로드 설정을 확인한 뒤, 로봇팔의 자유이동용 직접 교시 버튼을 누른 채 손으로 자세를 바꾸세요. 버튼에서 손을 떼고 로봇이 정지한 뒤 토글을 끄면 자동 모드로 복귀합니다. 토글 자체는 서보나 이동을 명령하지 않습니다. 웹 자세 이동은 자동 모드가 확인된 경우에만 가능합니다. 로봇에서 모드 변경을 거부하면 화면에 사유를 표시합니다. [두산 E 시리즈 콕핏 안내](https://manual.doosanrobotics.com/ko/user-manual/3.6.0/3-e-series/cockpit) · [두산 SDK 운전 모드 변경](https://doosanrobotics.github.io/doosan-robotics-api-manual/GL013304/mode/manual/safety_servo_operations/set_robot_mode.html)
 
 드라이버만 종료해 읽기 전용 모니터링으로 돌아가려면 `docker compose stop doosan-driver`, 전체를 종료하려면 `docker compose --profile hardware down`을 사용하세요.
 
@@ -284,6 +286,10 @@ docker compose logs --tail 60 doosan-driver
 ```bash
 docker compose -f docker-compose.yml -f rosbridge/compose.host.yml run --build --rm --no-deps doosan-driver timeout 15 check-e0509
 ```
+
+**운영 → 로봇 모니터링 → 주요 좌표값 설정.** **택배 박스 위치**와 **택배 박스의 송장 위치 (RFID 스캔)**를 각각 설정합니다. 두 위치 모두 로봇 베이스(BASE)를 기준으로 공구 끝점(TCP)의 X·Y·Z(mm)와 A·B·C(도, Euler ZYZ)를 저장합니다. 송장 위치는 RFID 리더로 태그를 읽을 때의 공구 위치와 방향입니다.
+
+좌표를 직접 입력하거나, 공구를 원하는 위치에 멈춘 뒤 해당 항목의 **현재 위치 불러오기 → 좌표 저장**을 누르세요. 불러오기는 기본 Compose의 관절 모니터를 통해 제어기의 Modbus 레지스터 400~405를 읽으며, SDK 제어권이 필요 없습니다. 로봇 미연결 시에도 알고 있는 좌표를 입력하고 저장할 수 있습니다. 저장값은 제어기 IP·포트·ROS 네임스페이스별로 보관하며 화면 새로고침과 서버 재시작 후에도 유지됩니다. 이 화면은 로봇을 이동시키거나 RFID 스캔을 실행하지 않습니다. [두산 Modbus TCP I/O 표](https://cobot-smx.jp/info/wp-content/uploads/2023/08/Doosan_Robotics_Modbus_TCP_Slave_IO_Table.pdf)
 
 **운영 → 로봇 모니터링 → 자세 테스트.** 자세 1·2·3에 각각 J1~J6 **절대 관절각(°)**을 입력하고 저장합니다. 초기 슬롯은 비어 있습니다. 저장값은 Compose 자세 볼륨에서 제어기 IP·포트·네임스페이스별로 보관됩니다. 저장과 이동은 별도 버튼입니다.
 

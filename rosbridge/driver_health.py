@@ -12,6 +12,8 @@ def main():
     root = "/" + os.environ["ROBOT_NAMESPACE"].strip("/")
     services = {root + "/system/get_robot_state": "dsr_msgs2/srv/GetRobotState",
                 root + "/system/reclaim_control": "std_srvs/srv/Trigger",
+                root + "/system/direct_teach_status": "std_srvs/srv/Trigger",
+                root + "/system/set_direct_teach": "std_srvs/srv/SetBool",
                 root + "/motion/move_joint": "dsr_msgs2/srv/MoveJoint"}
     joint_names = {f"joint_{i}" for i in range(1, 7)}
     received = False

@@ -24,6 +24,7 @@ class PoseTests(unittest.IsolatedAsyncioTestCase):
         self.tests = self.monitor.pose_tests
         self.angles = [1, 2, 3, 4, 5, 6]
         self.monitor.connected = True
+        self.monitor.teach_mode = "auto"
         self.monitor.socket = SimpleNamespace(send=self.transmit)
         self.requests = []
         self.standby = True
@@ -75,6 +76,14 @@ class PoseTests(unittest.IsolatedAsyncioTestCase):
         await self.tests.task
         self.assertEqual(len(self.requests), 1)
         self.assertEqual(self.tests.data["last"]["state"], "failed")
+
+    def test_teaching_or_unknown_mode_blocks_pose_without_sending(self):
+        revision = self.save()
+        for mode in ("manual", "unconfirmed", "unavailable"):
+            self.monitor.teach_mode = mode
+            with self.assertRaisesRegex(DomainError, "자동 모드"):
+                self.tests.execute(1, revision)
+        self.assertEqual(self.requests, [])
 
     async def test_disconnect_during_motion_leaves_unknown_result_without_retry(self):
         self.drop_motion = True

@@ -1,5 +1,6 @@
 import "./station-nav.js";
 import {renderPoseTests} from "./robot-poses.js";
+import {renderWorkPoints} from "./robot-work-points.js";
 
 const get = id => document.getElementById(id);
 const states = {
@@ -16,6 +17,7 @@ let requestController = null;
 let stopped = false;
 let apiUnavailable = false;
 let reclaimPending = false;
+let teachPending = false;
 let configSignature = "";
 let topicSignature = "";
 
@@ -90,7 +92,8 @@ function renderTopics(topics) {
 function render(data) {
   if (!data) return;
   renderControl();
-  renderPoseTests(data, {paused, apiUnavailable});
+  renderPoseTests(data, {paused, apiUnavailable, teachPending});
+  renderWorkPoints(data, {paused, apiUnavailable});
   renderConfig(data.config);
   const joint = data.topics.find(topic => topic.name === data.display_joint_topic) || data.topics[0];
   if (!topicChosen) selectedTopic = joint.name;
@@ -139,10 +142,48 @@ function renderControl() {
     !latest.reclaim_available ? "회수 서비스 대기 · rosbridge 연결됨. doosan-driver의 SDK 연결과 초기화 상태를 확인하세요." :
     pending ? "드라이버의 제어권 응답을 기다리고 있습니다." : "드라이버에 제어권 회수를 요청할 수 있습니다.";
   get("control-availability").textContent = reason;
-  const disabled = !!pending || paused || apiUnavailable || !latest?.reclaim_available;
+  const teach = latest?.direct_teach;
+  const switching = teachPending || teach?.pending;
+  const disabled = !!pending || switching || paused || apiUnavailable || !latest?.reclaim_available;
   get("control-reclaim").disabled = disabled;
   get("control-confirm").disabled = disabled;
+  const toggle = get("direct-teach");
+  const mode = apiUnavailable || !latest?.bridge_connected ? "unavailable" : teach?.mode;
+  toggle.checked = mode === "manual";
+  toggle.indeterminate = mode !== "manual" && mode !== "auto";
+  toggle.disabled = paused || !!pending || !!switching || !!latest?.pose_tests?.busy ||
+    !["auto", "manual", "unconfirmed"].includes(mode);
+  get("teach-status").textContent = switching ? "제어기 운전 모드 전환 중…" :
+    mode === "manual" ? "수동 모드 · 로봇팔의 직접 교시 버튼을 누른 동안 손으로 움직일 수 있습니다. 놓으면 멈춥니다." :
+    mode === "auto" ? "자동 모드 · 켜면 수동 모드로 전환합니다." :
+    mode === "unconfirmed" ? "모드 미확인 · 스위치를 누르면 수동 모드를 다시 요청합니다." :
+    apiUnavailable ? "웹 상태 API 응답 대기" : teach?.message || "운전 모드 확인 대기";
 }
+get("direct-teach").addEventListener("change", async () => {
+  const enabled = latest?.direct_teach?.mode !== "manual";
+  teachPending = true;
+  const output = get("teach-result");
+  output.hidden = true;
+  render(latest);
+  try {
+    const response = await fetch("/api/robot/control/direct-teach", {
+      method: "PUT", headers: {"Content-Type": "application/json"}, body: JSON.stringify({enabled})
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.detail || "운전 모드를 확인하지 못했습니다.");
+    latest.direct_teach = {mode: data.mode, pending: false, message: ""};
+    output.textContent = data.message;
+  } catch (error) {
+    latest.direct_teach = {mode: "unavailable", message: "현재 운전 모드를 다시 확인하고 있습니다."};
+    output.textContent = error instanceof TypeError || error instanceof SyntaxError
+      ? "서버 응답이 없어 전환 결과를 확인할 수 없습니다." : error.message;
+  } finally {
+    teachPending = false;
+    output.hidden = false;
+    render(latest);
+    refresh();
+  }
+});
 get("control-reclaim").addEventListener("click", () => {
   get("control-description").textContent =
     `E0509 (${latest.config.ip})의 제어권을 이 드라이버로 가져옵니다. 승인되면 기존 보유자는 제어권을 잃습니다.`;
@@ -216,7 +257,8 @@ get("robot-pause").addEventListener("click", () => {
   get("robot-pause").setAttribute("aria-pressed", String(paused));
   if (paused) get("robot-notice").textContent = "표시를 일시정지했습니다. 재개하면 최신 수신값을 불러옵니다.";
   else refresh();
-  if (latest) renderPoseTests(latest, {paused, apiUnavailable});
+  if (latest) renderPoseTests(latest, {paused, apiUnavailable, teachPending});
+  if (latest) renderWorkPoints(latest, {paused, apiUnavailable});
   renderControl();
 });
 window.addEventListener("pagehide", () => { stopped = true; requestController?.abort(); });

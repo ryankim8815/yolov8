@@ -78,6 +78,9 @@ class PoseTests:
                 or set(names) != {f"joint_{i}" for i in range(1, 7)}):
             raise DomainError("연결된 드라이버의 최신 E0509 6축 관절 데이터가 필요합니다.", 503)
 
+        if monitor.teach_pending or monitor.teach_mode != "auto":
+            raise DomainError("직접 교시를 끄고 드라이버의 자동 모드가 확인된 뒤 이동하세요.", 409)
+
     def execute(self, slot, revision):
         pose = self.require_slot(slot, revision)
         if pose["angles"] is None:

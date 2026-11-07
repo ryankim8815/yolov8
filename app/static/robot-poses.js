@@ -59,13 +59,15 @@ function show() {
   get("pose-last").dataset.state = last?.state || "";
 }
 
-export function renderPoseTests(data, {paused, apiUnavailable}) {
+export function renderPoseTests(data, {paused, apiUnavailable, teachPending}) {
   tests = data.pose_tests;
   config = data.config;
   const names = data.topics[0]?.message?.name || [];
-  live = !apiUnavailable && !paused && !data.error && data.state === "live" && names.length === 6 &&
+  live = !apiUnavailable && !paused && !data.error && !teachPending && !data.direct_teach?.pending &&
+    data.direct_teach?.mode === "auto" && data.state === "live" && names.length === 6 &&
     Array.from({length:6}, (_, i) => `joint_${i + 1}`).every(name => names.includes(name));
   const label = apiUnavailable ? "서버 응답 없음" : paused ? "표시 일시정지" :
+    data.direct_teach?.mode === "manual" ? "직접 교시 허용 중 · 자세 이동 차단" :
     data.state === "monitoring" ? "읽기 전용 관절 수신 · 모션 드라이버 대기" :
     live ? "rosbridge 연결 · 6축 수신 중" : data.bridge_connected ? "rosbridge 연결 · 관절 상태 확인 필요" : "rosbridge 연결 대기";
   get("pose-bridge").textContent = label;

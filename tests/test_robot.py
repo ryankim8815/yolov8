@@ -16,6 +16,26 @@ from tests.test_api import factory
 
 
 class RobotTests(unittest.TestCase):
+    def test_direct_teach_requires_explicit_boolean_and_confirmed_readback(self):
+        with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ, {
+            "ROBOT_STATE_DIR": directory, "ROBOT_ROS_PC_IP": ""
+        }), TestClient(create_robot_app()) as client:
+            robot = client.app.state.robot
+            url = "/api/robot/control/direct-teach"
+            self.assertEqual(client.put(url, json={"enabled": True}).status_code, 503)
+            robot.connected = robot.reclaim_available = True
+            robot.socket, robot.teach_mode = object(), "auto"
+            robot.call_service = AsyncMock()
+            self.assertEqual(client.put(url, json={"enabled": "false"}).status_code, 422)
+            self.assertEqual(client.put(url, json={"enabled": True}, headers={"Sec-Fetch-Site": "cross-site"}).status_code, 403)
+            robot.call_service.assert_not_awaited()
+            robot.call_service.side_effect = [{"success": True, "message": "OK"}, {"success": True, "message": "manual"}]
+            self.assertEqual(client.put(url, json={"enabled": True}).json()["mode"], "manual")
+            self.assertEqual(robot.call_service.await_args_list[0].args[1:], ("system/set_direct_teach", {"data": True}))
+            robot.call_service.side_effect = [{"success": False, "message": "거절"}, {"success": True, "message": "unconfirmed"}]
+            self.assertEqual(client.put(url, json={"enabled": False}).status_code, 409)
+            self.assertEqual(client.get("/api/robot/status").json()["direct_teach"]["mode"], "unconfirmed")
+
     def test_websocket_target_for_existing_local_and_remote_configs(self):
         for network, configured, expected in [
             ("compose", "127.0.0.1", "rosbridge"), ("compose", "::1", "rosbridge"),
@@ -187,10 +207,12 @@ class RobotLifecycleTests(unittest.IsolatedAsyncioTestCase):
                 sent.append(json.loads(message))
                 if sent[-1]["op"] == "call_service":
                     probe = sent[-1]
-                    values = {"publishers": []} if probe["service"] == "/rosapi/publishers" else {"type": "std_srvs/srv/Trigger"}
+                    values = {"publishers": []} if probe["service"] == "/rosapi/publishers" else (
+                        {"type": "std_srvs/srv/Trigger"} if probe["service"] == "/rosapi/service_type"
+                        else {"success": True, "message": "manual"})
                     monitor.receive(json.dumps({"op": "service_response", "id": probe["id"],
                         "service": probe["service"], "result": True, "values": values}))
-                    if "type" in values:
+                    if "success" in values:
                         connected.set()
 
             def __aiter__(self):
@@ -211,10 +233,11 @@ class RobotLifecycleTests(unittest.IsolatedAsyncioTestCase):
         with patch('app.robot.connect', connection):
             monitor.start()
             await asyncio.wait_for(connected.wait(), 1)
-            self.assertEqual([p['op'] for p in sent], ['subscribe'] * 4 + ['call_service'] * 2)
-            self.assertEqual(sent[-2]['service'], '/rosapi/publishers')
-            self.assertEqual(sent[-2]['args'], {'topic': '/dsr01/joint_states'})
-            self.assertEqual(sent[-1]['args'], {'service': '/dsr01/system/reclaim_control'})
+            self.assertEqual([p['op'] for p in sent], ['subscribe'] * 4 + ['call_service'] * 3)
+            self.assertEqual(sent[-3]['args'], {'topic': '/dsr01/joint_states'})
+            self.assertEqual(sent[-2]['args'], {'service': '/dsr01/system/reclaim_control'})
+            self.assertEqual(sent[-1]['service'], '/dsr01/system/direct_teach_status')
+            self.assertEqual(monitor.snapshot()["direct_teach"]["mode"], "manual")
             self.assertTrue(monitor.snapshot()["reclaim_available"])
             self.assertEqual(monitor.snapshot()['state'], 'no_publisher')
             self.assertEqual(sent[0]['throttle_rate'], 100)
