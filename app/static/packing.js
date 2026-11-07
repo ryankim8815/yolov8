@@ -298,6 +298,10 @@ const pages = { orders, stock: inventory, people: customers, logs };
 
 function render() {
   const route = location.hash.slice(1);
+  if (route === "robot") {
+    location.replace("/robot");
+    return;
+  }
   // Bookmarks from the original single-page training UI still open the real tool.
   if (["collect", "jobs", "models", "live", "training"].includes(route)) {
     location.replace("/training#" + (route === "training" ? "collect" : route));

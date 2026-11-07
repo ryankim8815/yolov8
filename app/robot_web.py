@@ -1,0 +1,73 @@
+"""The robot dashboard and API, usable without the camera or a macOS Python process."""
+import fcntl
+import os
+from contextlib import asynccontextmanager
+from pathlib import Path
+
+from fastapi import FastAPI, Request
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
+from fastapi.staticfiles import StaticFiles
+
+from .robot import RobotMonitor, RobotSettings, router
+from .store import DomainError
+
+STATIC = Path(__file__).parent / "static"
+
+
+@asynccontextmanager
+async def robot_runtime(application, state_dir, *, native=False):
+    application.state.robot = None
+    if native and os.environ.get("YOLO_ROBOT_WEB_OWNER") == "compose":
+        yield
+        return
+
+    # A native server and a container can see the same presets. Only one may consume
+    # execution revisions or recover an interrupted command for this state directory.
+    directory = Path(state_dir) / "robot"
+    directory.mkdir(parents=True, exist_ok=True)
+    with (directory / ".owner.lock").open("a") as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            if not native:
+                raise RuntimeError("Robot state already in use; stop the standalone native robot server.")
+            yield
+            return
+        robot = RobotMonitor(RobotSettings.from_env(), state_dir)
+        application.state.robot = robot
+        robot.start()
+        try:
+            yield
+        finally:
+            await robot.stop()
+
+
+def install_robot_routes(application):
+    application.include_router(router)
+
+    @application.get("/robot", include_in_schema=False)
+    async def robot_workspace(request: Request):
+        if request.app.state.robot is None:
+            return RedirectResponse("http://127.0.0.1:8080/robot")
+        return FileResponse(STATIC / "robot.html", headers={"Cache-Control": "no-store"})
+
+
+def create_robot_app():
+    @asynccontextmanager
+    async def lifespan(application):
+        async with robot_runtime(application, os.getenv("ROBOT_STATE_DIR", "/var/lib/vision")):
+            yield
+
+    application = FastAPI(title="Vision Lab · E0509", lifespan=lifespan)
+    install_robot_routes(application)
+    application.mount("/static", StaticFiles(directory=STATIC), name="static")
+
+    @application.exception_handler(DomainError)
+    async def domain_error(request, exc):
+        return JSONResponse({"detail": str(exc)}, status_code=exc.status)
+
+    @application.get("/healthz")
+    async def health():
+        return {"status": "ok", "service": "robot-web"}
+
+    return application

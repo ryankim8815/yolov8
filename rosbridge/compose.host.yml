@@ -1,0 +1,16 @@
+# Linux ROS controller: join the host LAN; ROS participants use Fast DDS over UDP.
+services:
+  rosbridge:
+    ports: !reset []
+    network_mode: host
+    ipc: host
+    environment:
+      ROBOT_BRIDGE_BIND_IP: "${ROBOT_BRIDGE_BIND_IP:-127.0.0.1}"
+  doosan-driver:
+    network_mode: host
+    ipc: host
+  robot-web:
+    network_mode: host
+  joint-monitor:
+    network_mode: host
+    ipc: host

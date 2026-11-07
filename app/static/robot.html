@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>로봇 모니터링 · Vision Lab</title>
+  <link rel="stylesheet" href="/static/station-shell.css">
+  <link rel="stylesheet" href="/static/packing.css">
+  <link rel="stylesheet" href="/static/robot.css">
+  <script type="module" src="/static/robot.js"></script>
+</head>
+<body class="station-shell" data-workspace="robot">
+  <aside class="station-rail" id="station-rail"></aside>
+  <main id="robot-workspace">
+    <header class="crumb"><span>워크스페이스</span><span aria-hidden="true">/</span><b>패킹 스테이션 01</b></header>
+    <div class="content">
+      <div class="headline">
+        <div><p class="date">두산 매니퓰레이터 · E0509 · 유선 LAN</p><h1>로봇 모니터링</h1></div>
+        <button id="connection-settings" type="button" aria-expanded="false" aria-controls="robot-settings"><svg class="station-icon" aria-hidden="true"><use href="/static/station-icons.svg#settings"></use></svg>연결 설정</button>
+      </div>
+      <p id="robot-api-error" class="packing-error" role="alert" hidden></p>
+      <div class="robot-stack">
+        <section id="robot-settings" class="panel" aria-label="LAN 연결 설정" hidden>
+          <div class="panel-head"><h2>LAN 연결 설정</h2><span class="meta">서버 환경변수로 관리</span></div>
+          <div class="robot-settings-body">
+            <ol class="lan-steps">
+              <li><strong>유선 LAN 연결</strong><span>Mac과 E0509 제어기를 케이블로 연결하고 두 장비의 유선 IP를 같은 서브넷에 설정합니다.</span></li>
+              <li><strong>모니터링 시작</strong><span>저장소 루트에서 Docker Compose를 실행하면 웹 UI와 rosbridge가 시작되고 제어기의 관절각을 읽습니다.</span></li>
+              <li><strong>실장비 제어 연결</strong><span>SDK 접속 검사에 성공하면 작업 공간을 확인한 뒤 hardware 프로필을 시작합니다.</span></li>
+            </ol>
+            <dl id="robot-config" class="robot-config"></dl>
+            <details class="robot-commands"><summary>환경변수와 실행 명령</summary>
+              <p>프로젝트 <code>.env</code>에서 제어기 주소와 ROS 네임스페이스를 설정합니다. Compose 내부 브리지 주소는 <code>127.0.0.1</code>입니다.</p>
+              <pre id="robot-env"></pre>
+              <p>모니터링과 관절 수신을 시작합니다.</p>
+              <pre>docker compose up -d --build --wait</pre>
+              <p>제어권 요청 없이 SDK 접속을 검사합니다. 성공하면 DRCF 버전과 6축 각도가 출력됩니다.</p>
+              <pre>docker compose --profile hardware build doosan-driver
+docker compose run --rm --no-deps doosan-driver timeout 15 check-e0509</pre>
+              <p>드라이버 시작 시 제어권을 요청하고 서보가 켜질 수 있습니다. 작업 공간을 확인한 뒤 실행하세요.</p>
+              <pre>docker compose --profile hardware up -d --build --wait --wait-timeout 150</pre>
+            </details>
+          </div>
+        </section>
+        <section class="panel robot-link" aria-label="로봇 연결 경로">
+          <div class="robot-hero">
+            <div class="robot-identity"><p>DOOSAN MANIPULATOR</p><div class="robot-model">E0509 <span>6축</span></div><div class="robot-host"><svg class="station-icon" aria-hidden="true"><use href="/static/station-icons.svg#ethernet"></use></svg><span id="robot-endpoint">설정 조회 중</span></div></div>
+            <div class="robot-topology">
+              <div><span class="topology-node"><svg class="station-icon" aria-hidden="true"><use href="/static/station-icons.svg#monitor"></use></svg></span><strong>웹 서버</strong><small>로봇 모니터링</small></div>
+              <div class="topology-wire"><span id="bridge-path">WS</span></div>
+              <div><span class="topology-node robot-node"><svg class="station-icon" aria-hidden="true"><use href="/static/station-icons.svg#ethernet"></use></svg></span><strong id="bridge-host">ROS 2 그래프</strong><small>rosbridge · <span id="bridge-port">—</span></small></div>
+            </div>
+          </div>
+          <div class="robot-metrics">
+            <div><span>ROS 2 데이터</span><strong id="robot-state" role="status">조회 중</strong></div>
+            <div><span>화면 수신율</span><strong><b id="robot-hz">—</b> <small>Hz</small></strong></div>
+            <div><span>수신 관절 수</span><strong><b id="robot-axis-count">—</b> <small>/ 6</small></strong></div>
+            <div><span>마지막 관절 수신</span><strong id="robot-received" class="robot-time">—</strong></div>
+          </div>
+        </section>
+        <div class="robot-notice" id="robot-notice" role="status">연결 설정을 불러오는 중입니다.</div>
+        <section class="panel">
+          <div class="panel-head"><h2>관절 위치</h2><span id="joint-age" class="meta">수신 대기 · °</span></div>
+          <div class="robot-joints" id="robot-joints"></div>
+        </section>
+        <section class="panel" aria-labelledby="pose-title">
+          <div class="panel-head"><h2 id="pose-title">자세 테스트</h2><span class="meta" id="pose-bridge">rosbridge 확인 중</span></div>
+          <div class="pose-body">
+            <div class="pose-slots" aria-label="테스트 자세 선택">
+              <button type="button" data-pose="1" aria-pressed="true">자세 1</button>
+              <button type="button" data-pose="2" aria-pressed="false">자세 2</button>
+              <button type="button" data-pose="3" aria-pressed="false">자세 3</button>
+            </div>
+            <form id="pose-form">
+              <div class="pose-fields" id="pose-angles"></div>
+              <div class="pose-actions">
+                <span class="meta" id="pose-saved">저장값 조회 중</span>
+                <button id="pose-reload" type="button" hidden>저장값 불러오기</button>
+                <button id="pose-save" type="submit" disabled>자세 저장</button>
+                <button id="pose-execute" type="button" disabled>저장한 자세로 이동</button>
+              </div>
+            </form>
+            <p id="pose-feedback" role="status" hidden></p>
+            <p id="pose-last" role="status">실행 기록이 없습니다.</p>
+          </div>
+        </section>
+        <dialog id="pose-dialog">
+          <h2 id="pose-confirm-title"></h2><p id="pose-confirm-target"></p>
+          <p id="pose-confirm-angles" class="mono"></p><p class="meta" id="pose-confirm-speed"></p>
+          <div class="pose-actions"><button id="pose-cancel" type="button" autofocus>취소</button>
+            <button id="pose-confirm" type="button">이 자세로 이동</button></div>
+        </dialog>
+        <div class="robot-split">
+          <section class="panel"><div class="panel-head"><h2>모니터링 토픽</h2><span class="meta">관절 · 오류 · 연결 이벤트</span></div>
+            <div class="robot-topic-head"><span>토픽 이름</span><span>수신율</span><span>상태</span></div>
+            <div id="robot-topics"></div>
+          </section>
+          <section class="panel robot-inspector"><div class="panel-head"><h2>최근 메시지</h2><span id="message-time" class="meta">—</span></div>
+            <div class="robot-message"><strong id="selected-topic">토픽 선택</strong><pre id="robot-message">메시지 수신 대기 중</pre></div>
+          </section>
+        </div>
+        <div class="robot-footer"><p class="meta">관절 위치는 라디안을 도로 변환합니다. 화면 수신은 최대 10 Hz입니다.</p><button id="robot-pause" type="button" aria-pressed="false">표시 일시정지</button></div>
+      </div>
+    </div>
+  </main>
+</body>
+</html>

@@ -1,0 +1,9 @@
+*
+!app/
+!app/*.py
+!app/static/
+!app/static/robot*
+!app/static/packing.css
+!app/static/station-*
+!docker/
+!docker/robot-web-requirements.txt

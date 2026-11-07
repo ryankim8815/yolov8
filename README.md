@@ -2,7 +2,7 @@
 
 MacBook 카메라를 캡처하고, 브라우저에 탐지 영상과 객체 목록을 제공합니다. macOS 네이티브 **MPS / Core ML**을 지원하며 기본값은 YOLOv8n + MPS입니다. 환경은 **conda/mamba**로 관리합니다.
 
-Docker 구성은 Mac의 추론 서버 앞에서 HTTP·MJPEG·WebSocket을 중계합니다. **Docker 이미지에 MPS/Core ML 추론 엔진이나 내장 카메라를 넣는 구성이 아닙니다.** Docker Desktop의 Linux VM에서 macOS 프레임워크를 직접 실행하지 않습니다.
+Docker Compose가 두산 E0509 로봇 UI와 ROS 2 서비스를 실행합니다. 카메라 기능을 함께 사용할 때는 Mac의 MPS/Core ML 추론 서버가 영상을 처리하고 Docker 게이트웨이가 HTTP·MJPEG·WebSocket을 중계합니다.
 
 ## 1. conda/mamba 환경 생성
 
@@ -137,7 +137,7 @@ bash scripts/stop.sh
 
 Core ML 환경만 생성한 경우 위 종료 명령 마지막에 `coreml`을 추가합니다. 종료 대상은 백엔드와 관계없이 이 프로젝트에서 실행 중인 네이티브 서버입니다. Docker를 실행할 수 없는 상황에서도 통합 종료 명령은 Mac 서버 종료를 먼저 수행합니다.
 
-### 중계 컨테이너만 별도 관리
+### 카메라 서버와 Compose를 별도로 관리
 
 다음은 3절의 네이티브 서버를 별도 터미널에서 실행하는 수동 구성입니다. **이 방식에서는 `docker compose down`이 Mac 카메라 서버를 종료하지 않습니다.**
 
@@ -155,10 +155,10 @@ docker compose logs --tail=50 gateway
 ```
 
 - Docker Desktop과 Docker Compose 2.24 이상을 사용합니다. CLI가 PATH에 없으면 `/Applications/Docker.app/Contents/Resources/bin/docker`를 사용합니다. [Compose의 선택적 환경 파일](https://docs.docker.com/reference/compose-file/services/#required)
-- 컨테이너는 `host.docker.internal:8000`으로 연결합니다. 네이티브 서버를 종료하면 중계 경로는 502/504, 컨테이너 health는 unhealthy가 됩니다.
-- `/gateway-healthz`는 중계 프로세스만, `/healthz`는 네이티브 API 연결까지 확인합니다. `/readyz`는 실제 탐지 준비 상태를 확인합니다.
+- 컨테이너는 `host.docker.internal:8000`으로 연결합니다. 네이티브 서버가 꺼지면 루트는 로봇 화면으로 이동하고 카메라·학습 API는 502/504를 반환합니다.
+- `/gateway-healthz`는 nginx, `/robot-healthz`는 Compose 로봇 API, `/healthz`는 Mac 추론 API를 확인합니다. 게이트웨이 컨테이너는 `/robot-healthz`로 상태를 검사합니다. `/readyz`는 실제 탐지 준비 상태를 확인합니다.
 - MJPEG 버퍼링을 끄고 WebSocket 업그레이드를 전달합니다. 외부 공개 없이 `127.0.0.1:8080`에만 포트를 엽니다.
-- 이미지는 비루트 사용자로 실행하고 모델·영상·호스트 conda 환경을 이미지에 포함하지 않습니다.
+- nginx 게이트웨이는 비루트 사용자로 실행합니다.
 
 ```bash
 # 수동 구성 전체 종료: 카메라 서버와 중계 컨테이너 종료
@@ -192,6 +192,84 @@ YOLO_CAMERA_INDEX=1 YOLO_PREVIEW_FPS=10 bash scripts/start.sh mps
 | `WS /ws/detections?preview=true` | 미리보기 프레임마다 탐지 JSON과 같은 프레임의 JPEG 바이너리를 차례로 전송 |
 
 탐지 결과의 `xyxy`는 원본 이미지 좌상단 기준 픽셀 좌표입니다. `session_id`와 `frame_id`로 결과를 식별합니다. 물체가 없으면 `objects: []`를 전송합니다. 시각은 UTC, 지연 측정은 단조 증가 시계를 사용합니다. 표시된 서버 지연에는 센서 내부 대기와 브라우저 표시 지연이 포함되지 않습니다.
+
+### 두산 E0509 모니터링과 자세 테스트
+
+이 Mac에서는 Docker Desktop과 LAN 케이블로 로봇 화면을 운영합니다. 유선 어댑터 `en7`의 IP는 `110.120.1.12/24`, E0509 제어기는 `110.120.1.56`입니다. 장비 주소는 루트 `.env`에서 관리합니다. 처음 설치할 때만 `.env.example`을 `.env`로 복사하세요.
+
+**모니터링 시작**
+
+```bash
+docker compose up -d --build --wait
+docker compose ps
+```
+
+[로봇 모니터링](http://localhost:8080/robot)에서 여섯 관절의 각도와 마지막 수신 시각을 확인합니다. Compose가 `gateway`, `robot-web`, `rosbridge`, `joint-monitor`를 실행합니다. 로봇 화면에는 Mac Python이나 별도의 ROS 설치가 필요 없습니다. 자세는 `robot-state` 볼륨에 저장되며 `docker compose down` 이후에도 유지됩니다.
+
+기존 Mac 서버에서 전환할 때 저장한 자세가 있다면 첫 실행 전에 제어 UI를 닫고 빈 볼륨에 한 번 복사하세요. 이미 볼륨을 사용 중이라면 이 단계를 생략합니다. 호스트 폴더를 계속 사용하려면 Docker Desktop에서 공유 가능한 경로를 `ROBOT_STATE_STORAGE`에 지정할 수도 있습니다.
+
+```bash
+docker compose up -d --build rosbridge
+docker compose build robot-web
+tar -C state/robot -cf - . | docker compose run --rm -T --no-deps robot-web sh -ec 'cd /var/lib/vision/robot && test -z "$(ls -A)" && tar -xf -'
+```
+
+| 연결 | 기본값 | 용도 |
+| --- | --- | --- |
+| E0509 제어기 | `ROBOT_IP=110.120.1.56`, `ROBOT_PORT=12345` | 두산 DRFL SDK |
+| 읽기 전용 모니터 | `ROBOT_MODBUS_PORT=502` | 제어기 관절 레지스터 270~275 읽기 |
+| 웹 API → rosbridge | `ROBOT_ROS_PC_IP=127.0.0.1`, `ROBOT_ROSBRIDGE_PORT=9090` | 공유 네트워크 내부의 WebSocket |
+| ROS 그래프 | `ROS_DOMAIN_ID=0`, `ROBOT_NAMESPACE=dsr01` | 브리지·관절 모니터·드라이버가 공유 |
+
+**실장비 제어 연결**
+
+이 E0509는 DART-Platform V2.10.3으로 연결한 이력이 있습니다. Mac의 유선 LAN에서 DART 장치 검색을 실행했을 때 제어기 자체가 다음 정보를 반환했습니다. 버전은 Modbus 레지스터에서 추정한 값이 아닙니다.
+
+| 장치 IP | 시리얼 | 제어기(DRCF) | 통합 소프트웨어 |
+| --- | --- | --- | --- |
+| `110.120.1.56` | `YLYA56-E0509` | `GF02100300` (2.10.3) | `GV02100300` |
+
+Compose의 `hardware` 프로필은 E0509 제어기(`GF02100300`)에 대해 Linux SDK `GL010117`을 사용합니다. x86_64용 라이브러리이므로 하드웨어 드라이버는 Linux AMD64 / ROS 2 Humble로 빌드하며, Apple Silicon에서는 Docker Desktop이 에뮬레이션합니다. 브리지와 관절 모니터도 Humble을 사용합니다. Compose의 세 ROS 프로세스는 같은 네트워크에서 Fast DDS의 UDP 전송과 루프백 장치 검색을 사용합니다. 빌드는 고정된 SDK의 헤더·정적 라이브러리·Poco를 사용하며, 라이브러리가 반환한 버전도 검사합니다. [두산 SDK 소스](https://github.com/DoosanRobotics/API-DRFL/tree/ddf59fad8bbd71d8aa318bf5f00349913b33f334) · [E0509용 Humble 드라이버 소스](https://github.com/DoosanRobotics/doosan-robot2/tree/1634069af9cf4b9d446f97aeff2bc0f37dfc6f7d)
+
+먼저 기본 모니터링을 기동한 상태에서 SDK 접속을 검사하세요. 이 검사는 제어권 요청 없이 DRCF 버전과 현재 관절각을 조회합니다. 이미 제어 드라이버가 연결되어 있으면 이 진단 대신 실행 중인 드라이버의 상태를 확인하세요.
+
+```bash
+docker compose --profile hardware build doosan-driver
+docker compose run --rm --no-deps doosan-driver check-e0509 --sdk-version  # GL010117
+docker compose run --rm --no-deps doosan-driver timeout 15 check-e0509
+```
+
+진단이 성공하고 실장비 작업 공간이 준비되었을 때 아래 명령을 실행하세요. 드라이버는 `mode:=real model:=e0509 gui:=false`로 시작하며 제어권을 요청하고 서보를 켤 수 있습니다. Compose는 드라이버의 6축 관절 토픽과 상태·이동 서비스가 발견될 때까지 기다립니다.
+
+```bash
+docker compose --profile hardware up -d --build --wait --wait-timeout 150
+docker compose --profile hardware ps -a
+docker compose logs --tail 60 doosan-driver
+```
+
+드라이버만 종료해 읽기 전용 모니터링으로 돌아가려면 `docker compose stop doosan-driver`, 전체를 종료하려면 `docker compose --profile hardware down`을 사용하세요.
+
+**읽기 전용이 계속 표시될 때**
+
+이 Mac의 Docker Desktop에서 SDK 배포본 1.33.0~1.33.5를 시험한 결과, 모두 `open_connection`에서 실패했습니다. 1.31.0과 1.32.1은 이 함수가 성공을 반환했지만 즉시 연결 종료 알림이 발생했고 제어기 버전을 조회할 수 없었습니다. 두산은 1.33.4에서 `open_connection` 도중 연결이 끊겼는데도 이를 감지하지 못하는 문제를 수정했다고 설명합니다. [두산 SDK 릴리스 노트](https://github.com/DoosanRobotics/API-DRFL/releases)
+
+이 Mac의 Docker Desktop에서 `GL010117`을 비교했을 때, `110.120.1.56:12345` 연결 종료 콜백이 먼저 발생하고 `open_connection`은 참을 반환했습니다. 드라이버와 진단 명령은 이 경우 연결 실패로 처리합니다. `--sdk-version`은 로봇에 접속하지 않고 링크된 SDK를 확인합니다. 실장비 세션의 성공 기준은 `check-e0509`가 제어기 버전과 여섯 관절각을 모두 출력하고 성공 종료하는 것입니다.
+
+`/dsr01/monitor/joint_states`는 제어기의 Modbus TCP FC03으로 수신한 실제 각도입니다. UI는 드라이버에서 `/dsr01/joint_states`가 수신되면 해당 토픽으로 전환합니다. 자세 명령은 드라이버의 최신 6축 데이터와 STANDBY 응답이 필요합니다. [두산 ModbusTCP 설명](https://manual.doosanrobotics.com/en/user-manual/3.6.0/3-e-series/setting-modbustcp-slave)
+
+`DRFL open_connection failed` 또는 `DRCF connecting ERROR`가 출력되면 SDK 연결 단계에서 막힌 것입니다. 이 Mac에서는 DART 장치 검색과 Modbus 관절 조회가 성공해도 Docker의 SDK 세션은 성립하지 않았습니다. EtherNet/IP가 반환한 `2.63`은 CIP 어댑터 리비전입니다. 다른 장비의 버전을 확인할 때는 Windows DART Platform의 **장치 검색** 결과에서 IP·시리얼·제어기 버전을 확인하세요. 제어권을 가져올 필요는 없습니다. [두산 DART Platform 장치 검색](https://manual.doosanrobotics.com/ko/user-manual/3.2.1/3-e-series/dart-platform)
+
+같은 유선망의 Linux PC에서 기존 제어 드라이버가 종료된 상태라면, 다음 명령 하나로 SDK를 비교할 수 있습니다. 컨테이너가 Linux 호스트 네트워크에서 제어기 버전과 현재 관절각만 조회한 뒤 종료합니다. 두 값이 모두 출력되면 SDK 세션을 확인한 것입니다. [Docker 호스트 네트워크 제약](https://docs.docker.com/engine/network/drivers/host/)
+
+```bash
+docker compose -f docker-compose.yml -f rosbridge/compose.host.yml run --build --rm --no-deps doosan-driver timeout 15 check-e0509
+```
+
+**운영 → 로봇 모니터링 → 자세 테스트.** 자세 1·2·3에 각각 J1~J6 **절대 관절각(°)**을 입력하고 저장합니다. 초기 슬롯은 비어 있습니다. 저장값은 Compose 자세 볼륨에서 제어기 IP·포트·네임스페이스별로 보관됩니다. 저장과 이동은 별도 버튼입니다.
+
+**저장한 자세로 이동**을 누르면 확인창에서 6개 목표각과 속도를 확인합니다. 실행 시 서버가 최신 6축 데이터와 `/<namespace>/system/get_robot_state`의 STANDBY 응답을 확인한 뒤 `/<namespace>/motion/move_joint`에 한 번 요청합니다. 속도는 10 °/s, 가속도는 10 °/s²입니다. 위치 범위 검사는 모델의 관절 한계를 기준으로 하며 실제 작업 공간과 충돌 여유는 작업자가 확인해야 합니다. 수신 지연, 표시 일시정지 또는 연결 끊김 시 화면에서 이동을 시작할 수 없습니다. 드라이버 응답에 따라 완료·실패·결과 미확인이 표시됩니다. 통신이 끊기면 마지막 값을 보존하며 이동을 자동 재전송하지 않습니다. **표시 일시정지**는 화면 갱신에만 적용됩니다.
+
+`GET /api/robot/status`에서 연결, 토픽, 저장 자세와 최근 명령 결과를 확인할 수 있습니다. 관절 데이터는 rad에서 °로 변환하고 화면 수신율은 최대 10 Hz입니다. 관절 수신이 끊기면 드라이버 로그에서 SDK 연결 종료 여부를 확인하세요. [두산 MoveJoint 정의](https://github.com/DoosanRobotics/doosan-robot2/blob/dade65d3a99dd8b29d8eca3689a4ead74f228d77/dsr_msgs2/srv/MoveJoint.srv) · [rosbridge 통신 규약](https://github.com/RobotWebTools/rosbridge_suite/blob/ros2/ROSBRIDGE_PROTOCOL.md)
 
 ## 6. 테스트와 성능 비교
 

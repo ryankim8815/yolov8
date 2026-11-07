@@ -1,0 +1,216 @@
+--- a/dsr_hardware2/src/dsr_hw_interface2.cpp
++++ b/dsr_hardware2/src/dsr_hw_interface2.cpp
+@@ -15,4 +15,7 @@
+ #include <boost/bind.hpp>
+ #include <sstream>
++#include <atomic>
++#include "dsr_msgs2/msg/robot_disconnection.hpp"
++#include <chrono>
+ #include <string>
+ #include <vector>
+@@ -31,6 +34,10 @@
+ sensor_msgs::msg::JointState msg;
+ bool g_bIsEmulatorMode = FALSE;
+-bool g_bHasControlAuthority = FALSE;
+-bool g_bTpInitailizingComplted = FALSE;
++static std::atomic<bool> has_authority{false};
++static std::atomic<bool> link_lost{false};
++static std::atomic<bool> tp_ready{false};
++
++bool sdk_has_authority() { return has_authority && !link_lost; }
++
+ bool g_bHommingCompleted = FALSE;
+ 
+@@ -188,5 +195,14 @@
+         usleep(nDelay);
+     }
+-    if(Drfl.open_connection(m_host, m_port))
++    link_lost = false;
++    has_authority = false;
++    tp_ready = false;
++    static auto disconnect_publisher = m_node_->create_publisher<dsr_msgs2::msg::RobotDisconnection>("robot_disconnection", 10);
++    Drfl.set_on_disconnected([] {
++        link_lost = true;
++        has_authority = false;
++        disconnect_publisher->publish(dsr_msgs2::msg::RobotDisconnection{});
++    });
++    if (Drfl.open_connection(m_host, m_port) && !link_lost)
+     {
+         RCLCPP_INFO(rclcpp::get_logger("dsr_hw_interface2"),"_______________________________________________\n"); 
+@@ -200,5 +216,8 @@
+         //--- Get version -------------------------------------            
+         SYSTEM_VERSION tSysVerion = {'\0', };
+-        assert(Drfl.get_system_version(&tSysVerion));
++        if (!Drfl.get_system_version(&tSysVerion) || !tSysVerion._szController[0] || link_lost) {
++            RCLCPP_ERROR(s_node_->get_logger(), "SDK session ended before the controller returned its version");
++            return CallbackReturn::ERROR;
++        }
+ 
+         //--- Get DRCF version & convert to integer  ----------            
+@@ -225,15 +244,22 @@
+ 
+         //--- Check Robot State : STATE_STANDBY ---               
+-        while ((Drfl.GetRobotState() != STATE_STANDBY)){
+-            usleep(nDelay);
++        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
++        while (!tp_ready && !link_lost && std::chrono::steady_clock::now() < deadline) usleep(nDelay);
++        if (link_lost || !tp_ready || !Drfl.manage_access_control(MANAGE_ACCESS_CONTROL_REQUEST))
++            return CallbackReturn::ERROR;
++        while (!link_lost && std::chrono::steady_clock::now() < deadline &&
++               (!has_authority || Drfl.GetRobotState() != STATE_STANDBY)) usleep(nDelay);
++        if (!sdk_has_authority() || Drfl.GetRobotState() != STATE_STANDBY) {
++            RCLCPP_ERROR(s_node_->get_logger(), "Controller authority / STANDBY unavailable");
++            return CallbackReturn::ERROR;
+         }
+ 
+         //--- Set Robot mode : MANUAL or AUTO
+-        assert(Drfl.SetRobotMode(ROBOT_MODE_AUTONOMOUS));
++        if (!Drfl.SetRobotMode(ROBOT_MODE_AUTONOMOUS)) return CallbackReturn::ERROR;
+ 
+         //--- Set Robot mode : virual or real 
+         ROBOT_SYSTEM eTargetSystem = ROBOT_SYSTEM_VIRTUAL;
+         if(m_mode == "real") eTargetSystem = ROBOT_SYSTEM_REAL;
+-        assert(Drfl.SetRobotSystem(eTargetSystem));
++        if (!Drfl.SetRobotSystem(eTargetSystem)) return CallbackReturn::ERROR;
+ 
+         // to compare with g_joints[].cmd
+@@ -303,4 +329,8 @@
+     msg.header.stamp.nanosec = now_ns;
+ 
++    auto pose = Drfl.get_current_posj();
++    if (link_lost || !pose) return return_type::ERROR;
++    for (float angle : pose->_fPosition)
++        if (!std::isfinite(angle)) return return_type::ERROR;
+     msg.name.push_back("joint_1");
+     msg.name.push_back("joint_2");
+@@ -309,5 +339,4 @@
+     msg.name.push_back("joint_5");
+     msg.name.push_back("joint_6");
+-    LPROBOT_POSE pose = Drfl.GetCurrentPose();
+     // for (int i = 0; i < 6; i++){
+     //     RCLCPP_INFO(rclcpp::get_logger("dsr_hw_interface2"), " : %.2f", pose->_fPosition[i]);
+@@ -320,5 +349,5 @@
+     for (auto i = 0ul; i < joint_position_command_.size(); i++)
+     {
+-        joint_position_[i] = joint_position_command_[i];
++        joint_position_[i] = deg2rad(pose->_fPosition[i]);
+         
+         g_joints[i].pos = deg2rad(pose->_fPosition[i]);
+@@ -401,8 +430,5 @@
+     // request control authority after TP initialized
+     cout << "[callback OnTpInitializingCompletedCB] tp initializing completed" << endl;
+-    g_bTpInitailizingComplted = TRUE;
+-    //Drfl.manage_access_control(MANAGE_ACCESS_CONTROL_REQUEST);
+-    Drfl.manage_access_control(MANAGE_ACCESS_CONTROL_FORCE_REQUEST);
+-
++    tp_ready = true;
+     g_stDrState.bTpInitialized = TRUE;
+ }
+@@ -633,50 +659,4 @@
+     // Only work within 50msec
+     
+-    switch((unsigned char)eState)
+-    {
+-#if 0 // TP initializing logic, Don't use in API level. (If you want to operate without TP, use this logic)       
+-    case eSTATE_NOT_READY:
+-    if (g_bHasControlAuthority) Drfl.set_robot_control(CONTROL_INIT_CONFIG);
+-        break;
+-    case eSTATE_INITIALIZING:
+-        // add initalizing logic
+-        if (g_bHasControlAuthority) Drfl.set_robot_control(CONTROL_ENABLE_OPERATION);
+-        break;
+-#endif      
+-    case STATE_EMERGENCY_STOP:
+-        // popup
+-        break;
+-    case STATE_STANDBY:
+-    case STATE_MOVING:
+-    case STATE_TEACHING:
+-        break;
+-    case STATE_SAFE_STOP:
+-        if (g_bHasControlAuthority) {
+-            Drfl.set_safe_stop_reset_type(SAFE_STOP_RESET_TYPE_DEFAULT);
+-            Drfl.set_robot_control(CONTROL_RESET_SAFET_STOP);
+-            Drfl.set_safety_mode(SAFETY_MODE_AUTONOMOUS,SAFETY_MODE_EVENT_MOVE);
+-        }
+-        break;
+-    case STATE_SAFE_OFF:
+-        if (g_bHasControlAuthority){
+-            Drfl.set_robot_control(CONTROL_SERVO_ON);
+-            Drfl.set_robot_mode(ROBOT_MODE_AUTONOMOUS);   //Idle Servo Off 후 servo on 하는 상황 발생 시 set_robot_mode 명령을 전송해 manual 로 전환. add 2020/04/28
+-        } 
+-        break;
+-    case STATE_SAFE_STOP2:
+-        if (g_bHasControlAuthority) Drfl.set_robot_control(CONTROL_RECOVERY_SAFE_STOP);
+-        break;
+-    case STATE_SAFE_OFF2:
+-        if (g_bHasControlAuthority) {
+-            Drfl.set_robot_control(CONTROL_RECOVERY_SAFE_OFF);
+-        }
+-        break;
+-    case STATE_RECOVERY:
+-        Drfl.set_robot_control(CONTROL_RESET_RECOVERY);
+-        break;
+-    default:
+-        break;
+-    }
+-
+     cout << "[callback OnMonitoringStateCB] current state: " << GetRobotStateString((int)eState) << endl;
+     g_stDrState.nRobotState = (int)eState;
+@@ -699,6 +679,7 @@
+         RCLCPP_INFO(rclcpp::get_logger("dsr_hw_interface2"),"    Access control granted ");
+         RCLCPP_INFO(rclcpp::get_logger("dsr_hw_interface2"),"_______________________________________________\n");   
+-        g_bHasControlAuthority = TRUE;
+-        OnMonitoringStateCB(Drfl.GetRobotState());
++        has_authority = TRUE;
++        if (!link_lost && Drfl.GetRobotState() == STATE_SAFE_OFF)
++            Drfl.set_robot_control(CONTROL_SERVO_ON);
+         break;
+     case MONITORING_ACCESS_CONTROL_DENY:
+@@ -708,8 +689,5 @@
+         break;
+     case MONITORING_ACCESS_CONTROL_LOSS:
+-        g_bHasControlAuthority = FALSE;
+-        if (g_bTpInitailizingComplted) {
+-            Drfl.ManageAccessControl(MANAGE_ACCESS_CONTROL_REQUEST);
+-        }
++        has_authority = FALSE;
+         break;
+     default:
+--- a/dsr_controller2/src/dsr_controller2.cpp
++++ b/dsr_controller2/src/dsr_controller2.cpp
+@@ -29,4 +29,5 @@
+ 
+ extern void* get_drfl();
++extern bool sdk_has_authority();
+ CDRFLEx *Drfl = (CDRFLEx*)get_drfl();
+ rclcpp::Node::SharedPtr m_node_ = nullptr;
+@@ -155,5 +156,5 @@
+ 
+     res->robot_state = Drfl->get_robot_state();
+-    res->success = true;
++    res->success = sdk_has_authority();
+     return true;
+ };
+@@ -234,4 +235,5 @@
+     RCLCPP_INFO(rclcpp::get_logger("dsr_controller2"),"movej_cb() %p", Drfl);
+     res->success = false;
++    if (!sdk_has_authority() || Drfl->get_robot_state() != STATE_STANDBY) return false;
+     std::array<float, NUM_JOINT> target_pos;
+     std::copy(req->pos.cbegin(), req->pos.cend(), target_pos.begin());
+--- a/dsr_bringup2/launch/dsr_bringup2_rviz.launch.py
++++ b/dsr_bringup2/launch/dsr_bringup2_rviz.launch.py
+@@ -124,5 +124,5 @@
+         output="log",
+         arguments=["-d", rviz_config_file],
+-        # condition=IfCondition(gui),
++        condition=IfCondition(LaunchConfiguration('gui')),
+     )
+ 
+@@ -170,5 +170,5 @@
+         robot_state_pub_node,
+         robot_controller_spawner,
+-        joint_state_broadcaster_spawner,
++        # The hardware publishes measured angles on joint_states directly.
+         delay_rviz_after_joint_state_broadcaster_spawner,
+         # delay_robot_controller_spawner_after_joint_state_broadcaster_spawner,

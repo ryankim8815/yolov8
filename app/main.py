@@ -13,6 +13,7 @@ from .config import Settings
 from .packing_api import router as packing_router
 from .pipeline import Pipeline
 from .runtime import Runtime
+from .robot_web import install_robot_routes, robot_runtime
 from .store import DomainError
 from .training_api import router
 from .voice import Voice, router as voice_router
@@ -74,8 +75,9 @@ def create_app(settings=None, pipeline_factory=Pipeline, state_root=None):
         application.state.voice = voice
         try:
             pipeline.start()
-            await voice.start()
-            yield
+            async with robot_runtime(application, state_root or settings.state_dir, native=True):
+                await voice.start()
+                yield
         finally:
             try:
                 await voice.stop()
@@ -86,6 +88,7 @@ def create_app(settings=None, pipeline_factory=Pipeline, state_root=None):
     application.include_router(router())
     application.include_router(packing_router)
     application.include_router(voice_router)
+    install_robot_routes(application)
 
     @application.exception_handler(DomainError)
     async def domain_error(request, exc):

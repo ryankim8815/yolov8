@@ -93,14 +93,18 @@ class StackTests(unittest.TestCase):
 
     def test_native_child_receives_compose_settings_with_shell_overrides(self):
         container_env = ["YOLO_VOICE_ENABLED=1", "YOLO_VOICE_BARGE_IN=0", "YOLO_STATE_DIR=/tmp/a $b=c",
-                         "YOLO_BACKEND=mps", "PATH=/container/bin", "GATEWAY_ONLY=yes"]
+                         "YOLO_BACKEND=mps", "ROBOT_IP=110.120.1.56", "ROBOT_ROS_PC_IP=192.168.1.2",
+                         "ROBOT_ROSBRIDGE_PORT=9091",
+                         "PATH=/container/bin", "GATEWAY_ONLY=yes"]
         shell_env = {"PATH": "/mac/bin", "YOLO_VOICE_BARGE_IN": "1", "YOLO_BACKEND": "coreml"}
         with patch.dict(os.environ, shell_env, clear=True), \
              patch.object(stack.shutil, "which", return_value="/usr/bin/docker"), \
              patch.object(stack.subprocess, "run") as inspect:
             inspect.return_value.stdout = json.dumps(container_env)
             env = stack.Gateway().native_environment("our-container-id")
-        self.assertEqual(env, {**shell_env, "YOLO_VOICE_ENABLED": "1", "YOLO_STATE_DIR": "/tmp/a $b=c"})
+        self.assertEqual(env, {**shell_env, "YOLO_ROBOT_WEB_OWNER": "compose", "YOLO_VOICE_ENABLED": "1", "YOLO_STATE_DIR": "/tmp/a $b=c",
+                               "ROBOT_IP": "110.120.1.56", "ROBOT_ROS_PC_IP": "192.168.1.2",
+                               "ROBOT_ROSBRIDGE_PORT": "9091"})
 
 
 if __name__ == "__main__":

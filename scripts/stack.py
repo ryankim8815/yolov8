@@ -109,7 +109,7 @@ class Gateway:
                               capture_output=capture, timeout=timeout)
 
     def start(self):
-        self.compose("up", "--build", "-d", "gateway")
+        self.compose("up", "--build", "-d", "gateway", "joint-monitor", timeout=1800)
         container_id = self.compose("ps", "-q", "gateway", capture=True, timeout=5).stdout.strip()
         if not container_id:
             raise RuntimeError("Gateway did not start; the camera server was not started.")
@@ -120,8 +120,8 @@ class Gateway:
         result = subprocess.run([self.docker, "inspect", "--format", "{{json .Config.Env}}", container_id],
                                 env=self.env, check=True, text=True, stdout=subprocess.PIPE, timeout=5)
         settings = dict(entry.split("=", 1) for entry in json.loads(result.stdout)
-                        if entry.startswith("YOLO_") and "=" in entry)
-        return {**settings, **os.environ}
+                        if entry.startswith(("YOLO_", "ROBOT_")) and "=" in entry)
+        return {**settings, **os.environ, "YOLO_ROBOT_WEB_OWNER": "compose"}
 
     def running(self, container_id):
         try:
@@ -133,7 +133,7 @@ class Gateway:
             return False
 
     def stop(self):
-        self.compose("down", timeout=20)
+        self.compose("down", "gateway", timeout=20)
 
 
 def supervise(server, gateway_running):
