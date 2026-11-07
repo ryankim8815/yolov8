@@ -77,7 +77,11 @@
 #pose-last { border-top: 1px solid var(--line); padding-top: 12px; color: var(--sub); }
 #pose-last[data-state="completed"] { color: var(--mint); }
 #pose-last[data-state="failed"], #pose-last[data-state="unknown"] { color: var(--amber); }
-#pose-dialog { width: min(440px, 92vw); padding: 20px; color: var(--ink); background: var(--surface); border: 1px solid var(--line); border-radius: 10px; }
-#pose-dialog::backdrop { background: #0b1d25aa; }
-#pose-dialog p { margin: 10px 0; font-size: 13px; }
+#pose-dialog, #control-dialog { width: min(440px, 92vw); padding: 20px; color: var(--ink); background: var(--surface); border: 1px solid var(--line); border-radius: 10px; }
+#pose-dialog::backdrop, #control-dialog::backdrop { background: #0b1d25aa; }
+#pose-dialog p, #control-dialog p { margin: 10px 0; font-size: 13px; }
+.robot-control { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; padding: 16px 20px; border-top: 1px solid var(--line); }
+.robot-control p { margin-top: 5px; font-size: 13px; }
+#control-result[data-success="true"] { color: var(--mint); }
+#control-result[data-success="false"] { color: var(--amber); }
 @media (max-width: 700px) { .pose-fields { grid-template-columns: repeat(3,minmax(0,1fr)); } }

@@ -218,7 +218,7 @@ tar -C state/robot -cf - . | docker compose run --rm -T --no-deps robot-web sh -
 | --- | --- | --- |
 | E0509 제어기 | `ROBOT_IP=110.120.1.56`, `ROBOT_PORT=12345` | 두산 DRFL SDK |
 | 읽기 전용 모니터 | `ROBOT_MODBUS_PORT=502` | 제어기 관절 레지스터 270~275 읽기 |
-| 웹 API → rosbridge | `ROBOT_ROS_PC_IP=127.0.0.1`, `ROBOT_ROSBRIDGE_PORT=9090` | 공유 네트워크 내부의 WebSocket |
+| 웹 API → rosbridge | `ROBOT_ROS_PC_IP=127.0.0.1`, `ROBOT_ROSBRIDGE_PORT=9090` | 기본 Compose에서 `rosbridge:9090`, Linux host 구성에서 `127.0.0.1:9090`으로 연결 |
 | ROS 그래프 | `ROS_DOMAIN_ID=0`, `ROBOT_NAMESPACE=dsr01` | 브리지·관절 모니터·드라이버가 공유 |
 
 **실장비 제어 연결**
@@ -229,7 +229,7 @@ tar -C state/robot -cf - . | docker compose run --rm -T --no-deps robot-web sh -
 | --- | --- | --- | --- |
 | `110.120.1.56` | `YLYA56-E0509` | `GF02100300` (2.10.3) | `GV02100300` |
 
-Compose의 `hardware` 프로필은 E0509 제어기(`GF02100300`)에 대해 Linux SDK `GL010117`을 사용합니다. x86_64용 라이브러리이므로 하드웨어 드라이버는 Linux AMD64 / ROS 2 Humble로 빌드하며, Apple Silicon에서는 Docker Desktop이 에뮬레이션합니다. 브리지와 관절 모니터도 Humble을 사용합니다. Compose의 세 ROS 프로세스는 같은 네트워크에서 Fast DDS의 UDP 전송과 루프백 장치 검색을 사용합니다. 빌드는 고정된 SDK의 헤더·정적 라이브러리·Poco를 사용하며, 라이브러리가 반환한 버전도 검사합니다. [두산 SDK 소스](https://github.com/DoosanRobotics/API-DRFL/tree/ddf59fad8bbd71d8aa318bf5f00349913b33f334) · [E0509용 Humble 드라이버 소스](https://github.com/DoosanRobotics/doosan-robot2/tree/1634069af9cf4b9d446f97aeff2bc0f37dfc6f7d)
+Compose의 `hardware` 프로필은 E0509 제어기(`GF02100300`)에 대해 Linux SDK `GL010117`을 사용합니다. x86_64용 라이브러리이므로 하드웨어 드라이버는 Linux AMD64 / ROS 2 Humble로 빌드하며, Apple Silicon에서는 Docker Desktop이 에뮬레이션합니다. 브리지와 관절 모니터도 Humble을 사용합니다. 기본 Compose에서는 각 ROS 컨테이너가 독립적인 네트워크 주소를 사용하고 Fast DDS가 UDP 멀티캐스트로 같은 도메인의 참여자를 검색합니다. Linux host 구성은 루프백 검색을 유지합니다. 빌드는 고정된 SDK의 헤더·정적 라이브러리·Poco를 사용하며, 라이브러리가 반환한 버전도 검사합니다. [두산 SDK 소스](https://github.com/DoosanRobotics/API-DRFL/tree/ddf59fad8bbd71d8aa318bf5f00349913b33f334) · [E0509용 Humble 드라이버 소스](https://github.com/DoosanRobotics/doosan-robot2/tree/1634069af9cf4b9d446f97aeff2bc0f37dfc6f7d)
 
 먼저 기본 모니터링을 기동한 상태에서 SDK 접속을 검사하세요. 이 검사는 제어권 요청 없이 DRCF 버전과 현재 관절각을 조회합니다. 이미 제어 드라이버가 연결되어 있으면 이 진단 대신 실행 중인 드라이버의 상태를 확인하세요.
 
@@ -239,13 +239,33 @@ docker compose run --rm --no-deps doosan-driver check-e0509 --sdk-version  # GL0
 docker compose run --rm --no-deps doosan-driver timeout 15 check-e0509
 ```
 
-진단이 성공하고 실장비 작업 공간이 준비되었을 때 아래 명령을 실행하세요. 드라이버는 `mode:=real model:=e0509 gui:=false`로 시작하며 제어권을 요청하고 서보를 켤 수 있습니다. Compose는 드라이버의 6축 관절 토픽과 상태·이동 서비스가 발견될 때까지 기다립니다.
+Docker에서 SDK 강제 인계만 시험하려면 로봇이 정지한 상태에서 아래 명령을 실행하세요. 검사기는 `MANAGE_ACCESS_CONTROL_FORCE_REQUEST`를 한 번 보내고, `Access callback: GRANT`를 받으면 검사기 세션이 제어권을 획득한 것입니다. 결과를 출력하면 연결을 닫습니다. ROS 2 드라이버를 기동할 때 이 검사를 먼저 실행할 필요는 없습니다.
+
+```bash
+docker compose run --rm doosan-driver check-e0509 --force-request-access
+```
+
+Apple Silicon Mac에서 SDK 제어권을 한 번 요청할 때는 저장소 루트에서 아래 명령을 사용하세요. 처음 준비할 때는 Xcode 명령줄 도구, CMake, GNU Make 4 이상(`gmake`), Docker Desktop이 필요합니다. 준비가 끝나면 검사기는 Mac의 유선 LAN을 통해 직접 연결합니다.
+
+```bash
+bash rosbridge/host-sdk/prepare.sh                       # 첫 설치 또는 검사기 재빌드
+python3 scripts/check_robot_sdk_host.py --sdk-version    # 로봇에 접속하지 않고 빌드 확인
+python3 scripts/check_robot_sdk_host.py --force-request-access
+```
+
+`--force-request-access`는 로봇이 `STANDBY` 또는 `SAFE_OFF`이고 SDK 초기화가 완료되면 `MANAGE_ACCESS_CONTROL_FORCE_REQUEST`를 한 번 보냅니다. 승인되면 기존 보유자가 제어권을 잃을 수 있습니다. `Forced access request sent`는 전송 성공이며, `Access callback: GRANT`가 이 검사기 세션의 획득을 확인합니다. `DENY`는 거절, `LOSS`는 제어권 상실, 10초간 응답이 없으면 결과 미확인입니다. 검사기는 서보나 이동 명령을 보내지 않고 결과를 출력한 뒤 연결을 닫습니다. 일반 인계 요청은 `--request-access`, 읽기 전용 조회는 옵션 없이 실행하세요.
+
+실장비 작업 공간이 준비되었을 때 아래 명령을 실행하세요. Docker의 `hardware` 프로필은 ROS 2 드라이버를 `--force-request-access`로 시작합니다. 드라이버는 자신의 SDK 세션에서 강제 인계를 한 번 요청하며, 승인되면 기존 보유자가 제어권을 잃을 수 있습니다. 로그의 `Forced access request sent`는 전송, `Access control granted`는 승인입니다. 드라이버는 승인 시 `SAFE_OFF`이면 서보 ON을 요청하고 `STANDBY`를 확인한 뒤 자동 모드를 설정합니다. Compose는 6축 관절 토픽과 상태·이동 서비스가 발견될 때까지 기다립니다.
 
 ```bash
 docker compose --profile hardware up -d --build --wait --wait-timeout 150
 docker compose --profile hardware ps -a
 docker compose logs --tail 60 doosan-driver
 ```
+
+화면의 **rosbridge 연결 대기**는 웹이 WebSocket에 재연결 중이라는 뜻입니다. **회수 서비스 대기**는 WebSocket은 연결됐고 `/<namespace>/system/reclaim_control`이 아직 발견되지 않은 상태입니다. 이때는 `docker compose ps doosan-driver`와 `docker compose logs --tail 100 doosan-driver`로 SDK 연결 및 초기화 오류를 확인하세요.
+
+드라이버가 실행 중에 제어권을 잃으면 [로봇 모니터링](http://localhost:8080/robot)에서 **제어권 회수**를 누르고 대상 제어기를 확인한 뒤 **회수 요청**을 선택하세요. 드라이버가 기존 SDK 연결로 한 번 요청하고 화면에 결과를 표시합니다. 이미 보유 중이면 즉시 알려줍니다. 이 버튼은 서보를 켜거나 로봇을 움직이지 않습니다. 버튼에 서비스 대기가 표시되면 `hardware` 프로필의 드라이버가 실행 중인지 확인하세요.
 
 드라이버만 종료해 읽기 전용 모니터링으로 돌아가려면 `docker compose stop doosan-driver`, 전체를 종료하려면 `docker compose --profile hardware down`을 사용하세요.
 

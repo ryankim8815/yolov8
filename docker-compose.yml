@@ -1,6 +1,6 @@
 name: yolov8-local
 # docker compose up -d --build: robot UI, API, rosbridge and read-only telemetry.
-# --profile hardware also starts the real Doosan driver (can request authority and enable servos).
+# --profile hardware starts the real Doosan driver with --force-request-access and can enable servos.
 services:
   rosbridge:
     build:
@@ -8,7 +8,6 @@ services:
       additional_contexts:
         dsr_interfaces: "${DOOSAN_MSGS_CONTEXT:-https://github.com/DoosanRobotics/doosan-robot2.git#dade65d3a99dd8b29d8eca3689a4ead74f228d77:dsr_msgs2}"
     image: yolov8-e0509-rosbridge:humble
-    ipc: shareable
     ports:
       - "${ROBOT_BRIDGE_BIND_IP:-127.0.0.1}:${ROBOT_ROSBRIDGE_PORT:-9090}:${ROBOT_ROSBRIDGE_PORT:-9090}"
     environment:
@@ -22,8 +21,6 @@ services:
     image: yolov8-e0509-rosbridge:humble
     pull_policy: never
     depends_on: [rosbridge]
-    network_mode: service:rosbridge
-    ipc: service:rosbridge
     environment:
       ROS_DOMAIN_ID: "${ROS_DOMAIN_ID:-0}"
       ROBOT_IP: "${ROBOT_IP:-110.120.1.56}"
@@ -38,8 +35,8 @@ services:
       dockerfile: docker/robot-web.Dockerfile
     image: yolov8-robot-web:local
     depends_on: [rosbridge]
-    network_mode: service:rosbridge
     environment:
+      ROBOT_BRIDGE_NETWORK: compose
       ROBOT_IP: "${ROBOT_IP:-110.120.1.56}"
       ROBOT_PORT: "${ROBOT_PORT:-12345}"
       ROBOT_NAMESPACE: "${ROBOT_NAMESPACE:-dsr01}"
@@ -78,8 +75,6 @@ services:
         DRCF_MAJOR: "${ROBOT_DRCF_MAJOR:-2}"
     image: yolov8-e0509-driver:humble-gl010117
     depends_on: [rosbridge]
-    network_mode: service:rosbridge
-    ipc: service:rosbridge
     environment:
       ROS_DOMAIN_ID: "${ROS_DOMAIN_ID:-0}"
       ROBOT_IP: "${ROBOT_IP:-110.120.1.56}"

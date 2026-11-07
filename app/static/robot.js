@@ -15,6 +15,7 @@ let latest = null;
 let requestController = null;
 let stopped = false;
 let apiUnavailable = false;
+let reclaimPending = false;
 let configSignature = "";
 let topicSignature = "";
 
@@ -37,7 +38,7 @@ function renderConfig(config) {
   get("bridge-port").textContent = config.rosbridge_port;
   const entries = [
     ["E0509 제어기 IP", config.ip, "ROBOT_IP"], ["E0509 제어기 TCP 포트", config.port, "ROBOT_PORT"],
-    ["rosbridge 호스트 IP", config.ros_pc_ip || "미설정", "ROBOT_ROS_PC_IP"],
+    ["rosbridge 연결 호스트", config.rosbridge_host || config.ros_pc_ip || "미설정", "ROBOT_ROS_PC_IP"],
     ["rosbridge 수신 포트", config.rosbridge_port, "ROBOT_ROSBRIDGE_PORT"],
     ["ROS 2 네임스페이스", config.namespace, "ROBOT_NAMESPACE"]
   ];
@@ -88,6 +89,7 @@ function renderTopics(topics) {
 
 function render(data) {
   if (!data) return;
+  renderControl();
   renderPoseTests(data, {paused, apiUnavailable});
   renderConfig(data.config);
   const joint = data.topics.find(topic => topic.name === data.display_joint_topic) || data.topics[0];
@@ -129,6 +131,51 @@ function render(data) {
   renderTopics(data.topics);
 }
 
+function renderControl() {
+  const pending = reclaimPending || latest?.reclaim_pending;
+  const reason = paused ? "화면 표시를 재개하면 요청할 수 있습니다." :
+    apiUnavailable ? "웹 상태 API 응답 대기" :
+    !latest?.bridge_connected ? "rosbridge 연결 대기" :
+    !latest.reclaim_available ? "회수 서비스 대기 · rosbridge 연결됨. doosan-driver의 SDK 연결과 초기화 상태를 확인하세요." :
+    pending ? "드라이버의 제어권 응답을 기다리고 있습니다." : "드라이버에 제어권 회수를 요청할 수 있습니다.";
+  get("control-availability").textContent = reason;
+  const disabled = !!pending || paused || apiUnavailable || !latest?.reclaim_available;
+  get("control-reclaim").disabled = disabled;
+  get("control-confirm").disabled = disabled;
+}
+get("control-reclaim").addEventListener("click", () => {
+  get("control-description").textContent =
+    `E0509 (${latest.config.ip})의 제어권을 이 드라이버로 가져옵니다. 승인되면 기존 보유자는 제어권을 잃습니다.`;
+  get("control-dialog").showModal();
+});
+get("control-cancel").addEventListener("click", () => get("control-dialog").close());
+get("control-confirm").addEventListener("click", async () => {
+  if (get("control-confirm").disabled) return;
+  get("control-dialog").close();
+  reclaimPending = true;
+  const output = get("control-result");
+  output.hidden = true;
+  renderControl();
+  try {
+    const response = await fetch("/api/robot/control/reclaim", {
+      method: "POST", headers: {"Content-Type": "application/json"}, body: "{}"
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.detail || "회수 결과를 확인할 수 없습니다.");
+    output.dataset.success = String(data.success === true);
+    output.textContent = `최근 요청 · ${data.message}`;
+  } catch (error) {
+    output.dataset.success = "false";
+    output.textContent = error instanceof TypeError || error instanceof SyntaxError
+      ? "서버 응답이 없어 회수 결과를 확인할 수 없습니다." : error.message;
+  } finally {
+    reclaimPending = false;
+    output.hidden = false;
+    renderControl();
+    refresh();
+  }
+});
+
 async function refresh() {
   if (stopped || paused || document.hidden || requestController) return;
   const controller = new AbortController();
@@ -149,7 +196,10 @@ async function refresh() {
     get("robot-api-error").textContent = "모니터링 서버의 응답이 없습니다. 표시된 값은 마지막 수신값입니다.";
     get("robot-api-error").hidden = false;
     if (latest) render(latest);
-    else get("robot-state").textContent = "서버 응답 없음";
+    else {
+      get("robot-state").textContent = "서버 응답 없음";
+      renderControl();
+    }
   } finally {
     clearTimeout(timeout);
     if (requestController === controller) requestController = null;
@@ -167,6 +217,7 @@ get("robot-pause").addEventListener("click", () => {
   if (paused) get("robot-notice").textContent = "표시를 일시정지했습니다. 재개하면 최신 수신값을 불러옵니다.";
   else refresh();
   if (latest) renderPoseTests(latest, {paused, apiUnavailable});
+  renderControl();
 });
 window.addEventListener("pagehide", () => { stopped = true; requestController?.abort(); });
 window.addEventListener("pageshow", () => { stopped = false; refresh(); });

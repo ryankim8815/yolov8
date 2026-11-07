@@ -20,6 +20,7 @@ from websockets.exceptions import ConnectionClosed
 from .robot_poses import PoseInput, PoseRevision, PoseTests
 from .store import DomainError
 
+RECLAIM_SERVICE = "system/reclaim_control"
 
 @dataclass(frozen=True)
 class RobotSettings:
@@ -62,6 +63,10 @@ class RobotSettings:
 class RobotMonitor:
     def __init__(self, settings, state_dir=None):
         self.settings = settings
+        self.bridge_host = settings.ros_pc_ip
+        if (os.getenv("ROBOT_BRIDGE_NETWORK") == "compose" and self.bridge_host
+                and ipaddress.ip_address(self.bridge_host).is_loopback):
+            self.bridge_host = "rosbridge"
         prefix = "/" + settings.namespace
         self.topics = [
             {"name": prefix + "/joint_states", "type": "sensor_msgs/msg/JointState", "kind": "joints"},
@@ -79,6 +84,8 @@ class RobotMonitor:
         self.task = None
         self.socket = None
         self.pending = {}
+        self.reclaim_available = False
+        self.reclaim_pending = False
         self.pose_tests = PoseTests(self, state_dir) if state_dir is not None else None
 
     def start(self):
@@ -95,7 +102,7 @@ class RobotMonitor:
             await self.pose_tests.task
 
     async def _run(self):
-        host = self.settings.ros_pc_ip
+        host = self.bridge_host
         if ":" in host:
             host = f"[{host}]"
         endpoint = f"ws://{host}:{self.settings.rosbridge_port}"
@@ -127,11 +134,12 @@ class RobotMonitor:
                 raise
             except Exception:
                 # Keep endpoint or remote payload details out of the UI and logs.
-                self.error = "별도 ROS 2 컨트롤러의 유선 IP, rosbridge 포트와 실행 상태를 확인하세요."
+                self.error = f"rosbridge 연결 대기 · {endpoint}에 다시 연결하고 있습니다."
             finally:
                 self.connected = False
                 self.socket = None
                 self.joint_publishers = None
+                self.reclaim_available = False
                 if graph_task is not None:
                     graph_task.cancel()
                     with suppress(asyncio.CancelledError):
@@ -155,7 +163,30 @@ class RobotMonitor:
                     await self._check_driver_reconnected(socket)
             except (TimeoutError, RuntimeError, OSError, ConnectionClosed):
                 self.joint_publishers = None
+            if socket is self.socket:
+                try:
+                    info = await self.call_service(socket, "/rosapi/service_type",
+                        {"service": f"/{self.settings.namespace}/{RECLAIM_SERVICE}"}, timeout=3)
+                    self.reclaim_available = info.get("type") in ("std_srvs/srv/Trigger", "std_srvs/Trigger")
+                except (TimeoutError, RuntimeError, OSError, ConnectionClosed):
+                    self.reclaim_available = False
             await asyncio.sleep(5)
+
+    async def reclaim_control(self):
+        if self.reclaim_pending:
+            raise DomainError("이미 제어권 회수를 요청했습니다. 응답을 기다려 주세요.", 409)
+        if not self.connected or not self.socket or not self.reclaim_available:
+            raise DomainError("제어권 회수 서비스를 찾을 수 없습니다. 실장비 드라이버 연결을 확인하세요.", 503)
+        self.reclaim_pending = True
+        try:
+            result = await self.call_service(self.socket, RECLAIM_SERVICE, {}, timeout=15)
+            if type(result.get("success")) is not bool or not isinstance(result.get("message"), str):
+                raise RuntimeError("invalid reclaim response")
+            return {"success": result["success"], "message": result["message"]}
+        except (TimeoutError, RuntimeError, OSError, ConnectionClosed):
+            raise DomainError("드라이버 응답을 받지 못해 제어권 회수 결과를 확인할 수 없습니다.", 503) from None
+        finally:
+            self.reclaim_pending = False
 
     async def _check_driver_reconnected(self, socket):
         lost = self.samples.get(self.topics[2]["name"])
@@ -280,8 +311,10 @@ class RobotMonitor:
                     state = "stale"
             elif observer_is_newer:
                 displayed = observer
-        return {"config": {**asdict(self.settings), "model": "e0509", "transport": "LAN"},
+        return {"config": {**asdict(self.settings), "rosbridge_host": self.bridge_host, "model": "e0509", "transport": "LAN"},
                 "state": state, "bridge_connected": self.connected,
+                "reclaim_available": self.connected and self.reclaim_available,
+                "reclaim_pending": self.reclaim_pending,
                 "error": self.error, "topics": topics, "joint_publishers": self.joint_publishers,
                 "display_joint_topic": displayed["name"],
                 "pose_tests": self.pose_tests.snapshot() if self.pose_tests else None}
@@ -304,6 +337,11 @@ def same_site_json(request: Request):
     if (request.headers.get("sec-fetch-site") == "cross-site"
             or request.headers.get("content-type", "").split(";")[0].strip() != "application/json"):
         raise DomainError("로컬 로봇 모니터링 화면에서 요청하세요.", 403)
+
+
+@router.post("/control/reclaim", dependencies=[Depends(same_site_json)])
+async def reclaim_control(request: Request):
+    return await request.app.state.robot.reclaim_control()
 
 
 @router.put("/poses/{slot}", dependencies=[Depends(same_site_json)])

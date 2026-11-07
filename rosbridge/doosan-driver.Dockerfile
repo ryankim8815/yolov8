@@ -40,4 +40,4 @@ RUN g++ -std=c++17 -Isrc/common2/include check-controller.cpp /opt/doosan/lib/li
 COPY start-driver.sh driver_health.py /doosan_ws/
 COPY fastdds.xml /etc/doosan/fastdds.xml
 ENV FASTRTPS_DEFAULT_PROFILES_FILE=/etc/doosan/fastdds.xml
-CMD ["bash", "/doosan_ws/start-driver.sh"]
+CMD ["bash", "/doosan_ws/start-driver.sh", "--force-request-access"]

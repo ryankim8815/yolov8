@@ -12,11 +12,6 @@
       <userTransports>
         <transport_id>ros_udp</transport_id>
       </userTransports>
-      <builtin>
-        <initialPeersList>
-          <locator><udpv4><address>127.0.0.1</address></udpv4></locator>
-        </initialPeersList>
-      </builtin>
     </rtps>
   </participant>
 </profiles>

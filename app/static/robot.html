@@ -30,14 +30,14 @@
             </ol>
             <dl id="robot-config" class="robot-config"></dl>
             <details class="robot-commands"><summary>환경변수와 실행 명령</summary>
-              <p>프로젝트 <code>.env</code>에서 제어기 주소와 ROS 네임스페이스를 설정합니다. Compose 내부 브리지 주소는 <code>127.0.0.1</code>입니다.</p>
+              <p>프로젝트 <code>.env</code>에서 제어기 주소와 ROS 네임스페이스를 설정합니다. 기본 Compose의 브리지 이름은 <code>rosbridge</code>이며, Linux host 구성에서는 <code>127.0.0.1</code>을 사용합니다.</p>
               <pre id="robot-env"></pre>
               <p>모니터링과 관절 수신을 시작합니다.</p>
               <pre>docker compose up -d --build --wait</pre>
               <p>제어권 요청 없이 SDK 접속을 검사합니다. 성공하면 DRCF 버전과 6축 각도가 출력됩니다.</p>
               <pre>docker compose --profile hardware build doosan-driver
 docker compose run --rm --no-deps doosan-driver timeout 15 check-e0509</pre>
-              <p>드라이버 시작 시 제어권을 요청하고 서보가 켜질 수 있습니다. 작업 공간을 확인한 뒤 실행하세요.</p>
+              <p>실장비 드라이버는 시작할 때 제어권을 강제로 요청합니다. 승인되면 기존 보유자가 제어권을 잃고 서보가 켜질 수 있습니다. 작업 공간을 확인한 뒤 실행하세요.</p>
               <pre>docker compose --profile hardware up -d --build --wait --wait-timeout 150</pre>
             </details>
           </div>
@@ -57,7 +57,19 @@ docker compose run --rm --no-deps doosan-driver timeout 15 check-e0509</pre>
             <div><span>수신 관절 수</span><strong><b id="robot-axis-count">—</b> <small>/ 6</small></strong></div>
             <div><span>마지막 관절 수신</span><strong id="robot-received" class="robot-time">—</strong></div>
           </div>
+          <div class="robot-control">
+            <div><strong>드라이버 제어권</strong>
+              <p id="control-availability" class="meta">드라이버 연결 확인 중</p>
+              <p id="control-result" role="status" hidden></p></div>
+            <button id="control-reclaim" type="button" disabled>제어권 회수</button>
+          </div>
         </section>
+        <dialog id="control-dialog" aria-labelledby="control-title" aria-describedby="control-description">
+          <h2 id="control-title">제어권을 회수할까요?</h2>
+          <p id="control-description"></p>
+          <div class="pose-actions"><button id="control-cancel" type="button" autofocus>취소</button>
+            <button id="control-confirm" type="button">회수 요청</button></div>
+        </dialog>
         <div class="robot-notice" id="robot-notice" role="status">연결 설정을 불러오는 중입니다.</div>
         <section class="panel">
           <div class="panel-head"><h2>관절 위치</h2><span id="joint-age" class="meta">수신 대기 · °</span></div>

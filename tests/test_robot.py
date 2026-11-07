@@ -16,6 +16,45 @@ from tests.test_api import factory
 
 
 class RobotTests(unittest.TestCase):
+    def test_websocket_target_for_existing_local_and_remote_configs(self):
+        for network, configured, expected in [
+            ("compose", "127.0.0.1", "rosbridge"), ("compose", "::1", "rosbridge"),
+            ("compose", "192.168.1.2", "192.168.1.2"), ("compose", "", ""),
+            ("host", "127.0.0.1", "127.0.0.1"), ("", "::1", "::1")
+        ]:
+            with self.subTest(network=network, configured=configured), patch.dict(os.environ, {
+                "ROBOT_BRIDGE_NETWORK": network, "ROBOT_ROS_PC_IP": configured
+            }):
+                monitor = RobotMonitor(RobotSettings.from_env())
+                self.assertEqual(monitor.bridge_host, expected)
+                self.assertEqual(monitor.snapshot()["config"]["rosbridge_host"], expected)
+
+    def test_reclaim_endpoint_requires_local_json_and_an_available_driver(self):
+        with tempfile.TemporaryDirectory() as state_dir, patch.dict(os.environ, {
+            "ROBOT_STATE_DIR": state_dir, "ROBOT_ROS_PC_IP": ""
+        }), TestClient(create_robot_app()) as client:
+            url = "/api/robot/control/reclaim"
+            robot = client.app.state.robot
+            robot.call_service = AsyncMock()
+            self.assertEqual(client.post(url, json={}, headers={"Sec-Fetch-Site": "cross-site"}).status_code, 403)
+            self.assertEqual(client.post(url, json={}).status_code, 503)
+            robot.call_service.assert_not_awaited()
+            robot.connected = robot.reclaim_available = True
+            robot.socket = object()
+            robot.reclaim_pending = True
+            self.assertEqual(client.post(url, json={}).status_code, 409)
+            robot.call_service.assert_not_awaited()
+            robot.reclaim_pending = False
+            for success, message in [(False, "DENY"), (True, "GRANT")]:
+                result = {"success": success, "message": message}
+                robot.call_service.return_value = result
+                self.assertEqual(client.post(url, json={}).json(), result)
+            self.assertEqual(robot.call_service.await_count, 2)
+            self.assertEqual(robot.call_service.await_args.args, (robot.socket, "system/reclaim_control", {}))
+            robot.call_service.side_effect = TimeoutError()
+            self.assertEqual(client.post(url, json={}).status_code, 503)
+            self.assertFalse(robot.reclaim_pending)
+
     def test_compose_web_owns_persistent_poses_and_native_server_delegates(self):
         with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ, {
             "ROBOT_STATE_DIR": directory, "ROBOT_ROS_PC_IP": "", "YOLO_ROBOT_WEB_OWNER": "compose"
@@ -148,9 +187,11 @@ class RobotLifecycleTests(unittest.IsolatedAsyncioTestCase):
                 sent.append(json.loads(message))
                 if sent[-1]["op"] == "call_service":
                     probe = sent[-1]
+                    values = {"publishers": []} if probe["service"] == "/rosapi/publishers" else {"type": "std_srvs/srv/Trigger"}
                     monitor.receive(json.dumps({"op": "service_response", "id": probe["id"],
-                        "service": probe["service"], "result": True, "values": {"publishers": []}}))
-                    connected.set()
+                        "service": probe["service"], "result": True, "values": values}))
+                    if "type" in values:
+                        connected.set()
 
             def __aiter__(self):
                 return self
@@ -170,9 +211,11 @@ class RobotLifecycleTests(unittest.IsolatedAsyncioTestCase):
         with patch('app.robot.connect', connection):
             monitor.start()
             await asyncio.wait_for(connected.wait(), 1)
-            self.assertEqual([p['op'] for p in sent], ['subscribe'] * 4 + ['call_service'])
-            self.assertEqual(sent[-1]['service'], '/rosapi/publishers')
-            self.assertEqual(sent[-1]['args'], {'topic': '/dsr01/joint_states'})
+            self.assertEqual([p['op'] for p in sent], ['subscribe'] * 4 + ['call_service'] * 2)
+            self.assertEqual(sent[-2]['service'], '/rosapi/publishers')
+            self.assertEqual(sent[-2]['args'], {'topic': '/dsr01/joint_states'})
+            self.assertEqual(sent[-1]['args'], {'service': '/dsr01/system/reclaim_control'})
+            self.assertTrue(monitor.snapshot()["reclaim_available"])
             self.assertEqual(monitor.snapshot()['state'], 'no_publisher')
             self.assertEqual(sent[0]['throttle_rate'], 100)
             self.assertEqual(monitor.samples, {})
@@ -181,6 +224,7 @@ class RobotLifecycleTests(unittest.IsolatedAsyncioTestCase):
             await monitor.stop()
             self.assertFalse(monitor.connected)
             self.assertIsNone(monitor.joint_publishers)
+            self.assertFalse(monitor.snapshot()["reclaim_available"])
             self.assertIsNone(monitor.task)
 
     async def test_read_only_samples_restore_monitoring_and_never_authorize_motion(self):
