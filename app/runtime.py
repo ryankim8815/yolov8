@@ -164,9 +164,9 @@ class Runtime:
         pipeline = self.pipeline
         return pipeline.latest_jpeg() if pipeline and not self.busy and self.camera_desired else None
 
-    def latest_preview(self):
+    def latest_preview(self, mode="detections", previous=None):
         pipeline = self.pipeline
-        return pipeline.latest_preview() if pipeline and not self.busy and self.camera_desired else None
+        return pipeline.latest_preview(mode, previous) if pipeline and not self.busy and self.camera_desired else None
 
     def video_packet(self):
         pipeline = self.pipeline

@@ -37,6 +37,7 @@ pydantic==2.14.3
 pydantic_core==2.50.4
 Pygments==2.21.0
 pyparsing==3.3.3
+pyrealsense2-macosx==2.56.5; sys_platform == "darwin" and platform_release >= "24"
 pytest==8.4.2
 python-dateutil==4.0.0
 python-dotenv==1.2.4

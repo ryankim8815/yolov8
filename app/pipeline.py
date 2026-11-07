@@ -8,7 +8,8 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 
 from .buffers import LatestSlot
-from .capture import OpenCVCamera
+from .camera_views import SensorFrame, VIDEO_MODES, render_view
+from .capture import open_camera
 from .detector import Detector
 from .render import encode_jpeg
 
@@ -22,6 +23,7 @@ class FramePacket:
     captured_ns: int
     captured_at: str
     frame: object
+    sensors: SensorFrame | None = None
 
 
 def percentile(values, fraction):
@@ -35,7 +37,7 @@ def percentile(values, fraction):
 
 
 class Pipeline:
-    def __init__(self, settings, camera_factory=OpenCVCamera, detector_factory=Detector,
+    def __init__(self, settings, camera_factory=open_camera, detector_factory=Detector,
                  encoder=encode_jpeg, retry_delays=(1, 2, 4, 8, 10)):
         self.model_version = settings.model_path.stem
         self.capture_enabled = True
@@ -56,12 +58,15 @@ class Pipeline:
         self.generation = 0
         self.camera_size = None
         self.camera_error = None
+        self.display_modes = VIDEO_MODES
+        self.mode_note = None
         self.fatal_error = None
         self.result = None
         self.result_ns = None
         self.result_generation = None
         self.jpeg = None
         self.preview_result = None
+        self.preview_packet = None
         self.subscribers = 0
         self.detector_metadata = {}
         self.counts = {"captured": 0, "detected": 0, "encoded": 0}
@@ -91,6 +96,7 @@ class Pipeline:
         with self.lock:
             self.jpeg = None
             self.preview_result = None
+            self.preview_packet = None
 
     def _count(self, name):
         # Caller holds self.lock.
@@ -105,20 +111,24 @@ class Pipeline:
                 camera = self.camera_factory(self.settings)
                 with self.lock:
                     self.camera_index = getattr(camera, "index", self.settings.camera_index)
+                    self.mode_note = getattr(camera, "mode_note", None)
                     self.generation += 1
                     generation = self.generation
                 while not self.stop_event.is_set():
-                    frame = camera.read()
+                    capture = camera.read()
+                    sensors = capture if isinstance(capture, SensorFrame) else None
+                    frame = sensors.color if sensors else capture
                     captured_ns = time.monotonic_ns()
                     with self.lock:
                         self.camera_online = True
                         self.camera_error = None
                         self.camera_size = {"width": frame.shape[1], "height": frame.shape[0]}
+                        self.display_modes = sensors.modes() if sensors else VIDEO_MODES
                         self._count("captured")
                         frame_id = self.counts["captured"]
                     failures = 0
                     packet = FramePacket(frame_id, generation, captured_ns,
-                                         datetime.now(timezone.utc).isoformat(), frame)
+                                         datetime.now(timezone.utc).isoformat(), frame, sensors)
                     self.input_slot.put(packet)
             except Exception as exc:
                 log.warning("Camera unavailable: %s", exc)
@@ -209,6 +219,7 @@ class Pipeline:
                 with self.lock:
                     self.jpeg = (packet.frame_id, packet.captured_ns, data)
                     self.preview_result = result
+                    self.preview_packet = packet
                     self._count("encoded")
                 next_encode = time.monotonic() + 1 / self.settings.preview_fps
         except Exception as exc:
@@ -228,12 +239,22 @@ class Pipeline:
         with self.lock:
             return self.jpeg
 
-    def latest_preview(self):
+    def latest_preview(self, mode="detections", previous=None):
         """Return detections and the shared encoded JPEG from the same camera frame."""
         with self.lock:
-            if self.jpeg is not None:
-                _, captured_ns, data = self.jpeg
-                return captured_ns, self.preview_result, data
+            if self.jpeg is None or self.preview_packet.generation != self.generation:
+                return None
+            frame_id, captured_ns, data = self.jpeg
+            if previous == (self.session_id, frame_id):
+                return None
+            packet, result = self.preview_packet, self.preview_result
+        available = packet.sensors.modes() if packet.sensors else VIDEO_MODES
+        if mode not in available:
+            return None
+        if mode != "detections":
+            view, boxes = render_view(mode, packet.frame, packet.sensors, result["objects"])
+            data = self.encoder(view, boxes, self.settings.jpeg_quality)
+        return captured_ns, {**result, "display_mode": mode}, data
 
     def status(self):
         now = time.monotonic()
@@ -264,6 +285,7 @@ class Pipeline:
                                   "iou": self.settings.iou, "max_det": self.settings.max_det,
                                   "preview_fps": self.settings.preview_fps},
                 "camera": {"index": self.camera_index, "id": self.settings.camera_id, "online": self.camera_online,
+                           "display_modes": self.display_modes, "mode_note": self.mode_note,
                            "requested": {"width": self.settings.width, "height": self.settings.height,
                                          "fps": self.settings.camera_fps}, "actual_size": self.camera_size},
                 "counts": dict(self.counts), "fps": rates, "input_dropped": self.input_slot.dropped,

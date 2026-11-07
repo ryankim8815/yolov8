@@ -21,3 +21,6 @@
 }
 .camera-source p { flex-basis: 100%; color: var(--sub); font-size: 12px; }
 .camera-source p.error { color: var(--red); }
+.camera-source > select { flex: 1 1 8rem; }
+.camera-mode { display: inline-flex; align-items: center; gap: 6px; }
+.camera-mode select { flex: none; width: 8rem; }

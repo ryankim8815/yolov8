@@ -10,6 +10,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.requests import ClientDisconnect
 
 from .config import Settings
+from .camera_views import DisplayMode
 from .packing_api import router as packing_router
 from .pipeline import Pipeline
 from .runtime import Runtime
@@ -134,7 +135,7 @@ def create_app(settings=None, pipeline_factory=Pipeline, state_root=None):
         return TimedStreamingResponse(jpeg_frames(application.state.pipeline), settings.send_timeout)
 
     @application.websocket("/ws/detections")
-    async def detections(websocket: WebSocket, preview: bool = False):
+    async def detections(websocket: WebSocket, preview: bool = False, display_mode: DisplayMode = "detections"):
         await websocket.accept()
         pipeline = application.state.pipeline
         last_id = None
@@ -153,7 +154,7 @@ def create_app(settings=None, pipeline_factory=Pipeline, state_root=None):
                 if current["ready"]:
                     jpeg = None
                     if preview:
-                        frame = pipeline.latest_preview()
+                        frame = await asyncio.to_thread(pipeline.latest_preview, display_mode, last_id)
                         result = None
                         if frame and time.monotonic_ns() - frame[0] <= settings.stale_seconds * 1e9:
                             _, result, jpeg = frame

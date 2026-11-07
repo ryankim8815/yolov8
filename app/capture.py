@@ -1,5 +1,6 @@
 """The capture worker is the sole owner of VideoCapture."""
 import json
+import logging
 import subprocess
 from pathlib import Path
 
@@ -20,6 +21,35 @@ def camera_device(device_id):
         if device["id"] == device_id:
             return device
     raise LookupError("선택한 카메라가 연결되어 있지 않습니다. 카메라 목록을 새로고침하세요.")
+
+
+def open_camera(settings):
+    # Preserve the configured index when device discovery is unavailable.
+    try:
+        devices = camera_devices()
+    except RuntimeError:
+        devices = []
+    key = "id" if settings.camera_id else "index"
+    value = settings.camera_id or settings.camera_index
+    selected = next((d for d in devices if d[key] == value), None)
+    real_devices = [d for d in devices if "realsense" in d["name"].lower()]
+    note = None
+    if selected and selected in real_devices:
+        from .realsense import RealSenseCamera
+        if len(real_devices) == 1:
+            try:
+                return RealSenseCamera(selected["index"])
+            except (OSError, RuntimeError) as exc:
+                logging.getLogger(__name__).warning("RealSense sensor capture unavailable: %s", exc)
+                if "No module named 'pyrealsense2'" in str(exc):
+                    note = "깊이·적외선 표시에는 RealSense SDK가 필요합니다."
+                else:
+                    note = "깊이·적외선 스트림을 열 수 없습니다. USB 연결과 접근 권한을 확인하세요."
+        else:
+            note = "RealSense 장치가 여러 개여서 깊이 센서를 식별할 수 없습니다."
+    camera = OpenCVCamera(settings)
+    camera.mode_note = note
+    return camera
 
 
 class OpenCVCamera:

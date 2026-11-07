@@ -73,7 +73,7 @@ function createClassSummary(fields, getStation) {
 
   function update(packet) {
     waiting = !packet;
-    frameSize = packet?.source_size;
+    frameSize = ["detections", "rgbd"].includes(packet?.display_mode || "detections") ? packet?.source_size : null;
     groups = new Map();
     for (const object of packet?.objects || []) {
       const key = String(object.class_id);
@@ -198,11 +198,36 @@ export function connectDashboardCamera(panel, getStation) {
   const fields = Object.fromEntries([...panel.querySelectorAll("[data-camera]")].map(node => [node.dataset.camera, node]));
   const classes = createClassSummary(fields, getStation);
   const source = cameraSource(fields);
-  const stop = watchDetections({
+  let stop, disposed = false;
+  let displayMode = "detections";
+
+  function changeMode(next) {
+    if (disposed || next === displayMode) return;
+    displayMode = next;
+    fields.mode.value = next;
+    stop();
+    stop = connect();
+  }
+
+  function modeChanged() { changeMode(fields.mode.value); }
+  fields.mode.addEventListener("change", modeChanged);
+
+  const feed = {
     image: fields.image,
     matchedPreview: true,
     onStatus(status, label, reset) {
       source.update(status);
+      fields.mode.disabled = !status.ready;
+      if (status.ready) {
+        const modes = status.camera?.display_modes || ["detections"];
+        for (const option of fields.mode.options) {
+          option.disabled = !modes.includes(option.value);
+          option.hidden = option.disabled && !status.camera?.mode_note && modes.length <= 2;
+        }
+        if (!modes.includes(displayMode)) queueMicrotask(() => changeMode("detections"));
+      }
+      fields.modeNote.textContent = status.camera?.mode_note || "";
+      fields.modeNote.hidden = !fields.modeNote.textContent;
       if (fields.state.textContent !== label) fields.state.textContent = label;
       fields.state.classList.toggle("ready", status.ready);
       fields.fps.textContent = status.ready ? status.fps?.detected?.toFixed(1) ?? "—" : "—";
@@ -237,8 +262,12 @@ export function connectDashboardCamera(panel, getStation) {
         classes.update(null);
       }
     }
-  });
+  };
+  function connect() { return watchDetections({...feed, displayMode}); }
+  stop = connect();
   return () => {
+    disposed = true;
+    fields.mode.removeEventListener("change", modeChanged);
     source.dispose();
     stop();
     classes.dispose();

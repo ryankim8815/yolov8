@@ -6,7 +6,8 @@ const stateNames = {
   training: "학습·평가·변환 중", switching_model: "모델 전환 중", switching_camera: "카메라 전환 중"
 };
 
-export function watchDetections({ image, onStatus, onDetections, onPreview, matchedPreview = false }) {
+export function watchDetections({ image, onStatus, onDetections, onPreview, matchedPreview = false,
+  displayMode = "detections" }) {
   let socket;
   let reconnectTimer;
   let delay = 1000;
@@ -64,7 +65,8 @@ export function watchDetections({ image, onStatus, onDetections, onPreview, matc
 
   function connect() {
     const protocol = location.protocol === "https:" ? "wss:" : "ws:";
-    socket = new WebSocket(protocol + "//" + location.host + "/ws/detections" + (matchedPreview ? "?preview=true" : ""));
+    const query = matchedPreview ? "?" + new URLSearchParams({preview: "true", display_mode: displayMode}) : "";
+    socket = new WebSocket(protocol + "//" + location.host + "/ws/detections" + query);
     lastMessageAt = Date.now();
     socket.onmessage = event => {
       if (closed || socket.readyState !== WebSocket.OPEN) return;
