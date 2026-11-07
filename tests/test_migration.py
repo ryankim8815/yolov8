@@ -39,7 +39,7 @@ def test_v1_keys_preserve_order_and_stock(tmp_path):
         assert dict(db.execute("SELECT public_id,id FROM order_items")) == item_ids
         assert store.get("packing_order", "old-order")["items"] == order["items"]
     with closing(Store(tmp_path)) as store:
-        assert store.db.execute("PRAGMA user_version").fetchone()[0] == 2
+        assert store.db.execute("PRAGMA user_version").fetchone()[0] == 3
         assert dict(store.db.execute("SELECT public_id,id FROM order_items")) == item_ids
         assert store.db.execute("PRAGMA foreign_key_check").fetchall() == []
     backups = list((tmp_path / "backups").glob("metadata-v1-*.sqlite3"))
@@ -60,6 +60,20 @@ def test_v1_migration_retries_after_rollback(tmp_path):
         db.execute("ALTER TABLE products DROP COLUMN unexpected")
     with closing(Store(tmp_path)) as store:
         assert store.get("packing_order", "old-order")["number"] == 123
+
+
+def test_v2_upgrade_preserves_existing_order_customer_and_backs_up(tmp_path):
+    with closing(Store(tmp_path)) as store:
+        store.put("product", legacy_product())
+        store.put("packing_order", {"id":"sample","number":55,"customer":"기존 사용자","state":"received",
+                                    "paused":False,"items":[]})
+        with store.db:
+            store.db.execute("DROP TABLE customer_rfid")
+            store.db.execute("PRAGMA user_version=2")
+    with closing(Store(tmp_path)) as store:
+        assert store.get("packing_order", "sample")["customer"] == "기존 사용자"
+        assert store.db.execute("SELECT count(*) FROM customer_rfid").fetchone()[0] == 0
+        assert len(list((tmp_path / "backups").glob("metadata-v2-*.sqlite3"))) == 1
 
 
 def test_generated_keys_and_integer_references(tmp_path):
@@ -113,7 +127,7 @@ def test_migration_wal_backup_and_restart(tmp_path):
     try:
         store = Store(tmp_path)
         try:
-            assert store.db.execute("PRAGMA user_version").fetchone()[0] == 2
+            assert store.db.execute("PRAGMA user_version").fetchone()[0] == 3
             assert not store.db.execute("SELECT 1 FROM sqlite_schema WHERE name='records'").fetchone()
             assert not store.db.execute("PRAGMA foreign_key_check").fetchall()
             assert store.get("packing_order", order["id"]) == order

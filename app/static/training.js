@@ -3,6 +3,8 @@
   const el=id=>document.getElementById(id);
   let tab="live", ownedCollection=null, ownedObserved=false, records={models:[],jobs:[]}, backend="mps", samples=[], eventSocket;
   let refreshPending=false, dataKey="", pendingCollectionStart=null;
+  const targetSku = location.search && new URLSearchParams(location.search).get("sku");
+  let productLoaded = false;
   const reasons={saving:"사진 저장 중",interval:"저장 간격 대기",stabilizing:"대상 확인 중 (3프레임)",no_detection:"탐지된 물체 없음",outside_center:"물체를 중앙에 놓아주세요",ambiguous:"중앙에 물체 하나만 놓아주세요",low_confidence:"낮은 confidence",invalid_box:"잘못된 좌표",stale:"오래된 결과 · 저장 대기",queue_full:"저장 큐 포화 · 요청 생략",heartbeat_expired:"연결 유지 신호 만료 · 저장 중지",disk_error:"디스크 오류 · 저장 중지",user_stopped:"사진 저장 중지",camera_off:"카메라 꺼짐",stopped:"사진 저장 중지",server_shutdown:"서버 종료"};
   const stages={queued:"대기",preparing:"준비",training:"학습",evaluating:"평가",exporting:"Core ML 변환·비교",completed:"완료",completed_with_warnings:"PT 완료 · Core ML 확인 필요",failed:"실패",cancelled:"취소됨",cancelling:"취소 중",interrupted:"서버 재시작으로 중단"};
   const terminal=new Set(["completed","completed_with_warnings","failed","cancelled","interrupted"]);
@@ -70,13 +72,26 @@
     if (refreshPending) return;
     refreshPending = true;
     try {
-      const [classes, groups, collections, models, jobs] = await Promise.all([
+      const [classes, groups, collections, models, jobs, products] = await Promise.all([
         api("/api/classes"), api("/api/capture-groups"), api("/api/collections"),
-        api("/api/models"), api("/api/training/jobs")
+        api("/api/models"), api("/api/training/jobs"),
+        targetSku && !productLoaded ? api("/api/packing/products") : null
       ]);
       updateModels(models);
       records.jobs = jobs;
       options("class-select", classes, c => c.name);
+      if (products) {
+        productLoaded = true;
+        const product = products.find(p => p.sku === targetSku);
+        if (product) {
+          const known = classes.find(c => c.name.toLowerCase() === product.name.toLowerCase());
+          if (known) el("class-select").value = known.id;
+          else el("class-name").value = product.name;
+          el("training-product-name").textContent = product.name + " · " + product.sku;
+          el("training-product-return").href = "/?sku=" + encodeURIComponent(product.sku) + "#stock";
+          el("training-product").hidden = false;
+        } else message("재고에서 이 상품을 찾을 수 없습니다.", true);
+      }
       options("group-select", groups, g => g.name);
       options("review-session", collections.slice().reverse(), c =>
         `${c.class_name} · ${c.created_at.slice(0,16)} · ${c.saved||0}장`);

@@ -17,6 +17,14 @@ class Packing:
                     write("product", self.product(sku, name, "개", stock))
                 write("packing_order", self.new_order(123, "packing"))
                 self.log(write, "주문", "주문 #123 접수 · 빼빼로, 생수, 물티슈 각 1개 예약")
+            db = self.store.db
+            sample = db.execute("SELECT customer_id FROM orders JOIN customers ON customers.id=customer_id "
+                                "WHERE orders.public_id='packing-123' AND customers.name='홍길동'").fetchone()
+            if sample:
+                db.execute("INSERT OR IGNORE INTO customer_rfid VALUES (?, 'E2-34-08-A1')", (sample[0],))
+                second = db.execute("SELECT id FROM customers WHERE name='김서연' ORDER BY id LIMIT 1").fetchone()
+                second_id = second[0] if second else db.execute("INSERT INTO customers(name) VALUES ('김서연')").lastrowid
+                db.execute("INSERT OR IGNORE INTO customer_rfid VALUES (?, 'E2-34-08-B2')", (second_id,))
 
     @staticmethod
     def product(sku, name, unit, stock, alias="", bin=""):
@@ -36,6 +44,38 @@ class Packing:
     def products(self):
         return [dict(r) for r in self.store.db.execute(
             "SELECT sku AS id,sku,name,unit,stock,alias,bin,reserved,available FROM inventory ORDER BY inventory.id")]
+
+    def users(self):
+        return [dict(r) for r in self.store.db.execute("""
+            SELECT c.id, c.name, r.uid,
+                   EXISTS(SELECT 1 FROM orders WHERE customer_id=c.id AND state='packing') AS packing
+            FROM customers c LEFT JOIN customer_rfid r ON r.customer_id=c.id ORDER BY c.id""")]
+
+    def add_user(self, name):
+        with self.store.write_transaction() as write:
+            user_id = self.store.db.execute("INSERT INTO customers(name) VALUES (?)", (name,)).lastrowid
+            self.log(write, "사용자", f"{name} · 사용자 등록")
+            return {"id": user_id, "name": name, "uid": None}
+
+    def assign_rfid(self, user_id, uid_value, expected_uid):
+        db = self.store.db
+        tag = uid_value.upper() if uid_value else None
+        with self.store.write_transaction() as write:
+            user = db.execute("SELECT c.name,r.uid FROM customers c LEFT JOIN customer_rfid r "
+                              "ON r.customer_id=c.id WHERE c.id=?", (user_id,)).fetchone()
+            if not user:
+                raise DomainError("사용자를 찾을 수 없습니다.", 404)
+            if tag == user["uid"]:
+                return
+            if expected_uid != user["uid"]:
+                raise DomainError("다른 화면에서 RFID가 변경되었습니다. 새 값을 확인하세요.")
+            if db.execute("SELECT 1 FROM orders WHERE customer_id=? AND state='packing'", (user_id,)).fetchone():
+                raise DomainError("패킹 중인 사용자의 RFID는 작업 완료 후 변경할 수 있습니다.")
+            if tag and db.execute("SELECT 1 FROM customer_rfid WHERE uid=?", (tag,)).fetchone():
+                raise DomainError("이미 다른 사용자에게 할당된 RFID입니다.")
+            db.execute("INSERT INTO customer_rfid(customer_id,uid) VALUES (?,?) ON CONFLICT(customer_id) "
+                       "DO UPDATE SET uid=excluded.uid", (user_id, tag))
+            self.log(write, "사용자", f"{user['name']} · RFID " + (f"{tag} 할당" if tag else "할당 해제"))
 
     def create_product(self, name, unit, stock, alias, bin):
         with self.store.write_transaction() as write:
@@ -120,7 +160,7 @@ class Packing:
 
     def assign(self, model_id, sku, class_id):
         with self.store.write_transaction() as write:
-            self.store.get("product", sku)
+            product = self.store.get("product", sku)
             classes = self.model_classes(model_id)["classes"]
             if class_id is not None:
                 target = next((c for c in classes if c["id"] == class_id), None)
@@ -129,15 +169,38 @@ class Packing:
                 if target["sku"] and target["sku"] != sku:
                     other = self.store.get("product", target["sku"])
                     raise DomainError(f"이미 {other['name']}에 연결된 클래스입니다.")
+            previous = next((c["id"] for c in classes if c["sku"] == sku), None)
+            if previous == class_id:
+                return
             self.store.db.execute(
                 "DELETE FROM product_class_bindings WHERE model_id=(SELECT id FROM models WHERE public_id=?) "
                 "AND product_id=(SELECT id FROM products WHERE sku=?)", (model_id, sku))
             if class_id is not None:
                 write("product_class", {"id": uid("binding"), "model_id": model_id, "class_id": class_id,
                                         "label": target["name"], "sku": sku})
+            action = f"{target['name']} 연결" if class_id is not None else "클래스 연결 해제"
+            self.log(write, "모델", f"{product['name']} ({sku}) · {action} · {model_id}")
 
     def snapshot(self, model_id):
         with self.store.read_transaction():
             orders = self.store.list("packing_order")
-            return {"products": self.products(), "orders": orders, "model": self.model_classes(model_id),
+            owners = dict(self.store.db.execute("SELECT number,customer_id FROM orders"))
+            for order in orders:
+                order["customer_id"] = owners[order["number"]]
+            return {"users": self.users(), "products": self.products(), "orders": orders, "model": self.model_classes(model_id),
                     "events": self.store.list("packing_event")}
+
+    def logs(self):
+        # Read historical training and deployment records alongside packing activity.
+        with self.store.read_transaction():
+            return [dict(row) for row in self.store.db.execute("""
+                SELECT time,source,message FROM packing_events
+                UNION ALL SELECT created_at,'모델',name || ' · 학습 클래스 등록' FROM training_classes
+                UNION ALL SELECT created_at,'모델',public_id || ' · 학습 시작 요청' FROM training_jobs
+                UNION ALL SELECT ended_at,'모델',public_id || ' · 학습 결과 · ' || state FROM training_jobs
+                    WHERE ended_at IS NOT NULL
+                UNION ALL SELECT created_at,'모델',name || ' · 학습 모델 등록' FROM models WHERE kind='custom'
+                UNION ALL SELECT coalesce(o.ended_at,o.created_at),'모델',
+                    coalesce(a.name,m.name,m.public_id) || ' · 모델 적용 · ' || o.state
+                    FROM model_operations o JOIN models m ON m.id=o.model_id LEFT JOIN model_aliases a ON a.model_id=m.id
+                ORDER BY time DESC""") if row["time"]]

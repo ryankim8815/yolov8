@@ -514,6 +514,12 @@ form {
   gap: 10px;
 }
 .packing-error { padding: 10px 14px; color: #822e23; background: #fff2ed; border-radius: 6px; }
+.admin-columns { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(240px, 1fr); gap: 16px; align-items: start; }
+.selected-row { background: var(--mint-bg); }
+.selected-row td:first-child { box-shadow: inset 3px 0 var(--mint); }
+.log-filters { border-bottom: 1px solid var(--line); padding: 10px 15px; }
+.log-filters + .sheet td:first-child { white-space: nowrap; font-variant-numeric: tabular-nums; }
+@media (max-width: 860px) { .admin-columns { grid-template-columns: minmax(0,1fr); } }
 .announce {
   position: absolute;
   width: 1px;

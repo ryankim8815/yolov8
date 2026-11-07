@@ -44,6 +44,33 @@ class PackingTests(unittest.TestCase):
             self.assertEqual(state["orders"][0]["state"], "awaiting_dispatch")
             self.assertEqual(len([e for e in state["events"] if e["source"] == "패킹" and "출고" in e["message"]]), 3)
 
+    def test_register_then_assign_rfid_and_query_shared_activity(self):
+        with TestClient(self.app) as c:
+            user = c.post("/api/packing/users", json={"name": "신규 사용자"}).json()
+            self.assertIsNone(user["uid"])
+            path = f"/api/packing/users/{user['id']}/rfid"
+            self.assertEqual(c.put(path, json={"uid": " box-02 ", "expected_uid": None}).status_code, 200)
+            self.assertEqual(c.put(path, json={"uid": None, "expected_uid": None}).status_code, 409)
+            other = c.post("/api/packing/users", json={"name": "다른 사용자"}).json()
+            self.assertEqual(c.put(f"/api/packing/users/{other['id']}/rfid",
+                                   json={"uid":"bOx-02", "expected_uid": None}).status_code, 409)
+            state = c.get("/api/packing").json()
+            owner = next(u for u in state["users"] if u["id"] == state["orders"][0]["customer_id"])
+            self.assertEqual(c.put(f"/api/packing/users/{owner['id']}/rfid",
+                                   json={"uid": None, "expected_uid": owner["uid"]}).status_code, 409)
+            c.post("/api/packing/products", json={"name":"테스트 물품","stock":0})
+            c.post("/api/classes", json={"name":"테스트 물품"})
+            c.patch("/api/models/" + state["model"]["id"], json={"name":"테스트 모델"})
+        with TestClient(create_app(self.settings, state_root=self.temp.name)) as c:
+            state = c.get("/api/packing").json()
+            self.assertEqual(next(u["uid"] for u in state["users"] if u["id"] == user["id"]), "BOX-02")
+            history = c.get("/api/packing/logs").json()
+            self.assertTrue({"사용자","재고","모델","주문"} <= {e["source"] for e in history})
+            self.assertEqual(sum("BOX-02 할당" in e["message"] for e in history), 1)
+            self.assertTrue(any("테스트 물품 · 학습 클래스 등록" in e["message"] for e in history))
+            self.assertTrue(any("테스트 모델 · 모델 이름 변경" in e["message"] for e in history))
+            self.assertEqual(c.put(path, json={"uid":None, "expected_uid":"BOX-02"}).status_code, 200)
+
     def test_bindings_are_exclusive_versioned_and_persistent(self):
         with TestClient(self.app) as c:
             data = c.get("/api/packing").json()

@@ -1,4 +1,4 @@
-// Customer/RFID and voice examples belong to the tab. Inventory and packing use the server.
+// Keep earlier tab-only examples available when moving user management to the server.
 const storageKey = "vision-lab.packing-demo.v2";
 const initial = {
   customers: [{ name: "홍길동", uid: "E2-34-08-A1" }, { name: "김서연", uid: "E2-34-08-B2" }],
@@ -8,9 +8,9 @@ const initial = {
 function load() {
   try {
     const saved = JSON.parse(sessionStorage.getItem(storageKey));
-    if (saved?.customers?.length && Array.isArray(saved.events)) return saved;
+    if (Array.isArray(saved?.customers) && Array.isArray(saved.events)) return saved;
     const previous = JSON.parse(sessionStorage.getItem("vision-lab.packing-demo.v1"));
-    if (previous?.customers?.length) return { customers: previous.customers, events: [] };
+    if (Array.isArray(previous?.customers)) return { customers: previous.customers, events: [] };
   } catch {
     // A restricted browser can still use the examples in memory.
   }
@@ -18,6 +18,8 @@ function load() {
 }
 
 export const demo = load();
+export const legacyUsers = demo.customers.filter(person =>
+  !initial.customers.some(sample => sample.name === person.name && sample.uid === person.uid));
 
 export function saveDemo() {
   try {
@@ -28,6 +30,6 @@ export function saveDemo() {
 }
 
 export function record(kind, source, message) {
-  demo.events.push([new Date().toLocaleTimeString("ko-KR", { hour12: false }), kind, source, message]);
+  demo.events.push([new Date().toISOString(), kind, source, message]);
   saveDemo();
 }

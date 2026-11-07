@@ -8,7 +8,7 @@ from uuid import uuid4
 
 from .relational import Relations, TABLES
 
-VERSION = 2
+VERSION = 3
 # Preserve v0 insertion order within each entity. Resolve class names before bindings.
 ORDER = ("class", "group", "collection", "sample", "dataset", "job", "model", "setting",
          "model_alias", "operation", "product", "packing_order", "packing_event", "product_class")
@@ -164,7 +164,12 @@ def initialize(db, root):
             version = db.execute("PRAGMA user_version").fetchone()[0]
             if version == VERSION:
                 return Relations(db)
-            if version == 1:
+            if version == 2:
+                backup(root, db, version)
+                db.execute("CREATE TABLE customer_rfid (customer_id INTEGER PRIMARY KEY REFERENCES customers(id), "
+                           "uid TEXT COLLATE NOCASE UNIQUE)")
+                repository = Relations(db)
+            elif version == 1:
                 path = backup(root, db, version)
                 with closing(sqlite3.connect(path.as_uri() + "?mode=ro", uri=True)) as old:
                     repository = migrate_v1(db, old)

@@ -2,9 +2,9 @@ export const destinations = [
   { id: "dashboard", label: "대시보드", icon: "layout-dashboard" },
   { id: "orders", label: "주문·배송", icon: "package-check" },
   { id: "robot", label: "로봇 모니터링", icon: "robot-arm" },
-  { id: "stock", label: "상품·재고", icon: "boxes" },
-  { id: "people", label: "고객·RFID", icon: "contact" },
-  { id: "training", label: "모델 학습", icon: "scan-line" },
+  { id: "people", label: "사용자 관리", icon: "contact" },
+  { id: "stock", label: "재고 관리", icon: "boxes" },
+  { id: "model-management", label: "모델 관리", icon: "scan-line" },
   { id: "logs", label: "로그", icon: "scroll-text" }
 ];
 
@@ -16,7 +16,7 @@ const training = document.body.dataset.workspace === "training";
 
 export function currentDestination() {
   if (document.body.dataset.workspace === "robot") return destinations.find(item => item.id === "robot");
-  if (training) return destinations.find(item => item.id === "training");
+  if (training) return destinations.find(item => item.id === "model-management");
   const route = location.hash.slice(1);
   return destinations.find(item => item.id === route) || destinations[0];
 }
@@ -34,14 +34,14 @@ const nav = document.createElement("nav");
 nav.className = "station-nav";
 nav.setAttribute("aria-label", "주 메뉴");
 for (const item of destinations) {
-  if (item.id === "dashboard" || item.id === "stock") {
+  if (item.id === "dashboard" || item.id === "people") {
     const group = document.createElement("div");
     group.className = "nav-group";
     group.textContent = item.id === "dashboard" ? "운영" : "관리";
     nav.append(group);
   }
   const link = document.createElement("a");
-  link.href = item.id === "training" ? "/training#collect" : item.id === "robot" ? "/robot" : "/#" + item.id;
+  link.href = item.id === "robot" ? "/robot" : "/#" + item.id;
   link.dataset.page = item.id;
   link.innerHTML = icon(item.icon) + item.label;
   nav.append(link);

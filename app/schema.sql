@@ -95,6 +95,9 @@ CREATE TABLE products (
     stock INTEGER NOT NULL CHECK(typeof(stock)='integer' AND stock >= 0), alias TEXT NOT NULL, bin TEXT NOT NULL
 );
 CREATE TABLE customers (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL);
+CREATE TABLE customer_rfid (
+    customer_id INTEGER PRIMARY KEY REFERENCES customers(id), uid TEXT COLLATE NOCASE UNIQUE
+);
 CREATE TABLE orders (
     id INTEGER PRIMARY KEY AUTOINCREMENT, public_id TEXT NOT NULL UNIQUE, number INTEGER NOT NULL UNIQUE, customer_id INTEGER NOT NULL REFERENCES customers(id),
     paused INTEGER NOT NULL CHECK(paused IN (0,1)), state TEXT NOT NULL

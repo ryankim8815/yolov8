@@ -6,6 +6,7 @@ from pathlib import Path
 import yaml
 
 from .config import ROOT
+from .packing import Packing
 from .store import DomainError, atomic_json
 
 BUILTIN = "coco-yolov8n"
@@ -57,7 +58,12 @@ class ModelRegistry:
             raise DomainError("이름은 제어 문자 없이 1~80자로 입력하세요", 422)
         with self.store.write_transaction() as write:
             model = self.store.get("model", identifier)
+            alias = self.store.db.execute("SELECT name FROM model_aliases WHERE model_id="
+                                          "(SELECT id FROM models WHERE public_id=?)", (identifier,)).fetchone()
+            old = alias[0] if alias else model.get("name") or identifier
             write("model_alias", {"id": "alias-" + identifier, "model_id": identifier, "name": name})
+            if old != name:
+                Packing.log(write, "모델", f"{old} → {name} · 모델 이름 변경")
         return {**model, "name": name}
 
     @staticmethod

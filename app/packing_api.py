@@ -28,6 +28,15 @@ class Stock(Input):
     expected_stock: int = Field(ge=0, le=9999)
 
 
+class UserInput(Input):
+    name: str = Field(min_length=1, max_length=80)
+
+
+class RfidInput(Input):
+    uid: str | None = Field(min_length=1, max_length=80)
+    expected_uid: str | None = Field(max_length=80)
+
+
 class Assignment(Input):
     class_id: int | None = Field(ge=0)
 
@@ -57,6 +66,22 @@ def products(request: Request):
     packing = request.app.state.pipeline.packing
     with packing.store.read_transaction():
         return packing.products()
+
+
+@router.post("/users", status_code=201)
+def add_user(body: UserInput, request: Request):
+    return request.app.state.pipeline.packing.add_user(body.name)
+
+
+@router.get("/logs")
+def logs(request: Request):
+    return request.app.state.pipeline.packing.logs()
+
+
+@router.put("/users/{user_id}/rfid")
+def assign_rfid(user_id: int, body: RfidInput, request: Request):
+    request.app.state.pipeline.packing.assign_rfid(user_id, body.uid, body.expected_uid)
+    return {"ok": True}
 
 
 @router.post("/products", status_code=201)

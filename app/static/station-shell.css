@@ -48,8 +48,13 @@
   .station-brand { font-size: 16px; padding: 0; margin-bottom: 8px; }
   .brand-mark { width: 24px; height: 24px; }
   .brand-mark .station-icon { width: 17px; height: 17px; }
-  .station-brand small, .nav-group, .rail-status { display: none; }
-  .station-nav { grid-template-columns: repeat(3, minmax(0,1fr)); gap: 3px; }
+  .station-brand small, .rail-status { display: none; }
+  .station-nav { grid-template-columns: repeat(4, minmax(0,1fr)); gap: 3px; }
+  .nav-group, .nav-group:not(:first-child) { grid-column: 1 / -1; margin: 3px 0 0; padding: 0 5px; }
   .station-nav a { padding: 7px; min-height: 36px; gap: 5px; font-size: 13px; }
+}
+@media (max-width: 480px) {
+  .station-nav a { justify-content: center; padding-inline: 2px; gap: 4px; font-size: 12px; }
+  .station-nav .station-icon { width: 14px; height: 14px; }
 }
 @media (pointer: coarse) { .station-nav a { min-height: 44px; } }

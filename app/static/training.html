@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>모델 학습 · Vision Lab</title>
+  <title>모델 관리 · Vision Lab</title>
   <link rel="stylesheet" href="/static/style.css">
   <link rel="stylesheet" href="/static/model-manager.css">
   <link rel="stylesheet" href="/static/dataset-picker.css">
@@ -18,9 +18,14 @@
   <aside class="station-rail" id="station-rail"></aside>
   <main>
     <header>
-      <h1><b>모델 학습</b><span>YOLOv8</span></h1>
+      <h1><b>모델 관리</b><span>YOLOv8</span></h1>
       <div class="status" id="status-pill"><i></i><span id="state" role="status">서버 연결 중</span></div>
     </header>
+    <aside id="training-product" class="product-context" hidden>
+      <div><strong id="training-product-name"></strong>
+        <p>상품 사진을 수집하고, 유지할 기존 클래스와 새 클래스를 함께 포함한 데이터셋으로 학습하세요. 새 모델을 적용한 뒤 재고에서 클래스를 연결하세요.</p></div>
+      <a id="training-product-return" href="/#stock">재고에서 클래스 연결</a>
+    </aside>
     <p class="intro" id="live-intro">실시간 객체 탐지 결과와 카메라 성능을 확인합니다.</p>
     <nav class="tabs" id="training-tabs" aria-label="모델 학습 메뉴">
       <a href="#live" data-tab="live">실시간 객체 탐지</a>
