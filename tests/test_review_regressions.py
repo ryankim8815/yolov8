@@ -210,14 +210,15 @@ def test_initial_user_model_hash_is_checked_before_training(runtime, monkeypatch
 
 
 def test_bulk_review_db_failure_rolls_back_all_samples(runtime):
-    for identifier in ("one", "two"):
-        runtime.store.put("sample", {"id":identifier, "review":"pending"})
-    runtime.store.db.execute("CREATE TRIGGER reject_second BEFORE UPDATE ON records WHEN NEW.id='two' BEGIN SELECT RAISE(ABORT, 'disk full'); END")
+    from tests.test_datasets import add_sample
+    cls = runtime.store.named("class", "대상")["id"]
+    ids = [add_sample(runtime.store, cls, "room", n, review="pending")["id"] for n in (1, 2)]
+    runtime.store.db.execute(f"""CREATE TRIGGER reject_second BEFORE UPDATE ON samples WHEN NEW.public_id='{ids[1]}'
+                                 BEGIN SELECT RAISE(ABORT, 'disk full'); END""")
     try:
         with pytest.raises(sqlite3.IntegrityError):
-            runtime.review_samples(["one", "two"], "approved")
-        assert runtime.store.get("sample", "one")["review"] == "pending"
-        assert runtime.store.get("sample", "two")["review"] == "pending"
+            runtime.review_samples(ids, "approved")
+        assert all(runtime.store.get("sample", i)["review"] == "pending" for i in ids)
     finally:
         runtime.store.db.execute("DROP TRIGGER reject_second")
 
@@ -270,8 +271,8 @@ def test_failed_switch_does_not_persist_new_selection(runtime):
     old = runtime.model_id
     runtime.store.put("setting", {"id": "selected-cpu", "model_id": old})
     register(runtime, "v2")
-    runtime.store.db.execute("""CREATE TRIGGER reject_switch_commit BEFORE UPDATE ON records
-        WHEN NEW.kind='operation' AND json_extract(NEW.data, '$.state')='completed'
+    runtime.store.db.execute("""CREATE TRIGGER reject_switch_commit BEFORE UPDATE ON model_operations
+        WHEN NEW.state='completed'
         BEGIN SELECT RAISE(ABORT, 'operation commit failed'); END""")
     try:
         operation = runtime.activate("v2")

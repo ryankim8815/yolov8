@@ -51,7 +51,11 @@ bash scripts/start.sh coreml
 bash scripts/start.sh cpu
 ```
 
-브라우저에서 [패킹 대시보드](http://127.0.0.1:8000)를 엽니다. 대시보드의 탐지 카메라는 활성 모델이 표시한 실시간 영상과 측정된 FPS·서버 지연 p95·탐지 개수를 보여줍니다. 영상 아래 **탐지 클래스**에서 클래스별 수량을 확인할 수 있습니다. 클래스명을 누르면 영상에서 해당 객체의 상자가 강조되고 객체별 신뢰도가 표시됩니다. 다시 누르면 강조가 해제됩니다. 카메라가 꺼져 있으면 **카메라 설정 열기 → 카메라 켜기**로 시작합니다. 대시보드의 패킹 작업과 `주문·배송`, `상품·재고`, `고객·RFID`, `로그` 화면은 예시 주문을 공유합니다. 시연에서 바꾼 수량과 RFID, 대화 기록은 현재 브라우저 탭에 저장됩니다.
+브라우저에서 [패킹 대시보드](http://127.0.0.1:8000)를 엽니다. 대시보드의 탐지 카메라는 활성 모델이 표시한 실시간 영상과 측정된 FPS·서버 지연 p95·탐지 개수를 보여줍니다. 영상 아래 **탐지 클래스**에서 클래스별 수량을 확인할 수 있습니다. 클래스명을 누르면 영상에서 해당 객체의 상자가 강조되고 객체별 신뢰도가 표시됩니다. 다시 누르면 강조가 해제됩니다. 카메라가 꺼져 있으면 **카메라 설정 열기 → 카메라 켜기**로 시작합니다.
+
+**상품·재고**에서 상품을 선택하고 **탐지 클래스 연결**을 눌러 활성 모델의 클래스를 지정합니다. 연결된 상품은 카메라 카드에 `생수 (bottle) ×2`처럼 표시됩니다. 연결 변경 화면에서 **미연결**을 저장하면 해제됩니다.
+
+상품, 모델별 연결, 주문과 작업 기록은 기존 SQLite에 저장됩니다. 처음에는 빼빼로 10개, 생수 5개, 스팸 3개, 물티슈 1개, 인형 2개로 시작합니다. 주문 #123은 빼빼로·생수·물티슈를 각 1개 예약합니다. **놓기 완료 시연**을 누르면 해당 품목을 출고하고 마지막 품목에서 발송 대기로 전환합니다. 고객·RFID 예시와 버튼으로 실행한 명령 기록은 현재 탭에 보관합니다.
 
 좌측 [모델 학습](http://127.0.0.1:8000/training#collect)에서 실제 카메라와 학습 서버를 사용합니다. 실시간 객체 탐지, 학습 데이터 수집·검토, 학습 작업, 모델 관리가 이 메뉴에 있습니다. MPS를 사용할 수 없으면 오류를 표시하며 CPU로 자동 전환하지 않습니다. Core ML은 `CPU_AND_NE`를 명시하여 로드합니다. 이 설정은 CPU와 Neural Engine의 사용을 허용하며 모델 전체의 Neural Engine 실행을 보장하지 않습니다.
 
@@ -59,9 +63,54 @@ bash scripts/start.sh cpu
 
 **카메라는 Mac 추론 서버가 소유합니다.** 단독 실행한 서버는 브라우저를 닫거나 Docker 컨테이너를 내려도 계속 실행됩니다. 해당 터미널에서 `Ctrl+C`를 누르거나 다른 터미널에서 `bash scripts/stop.sh`를 실행하면 서버를 정상 종료하고 카메라를 해제합니다. 종료 스크립트는 이 프로젝트의 conda 인터프리터·작업 폴더·Uvicorn 실행 인자가 모두 일치하는 프로세스만 종료합니다.
 
+### Mac 패킹 음성 대화
+
+Apple Silicon, macOS 27, macOS 27 SDK가 포함된 Xcode Command Line Tools가 필요합니다. FastAPI가 Mac에서 Swift 프로그램 하나를 실행하고, 이 프로그램이 기본 마이크와 스피커를 사용합니다. 대시보드를 닫아도 서버가 실행 중이면 대화할 수 있습니다.
+
+1. 저장소 루트에서 아래 명령을 실행합니다. 기존 서버가 실행 중이면 해당 터미널에서 정상 종료한 뒤 음성을 활성화하여 다시 시작합니다. 한국어 인식 모델 설치는 최초 한 번이며 다운로드가 필요할 수 있습니다.
+
+   ```bash
+   bash scripts/build_voice.sh
+   .cache/voice/packing-voice --install-ko
+   YOLO_VOICE_ENABLED=1 bash scripts/start.sh mps
+   ```
+
+   Core ML 서버는 마지막 인자를 `coreml`로 바꿉니다. Docker 중계까지 사용할 때는 세 번째 명령 대신 `YOLO_VOICE_ENABLED=1 bash scripts/stack.sh up mps`를 실행합니다.
+2. 대시보드 **음성 명령 → 대화 시작**을 누릅니다. macOS가 요청하면 마이크를 허용합니다. 권한을 거절했던 경우 **시스템 설정 → 개인정보 보호 및 보안 → 마이크**에서 서버를 실행한 앱(예: 터미널)의 권한을 켜고 서버를 다시 시작합니다. 시스템의 한국어 Yuna 음성이 누락된 경우 손쉬운 사용의 말하기 음성에서 설치합니다.
+3. Mac **단축어** 앱에서 ‘패킹 대화 시작’ 단축어를 만듭니다. URL을 `http://127.0.0.1:8000/api/voice/wake`로 설정하고 **URL 콘텐츠 가져오기 → 방법 → POST**를 선택합니다. 단축어를 한 번 실행해 로컬 연결 권한을 허용합니다. **시스템 설정 → 손쉬운 사용 → 음성 단축어**에서 이 단축어를 선택하고 원하는 이름(예: “패킹 도우미”)을 본인의 목소리로 등록합니다. [Apple의 음성 단축어 안내](https://support.apple.com/ko-kr/guide/mac-help/mchlf4548bb6/mac)
+4. “패킹 도우미”라고 부르고 준비음이 끝나면 “재고 알려줘”라고 말합니다. Yuna가 다 읽은 뒤 다시 이름을 부르지 않고 “주문 내역 알려줘”라고 말할 수 있습니다. 피킹은 “멈춰”, “피킹 재개해줘”로 제어합니다. “예시 주문해줘”는 124번 주문의 품목을 읽고, 같은 대화에서 “주문 확정” 또는 “네, 주문해줘”라고 말하면 접수합니다. “취소”는 대기 중인 주문을 취소합니다.
+5. 말끝 무음은 보통 0.8초, “생수하고…”처럼 이어지는 말은 1.5초 기다립니다. “대화 종료” 또는 6초 동안 후속 발화가 없으면 마이크를 해제합니다. 서버 종료는 `Ctrl+C`입니다. 상태 확인은 `curl http://127.0.0.1:8000/api/voice/status`, 수동 호출은 `curl -X POST http://127.0.0.1:8000/api/voice/wake`입니다. 대시보드는 같은 API의 상태와 최근 인식문·응답을 표시합니다. 이 텍스트는 서버 메모리에만 보관합니다.
+
+**Yuna의 답변 도중 말하기**는 `YOLO_VOICE_BARGE_IN`으로 선택합니다. `1`이면 Mac 스피커의 재생음을 에코 제거에 사용하면서 작업자의 말을 듣습니다. 말소리가 이어지면 Yuna의 음량을 먼저 낮춥니다. 첫 단어가 인식되면 낭독을 멈추고, 발화가 끝나면 최종 인식문으로 명령을 처리합니다. 예를 들어 Yuna가 재고를 읽는 도중 “주문 조회”라고 말할 수 있습니다. `0`(기본값)이면 낭독이 끝난 뒤 다음 말을 듣습니다. 두 모드 모두 답변이 끝난 뒤 6초 동안 후속 발화를 기다립니다.
+
+```bash
+bash scripts/build_voice.sh
+YOLO_VOICE_ENABLED=1 YOLO_VOICE_BARGE_IN=1 bash scripts/start.sh mps
+```
+
+Docker 통합 실행에서는 같은 두 변수를 프로젝트 루트의 `.env`에 적고 스택을 재시작합니다. `GET /api/voice/status`의 `barge_in`으로 적용값을 확인할 수 있습니다. `last_playback`은 직전 낭독이 발화로 중단되면 `interrupted`, 끝까지 재생되면 `finished`입니다.
+
+**음성 명령 → 청취 중단**을 누르면 현재 대화를 종료하고 마이크를 해제합니다. Yuna가 답변 중이면 낭독도 멈추고, 확정 대기 중인 주문은 취소합니다. **대화 시작**을 누르거나 호출어를 말하면 새 대화가 시작됩니다. 단축어에서도 `POST /api/voice/stop`을 사용할 수 있습니다.
+
+파일로 먼저 검사하려면 운영 데이터와 마이크를 사용하지 않고 예시 문장을 합성해 전사할 수 있습니다.
+
+```bash
+voice_sample_dir=$(mktemp -d)
+say -v Yuna -o "$voice_sample_dir/query.aiff" '재고 알려줘'
+say -v Yuna -o "$voice_sample_dir/order.aiff" '주문 내역 알려줘'
+.cache/voice/packing-voice --transcribe-file "$voice_sample_dir/query.aiff"
+
+# 마이크 속도로 파일을 입력해 첫 음절, 말끝 대기, 낭독 중 끼어들기와 최종 전사를 검사합니다.
+xcrun swiftc -parse-as-library -target arm64-apple-macos27.0 -module-cache-path .cache/voice/modules \
+  native/voice/Recognition.swift tests/voice_turns.swift -o "$voice_sample_dir/check-turn"
+"$voice_sample_dir/check-turn" "$voice_sample_dir/query.aiff" "$voice_sample_dir/order.aiff"
+```
+
 ## 4. Docker 이미지 빌드 및 Compose 실행
 
 ### 권장: Mac 서버와 Docker 통합 실행
+
+프로젝트 루트에 `.env`가 있으면 그 파일을 사용합니다. 처음 설정할 때는 `cp .env.example .env`로 만든 뒤 필요한 값을 수정하세요. Compose가 `.env`의 환경변수를 중계 컨테이너에 적용하고, 통합 실행 스크립트가 `YOLO_*` 값을 Mac 서버에도 전달합니다. Mac 서버에서는 셸에서 직접 지정한 값이 파일보다 우선하고, 백엔드는 실행 명령의 인자가 결정합니다. 파일을 생략하면 기존 기본값으로 실행합니다.
 
 ```bash
 # 네이티브 서버를 따로 실행하지 않고 이 명령 하나를 실행합니다.
@@ -105,7 +154,7 @@ docker compose logs --tail=50 gateway
            → Docker nginx 중계 :8080 → 브라우저
 ```
 
-- Docker Desktop을 실행해야 합니다. CLI가 PATH에 없으면 `/Applications/Docker.app/Contents/Resources/bin/docker`를 사용합니다.
+- Docker Desktop과 Docker Compose 2.24 이상을 사용합니다. CLI가 PATH에 없으면 `/Applications/Docker.app/Contents/Resources/bin/docker`를 사용합니다. [Compose의 선택적 환경 파일](https://docs.docker.com/reference/compose-file/services/#required)
 - 컨테이너는 `host.docker.internal:8000`으로 연결합니다. 네이티브 서버를 종료하면 중계 경로는 502/504, 컨테이너 health는 unhealthy가 됩니다.
 - `/gateway-healthz`는 중계 프로세스만, `/healthz`는 네이티브 API 연결까지 확인합니다. `/readyz`는 실제 탐지 준비 상태를 확인합니다.
 - MJPEG 버퍼링을 끄고 WebSocket 업그레이드를 전달합니다. 외부 공개 없이 `127.0.0.1:8080`에만 포트를 엽니다.
@@ -123,7 +172,7 @@ Docker가 호스트 서버에 연결되지 않으면 Docker Desktop의 실행 �
 
 ## 5. 설정과 API
 
-`.env.example`의 `YOLO_` 환경 변수를 실행 전에 export합니다. `.env` 파일을 자동으로 읽거나 shell 코드로 실행하지 않습니다. 예:
+통합 실행에서는 루트 `.env`를 수정한 뒤 스택을 재시작합니다. Mac 서버만 `scripts/start.sh`로 실행할 때는 셸에서 변수를 지정합니다.
 
 ```bash
 YOLO_CAMERA_INDEX=1 YOLO_PREVIEW_FPS=10 bash scripts/start.sh mps
@@ -244,3 +293,11 @@ Smoke test의 모델은 `artifacts/training-smoke-*/`의 별도 레지스트리�
 여러 환경에서 수집했다면 환경 그룹과 동일·유사 사진을 분리하지 않고 묶어서 train/val을 구성합니다. 모든 클래스가 양쪽에 있으면 `status: "ready"`가 됩니다. 여러 환경이 유사 사진으로 연결되거나 특정 클래스의 독립 그룹이 부족해 분할할 수 없을 때는 기존처럼 422와 원인을 표시합니다. 승인 사진이 없거나 파일이 누락·변경된 경우에도 저장하지 않습니다.
 
 연속 촬영한 거의 같은 사진을 학습과 검증 양쪽에 넣으면 처음 보는 장면에서의 성능을 과대평가할 수 있습니다. 같은 클래스를 유지한 채 배경·조명·각도를 바꾸고 **새 환경 등록 → 사진 수집 → 저장 중지 → 사진 불러오기 → 승인 → 누적 승인 자료로 데이터셋 고정**을 진행하세요. 그룹 이름만 추가하거나 같은 사진을 복제하는 것으로는 독립 검증 자료가 생기지 않습니다.
+
+### SQLite 메타데이터 이전
+
+서버는 `state/metadata.sqlite3`의 `PRAGMA user_version`으로 스키마를 구분합니다. 버전 2에서는 상품과 수량을 `products`, 주문 품목을 `order_items`에서 조회하며 `inventory` 뷰가 보유·예약·가용 수량을 제공합니다. 수집한 사진은 `samples`, 학습에 사용한 스냅샷은 `dataset_items`, 모델 클래스 연결은 `product_class_bindings`에 있습니다.
+
+상품, 주문, 주문 품목, 학습 샘플, 모델 등 독립 레코드의 내부 `id`는 SQLite가 `INTEGER PRIMARY KEY AUTOINCREMENT`로 발급합니다. 테이블마다 번호가 증가하며, 삭제한 행의 번호는 자동 발급 시 재사용하지 않습니다. 외래 키는 부모 행의 정수 키를 참조합니다. 예를 들어 `order_items.product_id`는 `products.id`를 가리키고, 화면에는 상품의 `sku`가 표시됩니다. 모델의 `class_id`는 가중치에 정의된 번호이며, 모델과 클래스의 조합으로 상품을 연결합니다. 기존 API와 파일 경로에는 기존 공개 식별자를 사용합니다.
+
+버전 0 또는 1 서버를 종료하고 새 서버를 시작하면 SQLite 백업 API가 같은 데이터 디렉터리의 `backups/`에 커밋된 WAL 내용을 포함한 백업을 만듭니다. 파일명은 각각 `metadata-v0-*.sqlite3`, `metadata-v1-*.sqlite3`입니다. 변환·원본 대조·무결성 검사는 하나의 트랜잭션으로 실행됩니다. 실패하면 원본 테이블을 보존하고 시작을 중단합니다. 오류에 표시된 레코드를 확인한 뒤 재시작하면 다시 시도합니다. 구버전으로 복구할 때는 서버를 종료하고 현재 DB와 WAL·SHM을 별도 보관한 뒤 백업을 `metadata.sqlite3`로 복원하고 구버전 코드를 실행합니다. 백업 이후의 쓰기는 별도 보관한 DB에 남습니다.

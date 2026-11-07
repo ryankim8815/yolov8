@@ -1,3 +1,5 @@
+import json
+import os
 import signal
 import subprocess
 import unittest
@@ -58,6 +60,7 @@ class StackTests(unittest.TestCase):
 
     def test_container_stop_also_stops_native_child(self):
         gateway, process = self.run_with_gateway()
+        gateway.native_environment.assert_called_once_with("our-container-id")
         gateway.running.assert_called_once_with("our-container-id")
         process.terminate.assert_called_once()
         process.wait.assert_called_once_with(timeout=12)
@@ -87,6 +90,17 @@ class StackTests(unittest.TestCase):
             gateway = stack.Gateway()
         with patch.object(stack.subprocess, "run", side_effect=subprocess.TimeoutExpired("docker", 3)):
             self.assertFalse(gateway.running("our-container-id"))
+
+    def test_native_child_receives_compose_settings_with_shell_overrides(self):
+        container_env = ["YOLO_VOICE_ENABLED=1", "YOLO_VOICE_BARGE_IN=0", "YOLO_STATE_DIR=/tmp/a $b=c",
+                         "YOLO_BACKEND=mps", "PATH=/container/bin", "GATEWAY_ONLY=yes"]
+        shell_env = {"PATH": "/mac/bin", "YOLO_VOICE_BARGE_IN": "1", "YOLO_BACKEND": "coreml"}
+        with patch.dict(os.environ, shell_env, clear=True), \
+             patch.object(stack.shutil, "which", return_value="/usr/bin/docker"), \
+             patch.object(stack.subprocess, "run") as inspect:
+            inspect.return_value.stdout = json.dumps(container_env)
+            env = stack.Gateway().native_environment("our-container-id")
+        self.assertEqual(env, {**shell_env, "YOLO_VOICE_ENABLED": "1", "YOLO_STATE_DIR": "/tmp/a $b=c"})
 
 
 if __name__ == "__main__":

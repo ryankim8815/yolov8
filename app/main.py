@@ -10,10 +10,12 @@ from fastapi.staticfiles import StaticFiles
 from starlette.requests import ClientDisconnect
 
 from .config import Settings
+from .packing_api import router as packing_router
 from .pipeline import Pipeline
 from .runtime import Runtime
 from .store import DomainError
 from .training_api import router
+from .voice import Voice, router as voice_router
 
 STATIC = Path(__file__).parent / "static"
 log = logging.getLogger(__name__)
@@ -68,14 +70,22 @@ def create_app(settings=None, pipeline_factory=Pipeline, state_root=None):
     async def lifespan(application):
         pipeline = await asyncio.to_thread(Runtime, settings, pipeline_factory, state_root or settings.state_dir)
         application.state.pipeline = pipeline
+        voice = Voice(pipeline.packing, settings.voice_enabled, barge_in=settings.voice_barge_in)
+        application.state.voice = voice
         try:
             pipeline.start()
+            await voice.start()
             yield
         finally:
-            await asyncio.to_thread(pipeline.stop)
+            try:
+                await voice.stop()
+            finally:
+                await asyncio.to_thread(pipeline.stop)
 
     application = FastAPI(title="YOLOv8 Local Camera", version="0.1.0", lifespan=lifespan)
     application.include_router(router())
+    application.include_router(packing_router)
+    application.include_router(voice_router)
 
     @application.exception_handler(DomainError)
     async def domain_error(request, exc):

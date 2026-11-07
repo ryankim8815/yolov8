@@ -30,6 +30,8 @@ class Settings:
     state_dir: Path = ROOT / "state"
     model_path_explicit: bool = False
     camera_autostart: bool = True
+    voice_enabled: bool = False
+    voice_barge_in: bool = False
 
     def __post_init__(self):
         if self.backend not in {"mps", "cpu", "coreml"}:
@@ -52,9 +54,17 @@ class Settings:
         autostart = os.getenv("YOLO_CAMERA_AUTOSTART", "1")
         if autostart not in {"0", "1"}:
             raise ValueError("YOLO_CAMERA_AUTOSTART must be 0 or 1")
+        voice = os.getenv("YOLO_VOICE_ENABLED", "0")
+        if voice not in {"0", "1"}:
+            raise ValueError("YOLO_VOICE_ENABLED must be 0 or 1")
+        barge_in = os.getenv("YOLO_VOICE_BARGE_IN", "0")
+        if barge_in not in {"0", "1"}:
+            raise ValueError("YOLO_VOICE_BARGE_IN must be 0 or 1")
         default_model = "yolov8n.mlpackage" if backend == "coreml" else "yolov8n.pt"
         values = {
             "backend": backend,
+            "voice_enabled": voice == "1",
+            "voice_barge_in": barge_in == "1",
             "camera_autostart": autostart == "1",
             "state_dir": Path(os.getenv("YOLO_STATE_DIR", str(ROOT / "state"))).expanduser().resolve(),
             "model_path_explicit": "YOLO_MODEL_PATH" in os.environ,

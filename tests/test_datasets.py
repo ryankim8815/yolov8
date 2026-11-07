@@ -21,7 +21,11 @@ def add_sample(store, cls, group, seed, review="approved"):
     collector = Collector(store)
     image = np.random.default_rng(seed).integers(0,256,(80,120,3),dtype=np.uint8)
     packet = SimpleNamespace(frame_id=seed,captured_at="test",frame=image)
-    config = {"id":f"collection-{seed}","class_id":cls,"group_id":group,"model_id":"teacher","model_hash":"hash"}
+    config = {"id":f"collection-{group}-{seed}","class_id":cls,"group_id":group,"model_id":"teacher","model_hash":"hash"}
+    if group not in {g["id"] for g in store.list("group")}:
+        store.put("group", {"id": group, "name": group})
+    store.put("model", {"id":"teacher", "name":"teacher"})
+    store.put("collection", {**config, "state":"stopped"})
     try:
         result=collector._write(config,packet,{"session_id":"s"},{"class_id":0,"label":"old","confidence":.9,"xyxy":[20,20,100,60]})
         return store.update("sample",result["id"],review=review)
@@ -76,8 +80,10 @@ def test_missing_file_and_insufficient_class_groups_rejected(store):
 
 
 def test_restart_recovery_and_orphan_cleanup(store):
-    store.put("job",{"id":"job1","state":"training"})
-    store.put("collection",{"id":"c1","state":"collecting"})
+    populated(store)
+    dataset = build_dataset(store)
+    store.put("job", {"id":"job1","state":"training","dataset_id":dataset["id"]})
+    store.put("collection", {**store.list("collection")[0],"id":"c1","state":"collecting"})
     orphan=store.root/"collections/c1"/("sample-"+"0"*32+".jpg")
     orphan.parent.mkdir(parents=True);orphan.write_bytes(b"incomplete")
     store.recover()

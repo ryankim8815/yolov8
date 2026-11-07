@@ -1,5 +1,6 @@
 """Keep the native camera server and Docker gateway in one foreground lifecycle."""
 import argparse
+import json
 import os
 import shutil
 import signal
@@ -114,6 +115,14 @@ class Gateway:
             raise RuntimeError("Gateway did not start; the camera server was not started.")
         return container_id
 
+    def native_environment(self, container_id):
+        # Read the values Docker actually applied, including dotenv quoting and interpolation.
+        result = subprocess.run([self.docker, "inspect", "--format", "{{json .Config.Env}}", container_id],
+                                env=self.env, check=True, text=True, stdout=subprocess.PIPE, timeout=5)
+        settings = dict(entry.split("=", 1) for entry in json.loads(result.stdout)
+                        if entry.startswith("YOLO_") and "=" in entry)
+        return {**settings, **os.environ}
+
     def running(self, container_id):
         try:
             result = subprocess.run([self.docker, "inspect", "--format", "{{.State.Running}}", container_id],
@@ -172,7 +181,7 @@ def run_stack(backend):
         cleanup_gateway = True
         container_id = gateway.start()
         server = subprocess.Popen(["bash", str(ROOT / "scripts/start.sh"), backend],
-                                  cwd=ROOT, stdin=subprocess.DEVNULL)
+                                  cwd=ROOT, env=gateway.native_environment(container_id), stdin=subprocess.DEVNULL)
         print("Open http://127.0.0.1:8080 — Ctrl+C or stopping the gateway also stops the camera.", flush=True)
         return supervise(server, lambda: gateway.running(container_id))
     except KeyboardInterrupt:

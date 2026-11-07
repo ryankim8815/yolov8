@@ -236,7 +236,8 @@ def test_child_progress_starts_correct_stage_and_only_persists_changes(runtime,m
     directory=runtime.store.root/"progress-test"
     directory.mkdir()
     atomic_json(directory/"progress.json",{"stage":"evaluating","epoch":99})
-    job=runtime.store.put("job",{"id":"progress-job","state":"exporting","directory":str(directory)})
+    config = fake_job(runtime)
+    job=runtime.store.put("job",{**config,"id":"progress-job","state":"exporting","directory":str(directory)})
     class Process:
         returncode=0
         def __init__(self,*args,**kwargs):self.polls=0

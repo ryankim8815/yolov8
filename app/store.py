@@ -10,6 +10,8 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
+from .migration import initialize
+
 
 def now():
     return datetime.now(timezone.utc).isoformat()
@@ -50,11 +52,15 @@ class Store:
         self.root.mkdir(parents=True, exist_ok=True)
         self.lock = threading.RLock()
         self.db = sqlite3.connect(self.root / "metadata.sqlite3", check_same_thread=False)
-        self.db.execute("PRAGMA journal_mode=WAL")
-        self.db.execute("PRAGMA synchronous=FULL")
-        self.db.execute("CREATE TABLE IF NOT EXISTS records (kind TEXT NOT NULL, id TEXT PRIMARY KEY, data TEXT NOT NULL)")
-        self.db.execute("CREATE INDEX IF NOT EXISTS records_kind ON records(kind)")
-        self.db.commit()
+        self.db.row_factory = sqlite3.Row
+        try:
+            self.db.execute("PRAGMA foreign_keys=ON")
+            self.db.execute("PRAGMA journal_mode=WAL")
+            self.db.execute("PRAGMA synchronous=FULL")
+            self.relations = initialize(self.db, self.root)
+        except BaseException:
+            self.db.close()
+            raise
 
     @contextmanager
     def write_transaction(self):
@@ -64,43 +70,65 @@ class Store:
             yield self._write
 
     def _write(self, kind, value):
-        self.db.execute("INSERT INTO records VALUES (?,?,?) ON CONFLICT(id) DO UPDATE SET data=excluded.data",
-                        (kind, value["id"], json.dumps(value, ensure_ascii=False, allow_nan=False)))
+        self.relations.write(kind, value)
 
     def put_many(self, records):
         with self.write_transaction() as write:
+            # Batches may contain child models before their parents, and mutually
+            # linked jobs/models. Reserve only models actually declared in this batch.
+            records = list(records)
             for kind, value in records:
+                if kind == "model":
+                    self.relations.keys.reserve_model(value["id"])
+            # Class bindings require the model's actual class rows as well.
+            priority = {"model": 1, "product_class": 2}
+            for kind, value in sorted(records, key=lambda record: priority.get(record[0], 0)):
                 write(kind, value)
 
     def put(self, kind, value):
         self.put_many([(kind, value)])
         return value
 
-    def get(self, kind, identifier):
+    @contextmanager
+    def read_transaction(self):
+        """Keep the parent and child SELECTs in one SQLite snapshot across connections."""
         with self.lock:
-            row = self.db.execute("SELECT data FROM records WHERE kind=? AND id=?", (kind, identifier)).fetchone()
-        if row is None:
-            raise DomainError(f"{kind}: 항목을 찾을 수 없습니다", 404)
-        return json.loads(row[0])
+            if self.db.in_transaction:
+                yield
+            else:
+                with self.db:
+                    self.db.execute("BEGIN")
+                    yield
+
+    def get(self, kind, identifier):
+        with self.read_transaction():
+            if identifier is not None:
+                rows = self.relations.read(kind, identifier)
+                if rows:
+                    return rows[0]
+        raise DomainError(f"{kind}: 항목을 찾을 수 없습니다", 404)
 
     def list(self, kind):
-        with self.lock:
-            return [json.loads(row[0]) for row in self.db.execute("SELECT data FROM records WHERE kind=? ORDER BY rowid", (kind,))]
+        with self.read_transaction():
+            return self.relations.read(kind)
 
     def update(self, kind, identifier, **changes):
-        with self.lock:
+        with self.write_transaction() as write:
             value = self.get(kind, identifier)
             value.update(changes)
-            return self.put(kind, value)
+            write(kind, value)
+            return value
 
     def named(self, kind, name):
         name = name.strip()
         if not name or len(name) > 80 or any(ord(c) < 32 or ord(c) == 127 for c in name):
             raise DomainError("이름은 제어 문자 없이 1~80자로 입력하세요", 422)
-        with self.lock:
+        with self.write_transaction() as write:
             if any(v["name"].casefold() == name.casefold() for v in self.list(kind)):
                 raise DomainError("같은 이름이 있습니다. 기존 항목을 선택하세요")
-            return self.put(kind, {"id": uid(kind), "name": name, "created_at": now()})
+            value = {"id": uid(kind), "name": name, "created_at": now()}
+            write(kind, value)
+            return value
 
     def recover(self):
         for kind in ("collection", "job", "operation"):

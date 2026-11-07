@@ -1,11 +1,26 @@
 import { watchDetections } from "./detection-feed.js";
 
-function createClassSummary(fields) {
+function createClassSummary(fields, getStation) {
   const buttons = new Map();
   let groups = new Map();
   let selected = null;
   let frameSize = null;
   let waiting = true;
+  let cachedStation;
+  let productNames = new Map();
+
+  function displayName(packet, object) {
+    const station = getStation();
+    if (!station || station.model.id !== packet.model_version) return object.label;
+    if (station !== cachedStation) {
+      cachedStation = station;
+      const products = new Map(station.products.map(p => [p.sku, p.name]));
+      productNames = new Map(station.model.classes.filter(c => products.has(c.sku))
+        .map(c => [c.id, {label: c.name, product: products.get(c.sku)}]));
+    }
+    const match = productNames.get(object.class_id);
+    return match?.label === object.label ? match.product + " (" + object.label + ")" : object.label;
+  }
 
   function drawBoxes(layer, objects) {
     while (layer.children.length > objects.length) layer.lastElementChild.remove();
@@ -25,7 +40,8 @@ function createClassSummary(fields) {
   }
 
   function showSelection() {
-    const objects = groups.get(selected) || [];
+    const group = groups.get(selected);
+    const objects = group?.objects || [];
     for (const [label, button] of buttons) {
       const pressed = String(label === selected);
       if (button.getAttribute("aria-pressed") !== pressed) button.setAttribute("aria-pressed", pressed);
@@ -39,7 +55,7 @@ function createClassSummary(fields) {
     let detail = "";
     if (objects.length) {
       const scores = objects.map(o => Math.round(o.confidence * 100) + "%");
-      detail = selected + " · 탐지 신뢰도 " + scores.join(", ");
+      detail = group.name + " · 탐지 신뢰도 " + scores.join(", ");
     } else if (!groups.size) {
       detail = waiting ? "탐지 결과 대기 중" : "탐지된 객체가 없습니다.";
     }
@@ -50,7 +66,7 @@ function createClassSummary(fields) {
   function selectClass(event) {
     const chip = event.target.closest("button[data-label]");
     if (!chip) return;
-    selected = selected === chip.dataset.label ? null : chip.dataset.label;
+    selected = selected === chip.dataset.classId ? null : chip.dataset.classId;
     showSelection();
   }
   fields.chips.addEventListener("click", selectClass);
@@ -60,30 +76,32 @@ function createClassSummary(fields) {
     frameSize = packet?.source_size;
     groups = new Map();
     for (const object of packet?.objects || []) {
-      if (!groups.has(object.label)) groups.set(object.label, []);
-      groups.get(object.label).push(object);
+      const key = String(object.class_id);
+      if (!groups.has(key)) groups.set(key, {label: object.label, name: displayName(packet, object), objects: []});
+      groups.get(key).objects.push(object);
     }
     for (const [name, button] of buttons) {
       if (!groups.has(name)) { button.remove(); buttons.delete(name); }
     }
     if (!groups.has(selected)) selected = null;
     // Stable buttons keep pointer and keyboard targets in place when confidence order changes.
-    [...groups.keys()].sort().forEach((name, index) => {
-      let button = buttons.get(name);
+    const ordered = [...groups].sort((a, b) => a[1].label.localeCompare(b[1].label) || Number(a[0]) - Number(b[0]));
+    ordered.forEach(([key, group], index) => {
+      let button = buttons.get(key);
       if (!button) {
         button = document.createElement("button");
         button.type = "button";
-        button.dataset.label = name;
-        const label = document.createElement("span");
-        label.textContent = name;
-        button.append(label, document.createElement("small"));
-        buttons.set(name, button);
+        button.dataset.classId = key;
+        button.dataset.label = group.label;
+        button.append(document.createElement("span"), document.createElement("small"));
+        buttons.set(key, button);
       }
-      const quantity = groups.get(name).length;
+      const quantity = group.objects.length;
       const text = "×" + quantity;
-      if (button.lastElementChild.textContent !== text) {
+      if (button.firstElementChild.textContent !== group.name || button.lastElementChild.textContent !== text) {
+        button.firstElementChild.textContent = group.name;
         button.lastElementChild.textContent = text;
-        button.setAttribute("aria-label", name + " " + quantity + "개 강조");
+        button.setAttribute("aria-label", group.name + " " + quantity + "개 강조");
       }
       const atIndex = fields.chips.children[index];
       if (atIndex !== button) fields.chips.insertBefore(button, atIndex || null);
@@ -94,9 +112,9 @@ function createClassSummary(fields) {
   return { update, dispose: () => fields.chips.removeEventListener("click", selectClass) };
 }
 
-export function connectDashboardCamera(panel) {
+export function connectDashboardCamera(panel, getStation) {
   const fields = Object.fromEntries([...panel.querySelectorAll("[data-camera]")].map(node => [node.dataset.camera, node]));
-  const classes = createClassSummary(fields);
+  const classes = createClassSummary(fields, getStation);
   const stop = watchDetections({
     image: fields.image,
     matchedPreview: true,

@@ -123,6 +123,6 @@ class ModelRegistry:
             parent_id = job.get("initial_model_id") or BUILTIN
             model.update(self._lineage(model, parent_id, models))
             model["dataset_counts"] = job["dataset"]["counts"]
-            write("model", model)
             write("job", job)
+            write("model", model)
             atomic_json(Path(job["directory"]) / "model.json", model)

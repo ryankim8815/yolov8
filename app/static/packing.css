@@ -513,6 +513,7 @@ form {
   grid-template-columns: repeat(auto-fit,minmax(min(100%,160px),1fr));
   gap: 10px;
 }
+.packing-error { padding: 10px 14px; color: #822e23; background: #fff2ed; border-radius: 6px; }
 .announce {
   position: absolute;
   width: 1px;

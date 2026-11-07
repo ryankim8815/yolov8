@@ -13,7 +13,10 @@ from tests.fakes import wait_until
 @pytest.fixture
 def collector(tmp_path):
     store = Store(tmp_path)
-    store.put("collection", {"id": "c1", "state": "created"})
+    store.put_many([("class", {"id": "class1", "name": "bottle"}), ("group", {"id": "group1", "name": "room"}),
+                    ("model", {"id": "m1", "name": "teacher"})])
+    store.put("collection", {"id": "c1", "state": "created", "class_id": "class1", "group_id": "group1",
+                             "model_id": "m1", "model_hash": "hash"})
     worker = Collector(store)
     worker.start({"id": "c1", "class_id": "class1", "group_id": "group1", "model_id": "m1", "model_hash": "hash", "interval_ms": 250, "confidence": .5})
     yield worker

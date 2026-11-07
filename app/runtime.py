@@ -11,6 +11,7 @@ from pathlib import Path
 from .collection import Collector
 from .config import ROOT
 from .datasets import build_dataset, require_training_split, verify_dataset
+from .packing import Packing
 from .model_registry import BUILTIN, ModelRegistry, attach_benchmarks, coco_classes
 from .store import DomainError, Store, atomic_json, now, uid
 
@@ -47,6 +48,7 @@ class Runtime:
             self.store.recover()
             self._register_defaults()
             self.registry.recover_versions()
+            self.packing = Packing(self.store)
             self.collector = Collector(self.store)
         except Exception:
             self.store.close()

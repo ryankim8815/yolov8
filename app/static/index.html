@@ -17,10 +17,11 @@
         <div><p class="date">예시 주문 · 패킹 시뮬레이션</p><h1 id="page-title">대시보드</h1></div>
         <button type="button" data-action="voice" class="voice" aria-expanded="false" aria-controls="voice-panel">
           <svg class="station-icon" aria-hidden="true"><use href="/static/station-icons.svg#mic"></use></svg>
-          음성 명령 예시
+          음성 명령
         </button>
       </div>
-      <section class="voice-panel" id="voice-panel" aria-label="음성 명령 예시" hidden></section>
+      <section class="voice-panel" id="voice-panel" aria-label="음성 명령" hidden></section>
+      <p class="packing-error" id="packing-error" role="alert" hidden></p>
       <div class="view" id="demo-view"></div>
       <div class="announce" id="demo-status" role="status" aria-live="polite"></div>
     </main>

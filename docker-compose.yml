@@ -7,6 +7,12 @@ services:
       context: .
       dockerfile: Dockerfile
     image: yolov8-local-gateway:latest
+    env_file:
+      - path: ./.env
+        required: false
+    # stack.sh exports the backend selected on the command line.
+    environment:
+      - YOLO_BACKEND
     ports:
       - "127.0.0.1:8080:8080"
     extra_hosts:

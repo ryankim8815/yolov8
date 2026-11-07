@@ -51,12 +51,13 @@ def test_names_survive_restart_and_reach_both_event_clients(tmp_path):
 
 
 def trained(store, identifier, parent, initial, output):
+    dataset = store.list("dataset")[0]
     model = {"id": identifier, "name": identifier, "kind": "custom", "job_id": "job-" + identifier,
-             "initial_model_id": parent, "initial_sha256": initial, "formats": {"mps": {"sha256": output}}}
+             "dataset_id": dataset["id"], "initial_model_id": parent, "initial_sha256": initial, "formats": {"mps": {"sha256": output}}}
     directory = store.root / model["job_id"]
     directory.mkdir()
     job = {"id": model["job_id"], "model_id": identifier, "directory": str(directory), "state": "completed",
-           "initial_model_id": parent, "initial_sha256": initial, "dataset": {"counts": {"train": 4, "val": 2}}}
+           "initial_model_id": parent, "initial_sha256": initial, "dataset_id": dataset["id"], "dataset": dataset}
     return model, job
 
 
@@ -66,11 +67,17 @@ def test_restore_lineage_and_allocate_sibling_versions_atomically(tmp_path):
     try:
         registry = ModelRegistry(store)
         store.put("model", {"id": BUILTIN, "formats": {"mps": {"sha256": "base"}}})
+        from tests.test_datasets import populated
+        from app.datasets import build_dataset
+        populated(store)
+        dataset = build_dataset(store)
         # Child inserted before its parent; an unrelated training run also starts from base.
+        records = []
         for args in [("child", "first", "weights1", "weights2"), ("first", None, "base", "weights1"),
                      ("second", None, "base", "weights3"), ("unknown", None, "stale", "weights4")]:
             model, job = trained(store, *args)
-            store.put_many([("model", model), ("job", job)])
+            records.extend([("model", model), ("job", job)])
+        store.put_many(records)
         registry.recover_versions()
         registry.recover_versions()
         models = by_id(registry.models())
@@ -78,7 +85,7 @@ def test_restore_lineage_and_allocate_sibling_versions_atomically(tmp_path):
         assert models["first"]["version_number"] == models["second"]["version_number"] == 1
         assert models["child"]["family_id"] == "first" and models["child"]["version_number"] == 2
         assert models["first"]["parent_model_id"] == BUILTIN and models["child"]["parent_model_id"] == "first"
-        assert models["child"]["dataset_counts"] == {"train": 4, "val": 2}
+        assert models["child"]["dataset_counts"] == dataset["counts"]
         assert models["unknown"].get("version_number") is None
         candidates = [trained(store, name, "first", "weights1", name) for name in ("sibling1", "sibling2")]
         with ThreadPoolExecutor(2) as workers:
@@ -92,7 +99,7 @@ def test_restore_lineage_and_allocate_sibling_versions_atomically(tmp_path):
 
         model, job = trained(store, "broken", "first", "weights1", "bad")
         import sqlite3
-        store.db.execute("CREATE TRIGGER fail_job BEFORE INSERT ON records WHEN NEW.id='job-broken' "
+        store.db.execute("CREATE TRIGGER fail_job BEFORE INSERT ON training_jobs WHEN NEW.public_id='job-broken' "
                          "BEGIN SELECT RAISE(ABORT, 'disk full'); END")
         with pytest.raises(sqlite3.IntegrityError):
             registry.publish(model, job)
