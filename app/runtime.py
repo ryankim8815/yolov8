@@ -8,6 +8,7 @@ import time
 from dataclasses import replace
 from pathlib import Path
 
+from .capture import camera_device
 from .collection import Collector
 from .config import ROOT
 from .datasets import build_dataset, require_training_split, verify_dataset
@@ -143,7 +144,9 @@ class Runtime:
         pipeline = self.pipeline
         current = pipeline.status() if pipeline else {
             "schema_version": 1, "event": "status", "session_id": None, "process_id": os.getpid(),
-            "state": "camera_off", "ready": False, "camera": {"online": False}, "last_error": None}
+            "state": "camera_off", "ready": False,
+            "camera": {"online": False, "index": self.settings.camera_index, "id": self.settings.camera_id},
+            "last_error": None}
         state = self.busy or ("camera_off" if not self.camera_desired else current["state"])
         if self.stop_event.is_set():
             state = "stopped"
@@ -187,6 +190,27 @@ class Runtime:
                 self._stop_pipeline()
             if not self.pipeline:
                 self._new_pipeline(self.settings, self.model_id)
+            return self.status()
+
+    def select_camera(self, device_id):
+        with self.lock:
+            self._require_idle()
+            try:
+                device = camera_device(device_id)
+            except LookupError as exc:
+                raise DomainError(str(exc), 409) from exc
+            except RuntimeError as exc:
+                raise DomainError(str(exc), 503) from exc
+            if self.settings.camera_id == device_id and self.pipeline and not self.pipeline.stop_event.is_set():
+                return self.camera_start()
+            self.busy = "switching_camera"
+            try:
+                self._stop_pipeline()
+                self.settings = replace(self.settings, camera_id=device_id, camera_index=device["index"])
+                self.camera_desired = True
+                self._new_pipeline(self.settings, self.model_id)
+            finally:
+                self.busy = None
             return self.status()
 
     def camera_stop(self):

@@ -1,0 +1,23 @@
+.camera-source {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--line);
+}
+.camera-source label { color: var(--sub); font-size: 13px; }
+.camera-source select {
+  flex: 1 1 12rem;
+  min-width: 0;
+  max-width: 100%;
+  min-height: 34px;
+  padding: 4px 8px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  color: var(--ink);
+  background: var(--surface);
+  font: inherit;
+}
+.camera-source p { flex-basis: 100%; color: var(--sub); font-size: 12px; }
+.camera-source p.error { color: var(--red); }

@@ -3,7 +3,7 @@ const stateNames = {
   connecting: "서버 연결 중", starting: "모델 준비 중", ready: "실시간 탐지 중",
   camera_unavailable: "카메라 연결 대기", stale: "영상 수신 지연", error: "실행 오류",
   stopped: "서버 종료", offline: "서버 연결 끊김", camera_off: "카메라 꺼짐",
-  training: "학습·평가·변환 중", switching_model: "모델 전환 중"
+  training: "학습·평가·변환 중", switching_model: "모델 전환 중", switching_camera: "카메라 전환 중"
 };
 
 export function watchDetections({ image, onStatus, onDetections, onPreview, matchedPreview = false }) {

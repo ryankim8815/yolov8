@@ -15,6 +15,7 @@ class Settings:
     backend: str = "mps"
     model_path: Path = ROOT / "models/yolov8n.pt"
     camera_index: int = 0
+    camera_id: str | None = None
     width: int = 1280
     height: int = 720
     camera_fps: float = 30.0

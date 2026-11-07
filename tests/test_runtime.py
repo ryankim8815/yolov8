@@ -69,6 +69,8 @@ def test_model_format_conflict_and_collection_conflicts(runtime):
     cls=runtime.store.named("class","label");group=runtime.store.named("group","room")
     collection=runtime.create_collection({"class_id":cls["id"],"group_id":group["id"],"model_id":runtime.model_id,"interval_ms":250,"confidence":.5})
     runtime.start_collection(collection["id"])
+    with pytest.raises(DomainError, match="사진 저장"):
+        runtime.select_camera("other")
     register(runtime,"v2")
     with pytest.raises(DomainError):runtime.activate("v2")
     runtime.camera_stop()
@@ -77,6 +79,51 @@ def test_model_format_conflict_and_collection_conflicts(runtime):
     runtime.camera_start()
     wait_until(lambda:runtime.status()["ready"])
     assert runtime.collector.active is None
+
+
+def test_dashboard_camera_selection_routes_new_frames_and_rejects_missing_device(tmp_path, monkeypatch):
+    devices = [{"id": "built-in", "index": 0, "name": "Built in"},
+               {"id": "usb", "index": 1, "name": "USB"}]
+    monkeypatch.setattr("app.capture.camera_devices", lambda: devices)
+    opened = []
+
+    class SourceCamera(Camera):
+        def __init__(self, config):
+            super().__init__(config)
+            self.index = config.camera_index
+            assert all(camera.closed for camera in opened)
+            opened.append(self)
+
+        def read(self):
+            frame = super().read()
+            frame.shape = (720, 800 + self.index, 3)
+            return frame
+
+    def source_pipeline(config):
+        return Pipeline(config, camera_factory=SourceCamera, detector_factory=Detector, encoder=encode)
+
+    application = create_app(settings(camera_autostart=False), source_pipeline, tmp_path)
+    with TestClient(application) as client:
+        select = lambda device: client.post("/api/camera/select", json={"device_id": device})
+        assert client.get("/api/camera/devices").json() == devices
+        assert not opened and client.get("/api/status").json()["state"] == "camera_off"
+        assert select("built-in").status_code == 200
+        wait_until(lambda: client.get("/readyz").is_success)
+        first = client.get("/api/detections/latest").json()
+        assert first["source_size"]["width"] == 800
+        assert select("usb").status_code == 200
+        wait_until(lambda: client.get("/readyz").is_success)
+        second = client.get("/api/detections/latest").json()
+        assert second["model_version"] == first["model_version"]
+        assert second["source_size"]["width"] == 801 and second["session_id"] != first["session_id"]
+        assert select("missing").status_code == 409
+        assert select("usb").json()["session_id"] == second["session_id"]
+        assert len(opened) == 2 and opened[0].closed
+        stopped = client.post("/api/camera/stop").json()
+        assert stopped["camera"]["id"] == "usb" and stopped["camera"]["index"] == 1
+        client.post("/api/camera/start").raise_for_status()
+        wait_until(lambda: client.get("/readyz").is_success)
+        assert client.get("/api/detections/latest").json()["source_size"]["width"] == 801
 
 
 def test_stream_survives_model_switch_with_session_headers(runtime):

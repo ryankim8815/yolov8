@@ -52,6 +52,7 @@ class Pipeline:
         self.threads = []
         self.model_ready = False
         self.camera_online = False
+        self.camera_index = settings.camera_index
         self.generation = 0
         self.camera_size = None
         self.camera_error = None
@@ -103,6 +104,7 @@ class Pipeline:
             try:
                 camera = self.camera_factory(self.settings)
                 with self.lock:
+                    self.camera_index = getattr(camera, "index", self.settings.camera_index)
                     self.generation += 1
                     generation = self.generation
                 while not self.stop_event.is_set():
@@ -261,7 +263,7 @@ class Pipeline:
                 "configuration": {"imgsz": self.settings.imgsz, "confidence": self.settings.confidence,
                                   "iou": self.settings.iou, "max_det": self.settings.max_det,
                                   "preview_fps": self.settings.preview_fps},
-                "camera": {"index": self.settings.camera_index, "online": self.camera_online,
+                "camera": {"index": self.camera_index, "id": self.settings.camera_id, "online": self.camera_online,
                            "requested": {"width": self.settings.width, "height": self.settings.height,
                                          "fps": self.settings.camera_fps}, "actual_size": self.camera_size},
                 "counts": dict(self.counts), "fps": rates, "input_dropped": self.input_slot.dropped,

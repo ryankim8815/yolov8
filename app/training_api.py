@@ -6,6 +6,7 @@ from fastapi import APIRouter, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, ConfigDict, Field
 
+from . import capture
 from .datasets import components
 from .store import DomainError
 
@@ -29,6 +30,10 @@ class CollectionInput(Input):
     model_id: str
     interval_ms: int = Field(default=250, ge=100, le=2000)
     confidence: float = Field(default=.50, ge=.01, le=.99)
+
+
+class CameraSource(Input):
+    device_id: str = Field(min_length=1, max_length=1024)
 
 
 class Review(Input):
@@ -195,6 +200,18 @@ def router():
     @api.post("/api/models/{identifier}/activate", status_code=202)
     def activate(identifier: str, request: Request):
         return runtime(request).activate(identifier)
+
+    @api.get("/api/camera/devices")
+    def cameras(response: Response):
+        response.headers["Cache-Control"] = "no-store"
+        try:
+            return capture.camera_devices()
+        except RuntimeError as exc:
+            raise DomainError(str(exc), 503) from exc
+
+    @api.post("/api/camera/select")
+    def select_camera(body: CameraSource, request: Request):
+        return runtime(request).select_camera(body.device_id)
 
     @api.post("/api/camera/start")
     def camera_start(request: Request):

@@ -112,13 +112,97 @@ function createClassSummary(fields, getStation) {
   return { update, dispose: () => fields.chips.removeEventListener("click", selectClass) };
 }
 
+function cameraSource(fields) {
+  const lifetime = new AbortController();
+  const { signal } = lifetime;
+  let devices = [], status, draft = "", error = "", loading = false, applying = false;
+
+  function render() {
+    const current = status?.camera;
+    // At startup the server uses the configured OpenCV index until a device is selected.
+    const activeId = current?.id ?? devices.find(d => d.index === current?.index)?.id;
+    const selected = draft || activeId;
+    fields.device.value = devices.some(d => d.id === selected) ? selected : "";
+    const locked = ["training", "switching_model", "switching_camera", "stopped"].includes(status?.state)
+      || Boolean(status?.collection?.id);
+    const offline = !current || status.state === "offline";
+    fields.device.disabled = loading || applying || locked || offline || !devices.length;
+    fields.refresh.disabled = loading || applying;
+    fields.apply.textContent = applying ? "적용 중…" : status?.camera_enabled === false ? "탐지 시작" : "적용";
+    fields.apply.disabled = fields.device.disabled || !fields.device.value ||
+      (fields.device.value === activeId && status.camera_enabled && status.state !== "error");
+    const note = error || (loading ? "카메라 목록 조회 중…" :
+      locked ? "현재 작업이 끝나면 카메라를 변경할 수 있습니다." :
+      !devices.length ? "연결된 카메라가 없습니다. 장치를 연결한 뒤 새로고침하세요." :
+      draft && draft !== activeId && status?.camera_enabled ? "적용하면 선택한 카메라로 탐지를 전환합니다." : "");
+    fields.notice.textContent = note;
+    fields.notice.classList.toggle("error", Boolean(error));
+    fields.notice.hidden = !note;
+  }
+
+  async function refresh() {
+    loading = true;
+    error = "";
+    render();
+    try {
+      const response = await fetch("/api/camera/devices", {cache: "no-store", signal});
+      if (!response.ok) throw new Error(response.statusText);
+      devices = await response.json();
+      if (!devices.some(d => d.id === draft)) draft = "";
+      fields.device.replaceChildren(new Option(devices.length ? "카메라 선택" : "카메라 없음", ""),
+        ...devices.map(d => new Option(d.name + " · " + d.index, d.id)));
+    } catch {
+      if (!signal.aborted) {
+        error = "카메라 목록을 불러올 수 없습니다. 다시 조회하세요.";
+        if (!devices.length) fields.device.replaceChildren(new Option("목록 조회 실패", ""));
+      }
+    } finally {
+      loading = false;
+      if (!signal.aborted) render();
+    }
+  }
+
+  async function submit(event) {
+    event.preventDefault();
+    if (fields.apply.disabled) return;
+    const id = fields.device.value;
+    applying = true;
+    error = "";
+    render();
+    try {
+      const response = await fetch("/api/camera/select", {method: "POST", signal,
+        headers: {"Content-Type": "application/json"}, body: JSON.stringify({device_id: id})});
+      const result = await response.json();
+      if (!response.ok) {
+        error = result.detail || "카메라를 변경할 수 없습니다.";
+        return;
+      }
+      status = result;
+      draft = "";
+    } catch {
+      if (!signal.aborted) error = "카메라 변경 응답을 받지 못했습니다. 서버 연결을 확인하세요.";
+    } finally {
+      applying = false;
+      if (!signal.aborted) render();
+    }
+  }
+
+  fields.source.addEventListener("submit", submit, {signal});
+  fields.device.addEventListener("change", () => { draft = fields.device.value; error = ""; render(); }, {signal});
+  fields.refresh.addEventListener("click", refresh, {signal});
+  refresh();
+  return { update(next) { status = next; render(); }, dispose() { lifetime.abort(); } };
+}
+
 export function connectDashboardCamera(panel, getStation) {
   const fields = Object.fromEntries([...panel.querySelectorAll("[data-camera]")].map(node => [node.dataset.camera, node]));
   const classes = createClassSummary(fields, getStation);
+  const source = cameraSource(fields);
   const stop = watchDetections({
     image: fields.image,
     matchedPreview: true,
     onStatus(status, label, reset) {
+      source.update(status);
       if (fields.state.textContent !== label) fields.state.textContent = label;
       fields.state.classList.toggle("ready", status.ready);
       fields.fps.textContent = status.ready ? status.fps?.detected?.toFixed(1) ?? "—" : "—";
@@ -155,6 +239,7 @@ export function connectDashboardCamera(panel, getStation) {
     }
   });
   return () => {
+    source.dispose();
     stop();
     classes.dispose();
   };
