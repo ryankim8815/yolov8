@@ -4,8 +4,9 @@ import json
 from pathlib import Path
 from uuid import uuid4
 
-from pydantic import BaseModel, ConfigDict, Field, FiniteFloat, field_validator
+from pydantic import BaseModel, ConfigDict, Field, FiniteFloat, ValidationError, field_validator
 
+from .robot_access_proxy import request_host
 from .store import DomainError, atomic_json, now
 
 # E0509 User Manual: the physical J3 and J5 travel limits are both ±155 degrees.
@@ -19,7 +20,8 @@ class PoseRevision(BaseModel):
     revision: str | None = Field(max_length=32)
 
 
-class PoseInput(PoseRevision):
+class JointTarget(BaseModel):
+    model_config = ConfigDict(strict=True, extra="forbid")
     angles: list[FiniteFloat] = Field(min_length=6, max_length=6)
 
     @field_validator("angles")
@@ -29,6 +31,20 @@ class PoseInput(PoseRevision):
             if abs(angle) > limit:
                 raise ValueError(f"J{joint} 각도 범위는 {-limit}° ~ {limit}°입니다.")
         return values
+
+
+class PoseInput(PoseRevision, JointTarget):
+    pass
+
+
+class PoseExecution(PoseRevision):
+    session_id: str | None = Field(default=None, max_length=36)
+    motion_token: str | None = Field(default=None, max_length=32)
+
+
+class HostPoseCommand(JointTarget):
+    session_id: str = Field(max_length=36)
+    motion_token: str = Field(min_length=32, max_length=32)
 
 
 class PoseTests:
@@ -81,27 +97,45 @@ class PoseTests:
         if monitor.teach_pending or monitor.teach_mode != "auto":
             raise DomainError("직접 교시를 끄고 드라이버의 자동 모드가 확인된 뒤 이동하세요.", 409)
 
-    def execute(self, slot, revision):
+    def execute(self, slot, revision, sdk_ticket=None):
         pose = self.require_slot(slot, revision)
         if pose["angles"] is None:
             raise DomainError("먼저 자세를 저장하세요.")
-        if any(abs(angle) > limit for angle, limit in zip(pose["angles"], LIMITS)):
-            raise DomainError("저장한 각도가 E0509 관절 범위를 벗어났습니다. 자세를 수정하세요.", 422)
+        try:
+            angles = JointTarget(angles=pose["angles"]).angles
+        except ValidationError:
+            raise DomainError("저장한 6축 각도가 E0509 관절 범위와 맞지 않습니다. 자세를 수정하세요.", 422) from None
         socket = self.monitor.socket
-        self.require_live(socket)
+        if sdk_ticket:
+            move = HostPoseCommand(angles=angles, session_id=sdk_ticket.session_id, motion_token=sdk_ticket.motion_token)
+        else:
+            self.require_live(socket)
         # Consume the revision before sending anything. Retries, old dialogs and other tabs
         # cannot execute the same request twice, even after a server restart.
         poses = list(self.data["poses"])
         poses[slot - 1] = {**pose, "revision": uuid4().hex}
         command = dict(slot=slot, angles=pose["angles"], state="checking",
-                       message="드라이버 대기 상태를 확인하고 있습니다.", updated_at=now())
+                       message="이동 전 로봇 상태를 확인하고 있습니다.", updated_at=now())
         self.write({"poses": poses, "last": command})
-        self.task = asyncio.create_task(self.run(socket, pose["angles"]))
+        self.task = asyncio.create_task(self.run_sdk(move) if sdk_ticket else self.run(socket, angles))
         return self.snapshot()
 
     def finish(self, state, message):
         self.write({**self.data, "last": {**self.data["last"], "state": state,
                                          "message": message, "updated_at": now()}})
+
+    async def run_sdk(self, command):
+        self.finish("moving", "Mac SDK의 자세 이동 응답을 기다립니다.")
+        try:
+            status, data = await asyncio.to_thread(request_host, "pose", self.monitor.settings, command)
+            if 400 <= status < 500:
+                self.finish("failed", data["detail"])
+            elif status == 200 and data["state"] in {"completed", "failed", "unknown"}:
+                self.finish(data["state"], data["message"])
+            else:
+                raise ConnectionError()
+        except (Exception, asyncio.CancelledError):
+            self.finish("unknown", "SDK 이동 결과를 확인할 수 없습니다. 로봇의 실제 위치를 확인하세요.")
 
     async def run(self, socket, angles):
         dispatched = False

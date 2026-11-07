@@ -18,6 +18,13 @@ let stopped = false;
 let apiUnavailable = false;
 let reclaimPending = false;
 let teachPending = false;
+let servoSubmitting = false;
+let servoTicket = null;
+let hostAccess = null;
+let hostError = "";
+let confirmation = null;
+const macMode = () => latest?.config.access_backend === "mac-sdk";
+let rosView = new URLSearchParams(location.search).get("view") === "ros";
 let configSignature = "";
 let topicSignature = "";
 
@@ -92,7 +99,7 @@ function renderTopics(topics) {
 function render(data) {
   if (!data) return;
   renderControl();
-  renderPoseTests(data, {paused, apiUnavailable, teachPending});
+  renderPoseTests(data, {paused, apiUnavailable, teachPending, hostAccess});
   renderWorkPoints(data, {paused, apiUnavailable});
   renderConfig(data.config);
   const joint = data.topics.find(topic => topic.name === data.display_joint_topic) || data.topics[0];
@@ -123,7 +130,7 @@ function render(data) {
       "rosbridge 연결 완료. 관절 토픽의 발행자를 확인하고 있습니다.",
     no_publisher: `rosbridge의 ROS 그래프에서 ${joint.name} 발행자가 0개입니다. 두산 드라이버, ROS 도메인과 네임스페이스를 확인하세요.`,
     live: "ROS 2 관절 데이터를 수신하고 있습니다.",
-    monitoring: `E0509 제어기의 실제 관절각을 ${joint.name}에서 수신하고 있습니다. 자세 이동은 두산 드라이버 연결 후 사용할 수 있습니다.`,
+    monitoring: `E0509 제어기의 실제 관절각을 ${joint.name}에서 수신하고 있습니다. 자세 이동 조건은 아래 자세 테스트에서 확인하세요.`,
     stale: "관절 데이터 갱신이 멈췄습니다. 마지막 수신값을 표시합니다.",
     robot_disconnected: "드라이버에서 로봇 연결 끊김 이벤트를 수신했습니다. LAN 케이블과 컨트롤러를 확인하세요."
   };
@@ -134,7 +141,171 @@ function render(data) {
   renderTopics(data.topics);
 }
 
+function renderHostControl() {
+  const host = hostAccess, route = host?.route;
+  const connected = host?.connection === "connected";
+  const results = {
+    pending: "강제 요청 전송 중 · SDK 콜백 대기",
+    unknown: "결과 미확인 · 10초 내 응답이 없습니다. 늦은 콜백을 기다리며 중복 요청을 막고 있습니다.",
+    denied: "요청 거절 (DENY) · 제어기가 사유를 제공하지 않았습니다.",
+    lost: "보유권 상실 (LOSS) · 이 세션은 제어권을 보유하지 않습니다.",
+    granted: "제어권 획득 (GRANT)",
+    not_sent: "요청을 전송하지 못했습니다. 로봇 상태를 확인하세요."
+  };
+  const link = connected ? "연결됨" : host?.connection === "connecting" ? "연결 중" : host ? "연결 끊김" : "서버 상태 미확인";
+  get("host-connection").textContent = [link, route && `${route.interface} → ${route.ip}:${route.port}`,
+    host?.sdk_version && `SDK ${host.sdk_version}`, host?.controller_version && `DRCF ${host.controller_version}`,
+    connected && (host.initialized ? "초기화 완료" : "초기화 대기"), host?.robot_state].filter(Boolean).join(" · ");
+  get("host-held").textContent = connected ? host.held ? `보유 중 · ${host.held_seconds}초` : "미보유" : "미확인";
+  get("host-callback").textContent = host?.last_callback ? `${host.last_callback} · ${timeText(host.callback_at)}` : "—";
+  get("host-session").textContent = host?.session_id?.slice(0, 8) || "—";
+  const quiet = "직접 교시는 ROS 드라이버 모드에서 사용할 수 있습니다.";
+  const detail = {
+    "open_connection failed": "제어기 SDK 연결 실패 · 제어기의 전원, 유선 IP와 포트를 확인하세요.",
+    "No fresh SDK monitoring data": "제어기 상태 수신이 멈춰 연결을 종료했습니다.",
+    "SDK disconnected": "SDK 연결이 끊겼습니다. 유선으로 다시 연결하고 있습니다."
+  }[host?.detail] || host?.detail;
+  get("control-availability").textContent = hostError || detail || results[host?.result] ||
+    (host?.can_reclaim ? "정지 상태입니다. 이 Mac 세션으로 제어권을 요청할 수 있습니다." : "SDK 연결과 초기화 상태를 확인하세요.");
+  const disabled = paused || apiUnavailable || reclaimPending || !host?.can_reclaim;
+  get("control-reclaim").disabled = disabled;
+  get("control-confirm").disabled = disabled || confirmation?.ticket?.session_id !== host?.session_id ||
+    confirmation?.ticket?.revision !== host?.revision;
+  get("direct-teach").checked = false;
+  get("direct-teach").indeterminate = true;
+  get("direct-teach").disabled = true;
+  get("teach-status").textContent = quiet;
+}
+
+let modeTicket = null;
+let modeSubmitting = false;
+const modeNames = {MANUAL: "수동 운전 모드", AUTO: "자동 운전 모드"};
+function renderOperationMode() {
+  const host = hostAccess;
+  const change = host?.mode_change;
+  const visible = macMode() && !rosView;
+  const available = visible && !paused && !apiUnavailable && !modeSubmitting && !!change?.token;
+  const selector = get("operation-mode");
+  get("operation-panel").hidden = !visible;
+  selector.value = change?.verified && modeNames[host?.operation_mode] ? host.operation_mode : "";
+  selector.disabled = !available;
+  get("pose-mode-select").hidden = !available || (host.operation_mode === "AUTO" && change.verified);
+  get("operation-confirm").disabled = !available || modeTicket?.session_id !== host?.session_id ||
+    modeTicket?.mode_token !== change?.token;
+  const results = {pending:"제어기의 모드 변경 응답 대기", unknown:"결과 미확인 · 제어기 응답 대기",
+    failed:"변경을 확인하지 못했습니다. 제어기 알람과 모드 선택 상태를 확인하세요."};
+  get("operation-status").textContent = results[change?.result] ||
+    (host?.connection !== "connected" ? "SDK 연결 대기" : !host.held ? "Mac SDK 제어권이 필요합니다." :
+    host.robot_state !== "STANDBY" ? "STANDBY에서 변경할 수 있습니다." :
+    !change ? "Mac SDK 서버 업데이트가 필요합니다." :
+    available ? `현재 ${modeNames[host.operation_mode] || host.operation_mode}` : "운전 모드 확인 대기");
+}
+get("pose-mode-select").addEventListener("click", () => {
+  get("pose-dialog").close();
+  get("operation-mode").focus();
+});
+get("operation-mode").addEventListener("change", event => {
+  if (!hostAccess?.mode_change?.token) return;
+  const target = event.target.value;
+  modeTicket = {session_id:hostAccess.session_id, mode_token:hostAccess.mode_change.token, target};
+  get("operation-description").textContent = `E0509 (${hostAccess.route.ip}) · 세션 ${hostAccess.session_id.slice(0,8)} · ${modeNames[target]}로 전환합니다.`;
+  get("operation-error").hidden = true;
+  renderOperationMode();
+  get("operation-dialog").showModal();
+});
+get("operation-cancel").addEventListener("click", () => get("operation-dialog").close());
+get("operation-dialog").addEventListener("close", () => { if (!get("operation-dialog").open) modeTicket = null; });
+get("operation-confirm").addEventListener("click", async () => {
+  if (get("operation-confirm").disabled || !modeTicket) return;
+  const ticket = modeTicket;
+  get("operation-dialog").close();
+  modeSubmitting = true;
+  renderOperationMode();
+  try {
+    const res = await fetch("/api/robot/host-access/mode", {method:"POST", headers:{"Content-Type":"application/json"},
+      body:JSON.stringify(ticket), signal:AbortSignal.timeout(5000)});
+    const state = await res.json();
+    if (!res.ok) throw new Error(typeof state.detail === "string" ? state.detail : "모드 변경 요청 실패");
+    if (hostAccess?.session_id === ticket.session_id) hostAccess = state;
+  } catch (error) {
+    get("operation-error").textContent = error.message;
+    get("operation-error").hidden = false;
+  } finally {
+    modeSubmitting = false;
+    renderControl();
+    refresh();
+  }
+});
+
+function renderServo() {
+  const visible = macMode() && !rosView;
+  const servo = hostAccess?.servo;
+  const available = visible && !paused && !apiUnavailable && !servoSubmitting && !!servo?.token;
+  get("servo-panel").hidden = !visible;
+  get("servo-on").disabled = !available;
+  get("pose-servo-on").hidden = !visible || hostAccess?.robot_state !== "SAFE_OFF";
+  get("pose-servo-on").disabled = !available;
+  get("servo-confirm").disabled = !available || servoTicket?.servo_token !== servo?.token ||
+    servoTicket?.session_id !== hostAccess?.session_id;
+  get("servo-status").textContent = hostError || servo?.message ||
+    (hostAccess ? "서보 요청을 지원하는 Mac SDK 서버가 필요합니다." : "SDK 상태 확인 중");
+}
+function confirmServo() {
+  if (get("servo-on").disabled) return;
+  servoTicket = {session_id: hostAccess.session_id, servo_token: hostAccess.servo.token};
+  if (get("pose-dialog").open) get("pose-dialog").close();
+  get("servo-error").hidden = true;
+  get("servo-description").textContent = `E0509 (${hostAccess.route.ip}:${hostAccess.route.port}) · Mac 세션 ${hostAccess.session_id.slice(0, 8)}`;
+  renderServo();
+  get("servo-dialog").showModal();
+}
+get("servo-on").addEventListener("click", confirmServo);
+get("pose-servo-on").addEventListener("click", confirmServo);
+get("servo-cancel").addEventListener("click", () => get("servo-dialog").close());
+get("servo-dialog").addEventListener("close", () => { servoTicket = null; });
+get("servo-confirm").addEventListener("click", async () => {
+  if (get("servo-confirm").disabled || !servoTicket) return;
+  const ticket = servoTicket;
+  get("servo-dialog").close();
+  servoSubmitting = true;
+  renderServo();
+  try {
+    const res = await fetch("/api/robot/host-access/servo-on", {
+      method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify(ticket), signal: AbortSignal.timeout(5000)
+    });
+    const state = await res.json();
+    if (!res.ok) throw new Error(typeof state.detail === "string" ? state.detail : "서보 요청을 확인할 수 없습니다.");
+    if (hostAccess?.session_id === ticket.session_id) hostAccess = state;
+  } catch (error) {
+    get("servo-error").textContent = error instanceof TypeError || error instanceof SyntaxError || error.name === "TimeoutError"
+      ? "서보 요청 결과 미확인 · 현재 제어기 상태를 확인하세요." : error.message;
+    get("servo-error").hidden = false;
+  } finally {
+    servoSubmitting = false;
+    renderControl();
+    refresh();
+  }
+});
+
 function renderControl() {
+  renderOperationMode();
+  renderServo();
+  const view = get("control-view");
+  view.disabled = !macMode();
+  view.value = macMode() && !rosView ? "mac-sdk" : "ros";
+  view.title = macMode() ? "표시만 변경하며 제어권을 요청하지 않습니다." : "Mac SDK 검증은 .env에서 ROBOT_ACCESS_BACKEND=mac-sdk를 선택한 후 사용할 수 있습니다.";
+  get("host-access").hidden = !macMode() || rosView;
+  get("control-source").textContent = macMode() ? "Mac SDK 제어권 검증" : "드라이버 제어권";
+  if (macMode()) {
+    renderHostControl();
+    if (rosView) {
+      get("control-source").textContent = "ROS 드라이버 · 읽기 전용";
+      get("control-availability").textContent = "Mac SDK 검증 모드에서는 ROS 제어권을 요청할 수 없습니다.";
+      get("control-reclaim").disabled = get("control-confirm").disabled = true;
+    }
+    return;
+  }
   const pending = reclaimPending || latest?.reclaim_pending;
   const reason = paused ? "화면 표시를 재개하면 요청할 수 있습니다." :
     apiUnavailable ? "웹 상태 API 응답 대기" :
@@ -159,6 +330,13 @@ function renderControl() {
     mode === "unconfirmed" ? "모드 미확인 · 스위치를 누르면 수동 모드를 다시 요청합니다." :
     apiUnavailable ? "웹 상태 API 응답 대기" : teach?.message || "운전 모드 확인 대기";
 }
+get("control-view").addEventListener("change", () => {
+  rosView = get("control-view").value === "ros";
+  const url = new URL(location.href);
+  if (rosView) url.searchParams.set("view", "ros"); else url.searchParams.delete("view");
+  history.replaceState(null, "", url);
+  renderControl();
+});
 get("direct-teach").addEventListener("change", async () => {
   const enabled = latest?.direct_teach?.mode !== "manual";
   teachPending = true;
@@ -185,24 +363,35 @@ get("direct-teach").addEventListener("change", async () => {
   }
 });
 get("control-reclaim").addEventListener("click", () => {
-  get("control-description").textContent =
-    `E0509 (${latest.config.ip})의 제어권을 이 드라이버로 가져옵니다. 승인되면 기존 보유자는 제어권을 잃습니다.`;
+  confirmation = macMode() ? {backend: "mac-sdk", ticket: {session_id: hostAccess.session_id, revision: hostAccess.revision}} : {backend: "ros"};
+  get("control-description").textContent = macMode()
+    ? `E0509 (${hostAccess.route.ip}:${hostAccess.route.port})의 제어권을 Mac 세션 ${hostAccess.session_id.slice(0, 8)}로 요청합니다. 승인되면 기존 보유자가 제어권을 잃습니다. 서보나 로봇 이동은 요청하지 않습니다.`
+    : `E0509 (${latest.config.ip})의 제어권을 이 드라이버로 가져옵니다. 승인되면 기존 보유자는 제어권을 잃습니다.`;
+  renderControl();
   get("control-dialog").showModal();
 });
 get("control-cancel").addEventListener("click", () => get("control-dialog").close());
 get("control-confirm").addEventListener("click", async () => {
-  if (get("control-confirm").disabled) return;
+  if (get("control-confirm").disabled || confirmation?.backend !== latest?.config.access_backend) return;
+  const mac = confirmation.backend === "mac-sdk";
   get("control-dialog").close();
   reclaimPending = true;
   const output = get("control-result");
   output.hidden = true;
+  output.textContent = "";
   renderControl();
   try {
-    const response = await fetch("/api/robot/control/reclaim", {
-      method: "POST", headers: {"Content-Type": "application/json"}, body: "{}"
+    const response = await fetch(mac ? "/api/robot/host-access/reclaim" : "/api/robot/control/reclaim", {
+      method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify(mac ? confirmation.ticket : {}), signal: AbortSignal.timeout(mac ? 5000 : 20000)
     });
     const data = await response.json();
     if (!response.ok) throw new Error(data.detail || "회수 결과를 확인할 수 없습니다.");
+    if (mac) {
+      hostAccess = data;
+      hostError = "";
+      return;
+    }
     output.dataset.success = String(data.success === true);
     output.textContent = `최근 요청 · ${data.message}`;
   } catch (error) {
@@ -211,7 +400,7 @@ get("control-confirm").addEventListener("click", async () => {
       ? "서버 응답이 없어 회수 결과를 확인할 수 없습니다." : error.message;
   } finally {
     reclaimPending = false;
-    output.hidden = false;
+    output.hidden = mac && !output.textContent;
     renderControl();
     refresh();
   }
@@ -229,11 +418,33 @@ async function refresh() {
     if (stopped || paused) return;
     latest = data;
     apiUnavailable = false;
+    if (macMode()) {
+      try {
+        const res = await fetch("/api/robot/host-access/status", {cache: "no-store", signal: controller.signal});
+        const value = await res.json();
+        if (!res.ok) {
+          hostAccess = null;
+          hostError = typeof value.detail === "string" ? value.detail : "Mac SDK 상태 조회 실패";
+        } else {
+          hostAccess = value;
+          hostError = "";
+        }
+        if (stopped || paused || document.hidden) { clearHostStatus(); return; }
+      } catch {
+        hostAccess = null;
+        hostError = "Mac SDK 서버 응답 없음 · Mac에서 bash scripts/robot-access.sh 실행 여부를 확인하세요.";
+      }
+    } else {
+      hostAccess = null;
+      hostError = "";
+    }
     get("robot-api-error").hidden = true;
     render(data);
   } catch {
     if (stopped || paused) return;
     apiUnavailable = true;
+    hostAccess = null;
+    hostError = "웹 상태 API 응답 없음 · 제어권 미확인";
     get("robot-api-error").textContent = "모니터링 서버의 응답이 없습니다. 표시된 값은 마지막 수신값입니다.";
     get("robot-api-error").hidden = false;
     if (latest) render(latest);
@@ -255,14 +466,23 @@ get("robot-pause").addEventListener("click", () => {
   paused = !paused;
   get("robot-pause").textContent = paused ? "표시 재개" : "표시 일시정지";
   get("robot-pause").setAttribute("aria-pressed", String(paused));
+  if (paused) { hostAccess = null; hostError = "표시 일시정지 · 제어권 미확인"; }
   if (paused) get("robot-notice").textContent = "표시를 일시정지했습니다. 재개하면 최신 수신값을 불러옵니다.";
   else refresh();
-  if (latest) renderPoseTests(latest, {paused, apiUnavailable, teachPending});
+  if (latest) renderPoseTests(latest, {paused, apiUnavailable, teachPending, hostAccess});
   if (latest) renderWorkPoints(latest, {paused, apiUnavailable});
   renderControl();
 });
-window.addEventListener("pagehide", () => { stopped = true; requestController?.abort(); });
+function clearHostStatus() {
+  hostAccess = null;
+  hostError = "";
+  if (latest) {
+    renderControl();
+    renderPoseTests(latest, {paused, apiUnavailable, teachPending, hostAccess});
+  }
+}
+window.addEventListener("pagehide", () => { stopped = true; clearHostStatus(); requestController?.abort(); });
 window.addEventListener("pageshow", () => { stopped = false; refresh(); });
-document.addEventListener("visibilitychange", refresh);
+document.addEventListener("visibilitychange", () => document.hidden ? clearHostStatus() : refresh());
 setInterval(refresh, 1000);
 refresh();

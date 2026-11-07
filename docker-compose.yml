@@ -23,7 +23,7 @@ services:
     depends_on: [rosbridge]
     environment:
       ROS_DOMAIN_ID: "${ROS_DOMAIN_ID:-0}"
-      ROBOT_IP: "${ROBOT_IP:-110.120.1.56}"
+      ROBOT_IP: "${ROBOT_IP:-110.120.1.63}"
       ROBOT_NAMESPACE: "${ROBOT_NAMESPACE:-dsr01}"
       ROBOT_MODBUS_PORT: "${ROBOT_MODBUS_PORT:-502}"
     command: ["bash", "-c", "source /ros_ws/install/setup.bash && exec python3 /ros_ws/read_joints.py"]
@@ -37,7 +37,8 @@ services:
     depends_on: [rosbridge]
     environment:
       ROBOT_BRIDGE_NETWORK: compose
-      ROBOT_IP: "${ROBOT_IP:-110.120.1.56}"
+      ROBOT_ACCESS_BACKEND: "${ROBOT_ACCESS_BACKEND:-ros}"
+      ROBOT_IP: "${ROBOT_IP:-110.120.1.63}"
       ROBOT_PORT: "${ROBOT_PORT:-12345}"
       ROBOT_NAMESPACE: "${ROBOT_NAMESPACE:-dsr01}"
       ROBOT_ROS_PC_IP: "${ROBOT_ROS_PC_IP-127.0.0.1}"
@@ -76,10 +77,14 @@ services:
     image: yolov8-e0509-driver:humble-gl010117
     depends_on: [rosbridge]
     environment:
+      ROBOT_ACCESS_BACKEND: "${ROBOT_ACCESS_BACKEND:-ros}"
       ROS_DOMAIN_ID: "${ROS_DOMAIN_ID:-0}"
-      ROBOT_IP: "${ROBOT_IP:-110.120.1.56}"
+      ROBOT_IP: "${ROBOT_IP:-110.120.1.63}"
       ROBOT_PORT: "${ROBOT_PORT:-12345}"
       ROBOT_NAMESPACE: "${ROBOT_NAMESPACE:-dsr01}"
+    # Apply the access-mode guard even with an already prepared GL010117 image.
+    volumes:
+      - ./rosbridge/start-driver.sh:/doosan_ws/start-driver.sh:ro
     healthcheck:
       test: ["CMD", "bash", "-c", "source /doosan_ws/install/setup.bash && exec python3 /doosan_ws/driver_health.py"]
       interval: 15s

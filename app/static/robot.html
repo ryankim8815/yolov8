@@ -58,10 +58,36 @@ docker compose run --rm --no-deps doosan-driver timeout 15 check-e0509</pre>
             <div><span>마지막 관절 수신</span><strong id="robot-received" class="robot-time">—</strong></div>
           </div>
           <div class="robot-control">
-            <div><strong>드라이버 제어권</strong>
+            <div><label for="control-view" class="meta">제어권 보기</label>
+              <select id="control-view" disabled>
+                <option value="ros">ROS 드라이버</option>
+                <option value="mac-sdk">Mac SDK 검증</option>
+              </select>
+              <strong id="control-source">드라이버 제어권</strong>
+              <dl id="host-access" class="robot-config" hidden>
+                <div><dt>SDK 연결</dt><dd id="host-connection">확인 중</dd></div>
+                <div><dt>현재 세션 제어권</dt><dd id="host-held">미확인</dd></div>
+                <div><dt>최근 콜백</dt><dd id="host-callback">—</dd></div>
+                <div><dt>SDK 세션</dt><dd id="host-session">—</dd></div>
+              </dl>
               <p id="control-availability" class="meta">드라이버 연결 확인 중</p>
               <p id="control-result" role="status" hidden></p></div>
             <button id="control-reclaim" type="button" disabled>제어권 회수</button>
+          </div>
+          <div class="robot-control" id="servo-panel" hidden>
+            <div><strong>서보 전원</strong>
+              <p id="servo-status" class="meta" role="status">SDK 상태 확인 중</p>
+              <p id="servo-error" role="alert" hidden></p></div>
+            <button id="servo-on" type="button" disabled>서보 켜기</button>
+          </div>
+          <div class="robot-control" id="operation-panel" hidden>
+            <div><label for="operation-mode"><strong>운전 모드</strong></label>
+              <p id="operation-status" class="meta" role="status"></p>
+              <p id="operation-error" role="alert" hidden></p></div>
+            <select id="operation-mode" disabled>
+              <option value="" disabled>모드 선택</option><option value="MANUAL">수동 운전 모드</option>
+              <option value="AUTO">자동 운전 모드</option>
+            </select>
           </div>
           <div class="robot-control">
             <div><label for="direct-teach"><strong>직접 교시 허용</strong></label>
@@ -75,6 +101,18 @@ docker compose run --rm --no-deps doosan-driver timeout 15 check-e0509</pre>
           <p id="control-description"></p>
           <div class="pose-actions"><button id="control-cancel" type="button" autofocus>취소</button>
             <button id="control-confirm" type="button">회수 요청</button></div>
+        </dialog>
+        <dialog id="operation-dialog" aria-labelledby="operation-title">
+          <h2 id="operation-title">운전 모드를 변경할까요?</h2><p id="operation-description"></p>
+          <div class="pose-actions"><button id="operation-cancel" type="button" autofocus>취소</button>
+            <button id="operation-confirm" type="button" disabled>모드 변경</button></div>
+        </dialog>
+        <dialog id="servo-dialog" aria-labelledby="servo-title" aria-describedby="servo-description">
+          <h2 id="servo-title">서보를 켤까요?</h2>
+          <p id="servo-description"></p>
+          <p>관절에 전원이 공급됩니다. 작업 공간과 제어기 안전 알람을 확인하세요.</p>
+          <div class="pose-actions"><button id="servo-cancel" type="button" autofocus>취소</button>
+            <button id="servo-confirm" type="button" disabled>서보 ON 요청</button></div>
         </dialog>
         <div class="robot-notice" id="robot-notice" role="status">연결 설정을 불러오는 중입니다.</div>
         <section class="panel">
@@ -125,7 +163,10 @@ docker compose run --rm --no-deps doosan-driver timeout 15 check-e0509</pre>
         <dialog id="pose-dialog">
           <h2 id="pose-confirm-title"></h2><p id="pose-confirm-target"></p>
           <p id="pose-confirm-angles" class="mono"></p><p class="meta" id="pose-confirm-speed"></p>
-          <div class="pose-actions"><button id="pose-cancel" type="button" autofocus>취소</button>
+          <p id="pose-readiness" role="status" class="meta"></p>
+          <div class="pose-actions"><button id="pose-mode-select" type="button" hidden>운전 모드 선택</button>
+            <button id="pose-servo-on" type="button" hidden>서보 켜기</button>
+            <button id="pose-cancel" type="button" autofocus>취소</button>
             <button id="pose-confirm" type="button">이 자세로 이동</button></div>
         </dialog>
         <div class="robot-split">

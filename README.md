@@ -195,7 +195,7 @@ YOLO_CAMERA_INDEX=1 YOLO_PREVIEW_FPS=10 bash scripts/start.sh mps
 
 ### 두산 E0509 모니터링과 자세 테스트
 
-이 Mac에서는 Docker Desktop과 LAN 케이블로 로봇 화면을 운영합니다. 유선 어댑터 `en7`의 IP는 `110.120.1.12/24`, E0509 제어기는 `110.120.1.56`입니다. 장비 주소는 루트 `.env`에서 관리합니다. 처음 설치할 때만 `.env.example`을 `.env`로 복사하세요.
+이 Mac에서는 Docker Desktop과 LAN 케이블로 로봇 화면을 운영합니다. 실물 SDK 연결을 확인한 주소는 Mac 유선 어댑터 `en7`의 `110.120.1.11/24`와 E0509 제어기의 `110.120.1.63:12345`입니다. 장비 주소는 루트 `.env`에서 관리합니다. 처음 설치할 때만 `.env.example`을 `.env`로 복사하세요.
 
 **모니터링 시작**
 
@@ -216,14 +216,14 @@ tar -C state/robot -cf - . | docker compose run --rm -T --no-deps robot-web sh -
 
 | 연결 | 기본값 | 용도 |
 | --- | --- | --- |
-| E0509 제어기 | `ROBOT_IP=110.120.1.56`, `ROBOT_PORT=12345` | 두산 DRFL SDK |
+| E0509 제어기 | `ROBOT_IP=110.120.1.63`, `ROBOT_PORT=12345` | 두산 DRFL SDK |
 | 읽기 전용 모니터 | `ROBOT_MODBUS_PORT=502` | 제어기 관절 레지스터 270~275 읽기 |
 | 웹 API → rosbridge | `ROBOT_ROS_PC_IP=127.0.0.1`, `ROBOT_ROSBRIDGE_PORT=9090` | 기본 Compose에서 `rosbridge:9090`, Linux host 구성에서 `127.0.0.1:9090`으로 연결 |
 | ROS 그래프 | `ROS_DOMAIN_ID=0`, `ROBOT_NAMESPACE=dsr01` | 브리지·관절 모니터·드라이버가 공유 |
 
 **실장비 제어 연결**
 
-이 E0509는 DART-Platform V2.10.3으로 연결한 이력이 있습니다. Mac의 유선 LAN에서 DART 장치 검색을 실행했을 때 제어기 자체가 다음 정보를 반환했습니다. 버전은 Modbus 레지스터에서 추정한 값이 아닙니다.
+이 E0509는 DART-Platform V2.10.3으로 연결한 이력이 있습니다. 이전 주소(`110.120.1.56`)에서 DART 장치 검색을 실행했을 때 제어기가 다음 정보를 반환했습니다. 버전은 Modbus 레지스터에서 추정한 값이 아닙니다.
 
 | 장치 IP | 시리얼 | 제어기(DRCF) | 통합 소프트웨어 |
 | --- | --- | --- | --- |
@@ -254,6 +254,33 @@ python3 scripts/check_robot_sdk_host.py --force-request-access
 ```
 
 `--force-request-access`는 로봇이 `STANDBY` 또는 `SAFE_OFF`이고 SDK 초기화가 완료되면 `MANAGE_ACCESS_CONTROL_FORCE_REQUEST`를 한 번 보냅니다. 승인되면 기존 보유자가 제어권을 잃을 수 있습니다. `Forced access request sent`는 전송 성공이며, `Access callback: GRANT`가 이 검사기 세션의 획득을 확인합니다. `DENY`는 거절, `LOSS`는 제어권 상실, 10초간 응답이 없으면 결과 미확인입니다. 검사기는 서보나 이동 명령을 보내지 않고 결과를 출력한 뒤 연결을 닫습니다. 일반 인계 요청은 `--request-access`, 읽기 전용 조회는 옵션 없이 실행하세요.
+
+**Mac SDK 세션으로 제어권 유지 확인**: Docker는 웹·ROS 모니터링만 담당하고, Mac의 SDK 작업자 하나가 유선으로 제어기와 직접 통신합니다. 제어권 회수와 저장한 자세 이동은 같은 Mac SDK 세션을 사용합니다. 제어권 회수는 서보나 운전 모드를 변경하지 않습니다.
+
+1. 프로젝트 `.env`에 `ROBOT_ACCESS_BACKEND=mac-sdk`를 설정하고 `ROBOT_IP=110.120.1.63`, `ROBOT_PORT=12345`, `ROBOT_LAN_INTERFACE=en7`이 실제 연결과 맞는지 확인하세요.
+2. 저장소 루트에서 아래 명령을 실행하세요. 기존 일회성 검사기만 준비되어 있다면 새 작업자를 한 번 빌드해야 합니다.
+
+   ```bash
+   docker compose stop doosan-driver
+   bash rosbridge/host-sdk/prepare.sh
+   docker compose build robot-web
+   docker compose up -d gateway joint-monitor
+   bash scripts/robot-access.sh
+   ```
+
+   Docker Desktop은 SDK 준비와 웹 UI에만 필요합니다. 준비된 Mac 서버는 Docker 없이 실행할 수 있으며 `127.0.0.1:8011`에서만 수신합니다. 서버가 켜지면 현재 상태를 읽습니다. 제어권을 확인하는 동안에는 별도의 드라이버나 일회성 검사기를 실행하지 마세요.
+
+3. [로봇 화면](http://localhost:8080/robot)의 **제어권 보기 → Mac SDK 검증**에서 연결·초기화 완료를 확인한 뒤 **제어권 회수 → 회수 요청**을 한 번 누르세요. `GRANT` 이후 세션 번호가 같고 ‘보유 중’이 60초 이상인지, 새로고침 후에도 유지되는지 확인하세요. 화면을 새로고침하거나 다른 탭을 열어도 SDK 세션은 유지됩니다. `DENY`는 요청 거절, `LOSS`는 미보유, 10초 동안 응답이 없으면 ‘결과 미확인’입니다. 늦은 콜백이 올 수 있어 같은 세션에서 즉시 재전송하지 않습니다.
+4. `SAFE_OFF`에서 제어권을 보유한 상태라면 **서보 켜기 → 서보 ON 요청**으로 관절에 전원을 공급할 수 있습니다. 자세 확인창에서도 같은 버튼을 사용할 수 있습니다. 작업 공간과 안전 알람을 확인한 뒤 요청하세요. 제어기가 `STANDBY`를 보고하면 화면에 **서보 켜짐**이 표시됩니다. 운전 모드 전환과 자세 이동은 별도 작업입니다.
+5. 다른 터미널에서 다음 명령으로 Mac의 경로·소켓과 웹에서 보이는 세션이 같은지 확인할 수 있습니다. `worker_pid`는 `lsof`의 `blink` PID에 해당합니다. 포트 12345 포워딩은 필요 없습니다.
+
+   ```bash
+   route -n get 110.120.1.63
+   lsof -nP -iTCP@110.120.1.63:12345 -sTCP:ESTABLISHED
+   curl -fsS http://localhost:8080/api/robot/host-access/status
+   ```
+
+`Ctrl+C`로 Mac 서버를 종료하면 화면의 보유 표시가 해제됩니다. 연결 단절 후에는 유선 경로를 다시 확인하고 새 세션으로 연결하며 이전 승인을 재사용하거나 자동 요청하지 않습니다. ROS 제어로 돌아갈 때는 Mac 서버를 먼저 종료하고 `.env`를 `ROBOT_ACCESS_BACKEND=ros`로 바꾼 뒤 `docker compose up -d robot-web`을 실행하세요. [두산 SDK의 제어권 콜백 예제](https://doosanrobotics.github.io/doosan-robotics-api-manual/GL013301/tutorials/scenarios/1_minimal_motion_sample.html)
 
 실장비 작업 공간이 준비되었을 때 아래 명령을 실행하세요. Docker의 `hardware` 프로필은 ROS 2 드라이버를 `--force-request-access`로 시작합니다. 드라이버는 자신의 SDK 세션에서 강제 인계를 한 번 요청하며, 승인되면 기존 보유자가 제어권을 잃을 수 있습니다. 로그의 `Forced access request sent`는 전송, `Access control granted`는 승인입니다. 드라이버는 승인 시 `SAFE_OFF`이면 서보 ON을 요청하고 `STANDBY`를 확인합니다. 시작할 때 제어기의 수동·자동 운전 모드를 유지합니다. Compose는 6축 관절 토픽과 상태·이동 서비스가 발견될 때까지 기다립니다.
 
@@ -293,7 +320,7 @@ docker compose -f docker-compose.yml -f rosbridge/compose.host.yml run --build -
 
 **운영 → 로봇 모니터링 → 자세 테스트.** 자세 1·2·3에 각각 J1~J6 **절대 관절각(°)**을 입력하고 저장합니다. 초기 슬롯은 비어 있습니다. 저장값은 Compose 자세 볼륨에서 제어기 IP·포트·네임스페이스별로 보관됩니다. 저장과 이동은 별도 버튼입니다.
 
-**저장한 자세로 이동**을 누르면 확인창에서 6개 목표각과 속도를 확인합니다. 실행 시 서버가 최신 6축 데이터와 `/<namespace>/system/get_robot_state`의 STANDBY 응답을 확인한 뒤 `/<namespace>/motion/move_joint`에 한 번 요청합니다. 속도는 10 °/s, 가속도는 10 °/s²입니다. 위치 범위 검사는 모델의 관절 한계를 기준으로 하며 실제 작업 공간과 충돌 여유는 작업자가 확인해야 합니다. 수신 지연, 표시 일시정지 또는 연결 끊김 시 화면에서 이동을 시작할 수 없습니다. 드라이버 응답에 따라 완료·실패·결과 미확인이 표시됩니다. 통신이 끊기면 마지막 값을 보존하며 이동을 자동 재전송하지 않습니다. **표시 일시정지**는 화면 갱신에만 적용됩니다.
+**저장한 자세로 이동**을 누르면 확인창에서 6개 목표각과 속도를 확인합니다. Mac SDK에서는 이 세션이 제어권을 보유하고 자세가 저장되면 확인창을 열 수 있습니다. `SAFE_OFF` 또는 수동 모드에서는 현재 상태를 표시합니다. 실물 제어기가 `STANDBY`·자동 모드일 때 확인을 누르면 같은 세션에서 `movej`를 한 번 호출합니다. ROS 모드에서는 서버가 최신 6축 데이터와 `/<namespace>/system/get_robot_state`의 STANDBY 응답을 확인한 뒤 `/<namespace>/motion/move_joint`에 한 번 요청합니다. 속도는 10 °/s, 가속도는 10 °/s²입니다. 위치 범위 검사는 모델의 관절 한계를 기준으로 하며 실제 작업 공간과 충돌 여유는 작업자가 확인해야 합니다. 수신 지연, 표시 일시정지 또는 연결 끊김 시 화면에서 이동을 시작할 수 없습니다. 드라이버 응답에 따라 완료·실패·결과 미확인이 표시됩니다. 통신이 끊기면 마지막 값을 보존하며 이동을 자동 재전송하지 않습니다. **표시 일시정지**는 화면 갱신에만 적용됩니다.
 
 `GET /api/robot/status`에서 연결, 토픽, 저장 자세와 최근 명령 결과를 확인할 수 있습니다. 관절 데이터는 rad에서 °로 변환하고 화면 수신율은 최대 10 Hz입니다. 관절 수신이 끊기면 드라이버 로그에서 SDK 연결 종료 여부를 확인하세요. [두산 MoveJoint 정의](https://github.com/DoosanRobotics/doosan-robot2/blob/dade65d3a99dd8b29d8eca3689a4ead74f228d77/dsr_msgs2/srv/MoveJoint.srv) · [rosbridge 통신 규약](https://github.com/RobotWebTools/rosbridge_suite/blob/ros2/ROSBRIDGE_PROTOCOL.md)
 

@@ -18,7 +18,9 @@ from pydantic import BaseModel, ConfigDict, StrictBool
 from websockets.asyncio.client import connect
 from websockets.exceptions import ConnectionClosed
 
-from .robot_poses import PoseInput, PoseRevision, PoseTests
+from .robot_access_protocol import ModeTicket, ReclaimTicket, ServoTicket, local_json
+from .robot_access_proxy import forward_host, request_host
+from .robot_poses import PoseExecution, PoseInput, PoseTests
 from .robot_work_points import PointName, WorkPointInput, WorkPoints
 from .store import DomainError
 
@@ -33,14 +35,18 @@ class TeachRequest(BaseModel):
 
 @dataclass(frozen=True)
 class RobotSettings:
-    ip: str = "110.120.1.56"
+    ip: str = "110.120.1.63"
     port: int = 12345
     namespace: str = "dsr01"
     ros_pc_ip: str = ""
     rosbridge_port: int = 9090
     stale_seconds: float = 3.0
 
+    access_backend: str = "ros"
+
     def __post_init__(self):
+        if self.access_backend not in {"ros", "mac-sdk"}:
+            raise ValueError("ROBOT_ACCESS_BACKEND must be ros or mac-sdk")
         ipaddress.ip_address(self.ip)
         if not 1 <= self.port <= 65535:
             raise ValueError("ROBOT_PORT must be between 1 and 65535")
@@ -61,12 +67,13 @@ class RobotSettings:
 
     @classmethod
     def from_env(cls):
-        return cls(ip=os.getenv("ROBOT_IP", "110.120.1.56"),
+        return cls(ip=os.getenv("ROBOT_IP", cls.ip),
                    port=int(os.getenv("ROBOT_PORT", "12345")),
                    namespace=os.getenv("ROBOT_NAMESPACE", "dsr01").strip("/"),
                    ros_pc_ip=os.getenv("ROBOT_ROS_PC_IP", "").strip(),
                    rosbridge_port=int(os.getenv("ROBOT_ROSBRIDGE_PORT", "9090")),
-                   stale_seconds=float(os.getenv("ROBOT_STALE_SECONDS", "3")))
+                   stale_seconds=float(os.getenv("ROBOT_STALE_SECONDS", "3")),
+                   access_backend=os.getenv("ROBOT_ACCESS_BACKEND", "ros"))
 
 
 class RobotMonitor:
@@ -178,7 +185,7 @@ class RobotMonitor:
                     await self._check_driver_reconnected(socket)
             except (TimeoutError, RuntimeError, OSError, ConnectionClosed):
                 self.joint_publishers = None
-            if socket is self.socket:
+            if socket is self.socket and self.settings.access_backend == "ros":
                 try:
                     info = await self.call_service(socket, "/rosapi/service_type",
                         {"service": f"/{self.settings.namespace}/{RECLAIM_SERVICE}"}, timeout=3)
@@ -413,13 +420,44 @@ def same_site_json(request: Request):
         raise DomainError("로컬 로봇 모니터링 화면에서 요청하세요.", 403)
 
 
+def require_backend(request, expected):
+    if request.app.state.robot.settings.access_backend != expected:
+        raise HTTPException(409, "현재 제어권 모드에서 사용할 수 없는 작업입니다.")
+
+
+@router.get("/host-access/status")
+def host_status(request: Request):
+    require_backend(request, "mac-sdk")
+    return forward_host("status", request.app.state.robot.settings)
+
+
+@router.post("/host-access/reclaim", dependencies=[Depends(local_json)])
+def host_reclaim(ticket: ReclaimTicket, request: Request):
+    require_backend(request, "mac-sdk")
+    return forward_host("reclaim", request.app.state.robot.settings, ticket)
+
+
+@router.post("/host-access/mode", dependencies=[Depends(local_json)])
+def host_mode(ticket: ModeTicket, request: Request):
+    require_backend(request, "mac-sdk")
+    return forward_host("mode", request.app.state.robot.settings, ticket)
+
+
+@router.post("/host-access/servo-on", dependencies=[Depends(local_json)])
+def host_servo_on(ticket: ServoTicket, request: Request):
+    require_backend(request, "mac-sdk")
+    return forward_host("servo-on", request.app.state.robot.settings, ticket)
+
+
 @router.post("/control/reclaim", dependencies=[Depends(same_site_json)])
 async def reclaim_control(request: Request):
+    require_backend(request, "ros")
     return await request.app.state.robot.reclaim_control()
 
 
 @router.put("/control/direct-teach", dependencies=[Depends(same_site_json)])
 async def set_direct_teach(body: TeachRequest, request: Request):
+    require_backend(request, "ros")
     return await request.app.state.robot.set_direct_teach(body.enabled)
 
 
@@ -440,5 +478,20 @@ async def save_work_point(name: PointName, body: WorkPointInput, request: Reques
 
 
 @router.post("/poses/{slot}/execute", status_code=202, dependencies=[Depends(same_site_json)])
-async def execute_pose(slot: int, body: PoseRevision, request: Request):
-    return request.app.state.robot.pose_tests.execute(slot, body.revision)
+async def execute_pose(slot: int, body: PoseExecution, request: Request):
+    robot = request.app.state.robot
+    if robot.settings.access_backend == "mac-sdk":
+        local_json(request)
+        if not body.session_id or not body.motion_token:
+            raise HTTPException(409, "현재 Mac SDK 세션에서 저장한 자세를 다시 확인하세요.")
+        status, access = await asyncio.to_thread(request_host, "status", robot.settings)
+        if status != 200:
+            raise HTTPException(status, access.get("detail", "Mac SDK 상태 조회 실패"))
+        if body.session_id != access["session_id"] or body.motion_token != access.get("motion_token"):
+            raise HTTPException(409, "제어권이 변경되었습니다. 현재 세션에서 자세를 다시 확인하세요.")
+        if not access.get("can_move"):
+            raise HTTPException(409, access.get("motion_reason") or "SDK 이동 준비 상태를 확인하세요.")
+        return robot.pose_tests.execute(slot, body.revision, body)
+    if body.session_id or body.motion_token:
+        raise HTTPException(409, "제어 방식이 변경되었습니다. 자세를 다시 확인하세요.")
+    return robot.pose_tests.execute(slot, body.revision)
