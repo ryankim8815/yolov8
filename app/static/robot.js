@@ -474,13 +474,19 @@ async function refresh() {
 function routeRobot() {
   const page = currentDestination();
   for (const dialog of document.querySelectorAll("dialog[open]")) dialog.close();
-  document.querySelectorAll("[data-view]").forEach(el=>{el.hidden = el.dataset.view !== page.id;});
+  document.querySelectorAll("[data-view]").forEach(el=>{el.hidden = !el.dataset.view.split(" ").includes(page.id);});
   document.querySelector("h1").textContent = page.label;
   document.title = page.label+" · Vision Lab";
-  if (page.id === "work-plane" && !workPlane) {
-    workPlane = connectWorkPlane(get("work-plane"));
-    void refresh();
-  } else if (page.id !== "work-plane" && workPlane) {
+  const plane = get("work-plane");
+  if (!plane.hidden) {
+    if (!workPlane) {
+      workPlane = connectWorkPlane(plane);
+      void refresh();
+    }
+    const openHandTable = location.hash === "#gripper-table";
+    workPlane.showWorkspace(page.id, openHandTable);
+    if (openHandTable) requestAnimationFrame(() => plane.querySelector(".plane-editor")?.scrollIntoView({block:"start"}));
+  } else if (workPlane) {
     workPlane.dispose(); workPlane = null;
   }
   if (page.id === "gripper") void loadHandTable();

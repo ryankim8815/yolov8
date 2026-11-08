@@ -1,3 +1,6 @@
+import { describeGripper } from "./gripper-measurement.js";
+import { constrainExample, exampleGuide } from "./gripper-example.js";
+
 // Preview geometry only. Lengths are millimetres; the TCP is the fixed origin
 // of the drawing. Camera range is measured by the operator, never inferred from BASE X.
 const dot = (a, b) => a.reduce((sum, v, i) => sum + v * b[i], 0);
@@ -38,10 +41,11 @@ const metal = ["#83979f","#e8ece6","#a2b3b5","#c3d1d0","#a5b7b9","#e0e6e1"];
 const steel = ["#344c57","#829599","#49616b","#617a81","#526b75","#8c9d9e"];
 const amber = ["#dcaa74","#91623e","#aa7048","#d38f5c","#bb8052","#ce9668"];
 const sides = [[0,2,3,1],[4,5,7,6],[0,1,5,4],[2,6,7,3],[0,4,6,2],[1,3,7,5]];
-const extentY = 113, extentZ = 75;
+const extentY = 225, extentZ = 150, floorDepth = 500;
 const exampleOpeningMm = 65; // Drawing only, while the detection has no measured width.
 export const defaultScene = Object.freeze({distance:480, tcpDepth:410, protrusion:50, length:70,
-  kind:"object", view:"oblique", panel:"angles"});
+  view:"oblique", panel:"angles"});
+export const defaultExample = Object.freeze({sizeX:50, sizeY:58, sizeZ:64, x:45, y:0, z:32, showWhenMissing:true});
 
 function box(center, size, transform) {
   const points = [];
@@ -52,15 +56,56 @@ function box(center, size, transform) {
   return points;
 }
 
-function planeRectangle(x, halfWidth, halfHeight) {
-  return [[x,-halfWidth,-halfHeight], [x,halfWidth,-halfHeight],
-    [x,halfWidth,halfHeight], [x,-halfWidth,halfHeight]];
+// A schematic six-axis arm, not inverse kinematics or live joint telemetry.
+// Its flange follows the taught TCP and ABC; the mount is BASE (0, 0, 0)
+// after XYZ is taught. Before that, use an illustrative mount beside the TCP.
+function manipulatorParts(toolAxes, camera, anchor) {
+  const taught = anchor?.length === 3 && anchor.every(Number.isFinite);
+  const tcp = [0,1,2].map(i => anchor?.[i] ?? 0);
+  const base = taught ? [0,0,0] : [tcp[0]-260,tcp[1]+80,tcp[2]];
+  const toCamera = p => camera.map(axis => dot(sub(p,tcp),axis));
+  const offset = (p,axis,n) => p.map((v,i) => v+axis[i]*n);
+  const parts = [];
+  function cylinder(a,b,r,palette,id) {
+    const z = unit(sub(b,a)), x = unit(cross(z,Math.abs(z[2]) < .9 ? identity[2] : identity[1]));
+    const y = cross(z,x), n = 12;
+    const points = [a,b].flatMap(center => Array.from({length:n},(_,i) => toCamera(
+      center.map((v,j) => v+r*(Math.cos(i*2*Math.PI/n)*x[j]+Math.sin(i*2*Math.PI/n)*y[j])))));
+    const faces = [Array.from({length:n},(_,i) => n-1-i),Array.from({length:n},(_,i) => n+i),
+      ...Array.from({length:n},(_,i) => [i,(i+1)%n,(i+1)%n+n,i+n])];
+    parts.push({points,faces,palette,id});
+  }
+  function joint(center,axis,r,width,id) {
+    cylinder(offset(center,axis,-width/2),offset(center,axis,width/2),r,steel,id);
+  }
+  function link(a,b,width,id) {
+    const z = unit(sub(b,a)), x = unit(cross(z,Math.abs(z[2]) < .9 ? identity[2] : identity[1]));
+    const y = cross(z,x), center = a.map((v,i) => (v+b[i])/2);
+    parts.push({points:box([0,0,0],[width,width,Math.hypot(...sub(b,a))],
+      p => toCamera(center.map((v,i) => v+p[0]*x[i]+p[1]*y[i]+p[2]*z[i]))),palette:metal,id});
+  }
+  const shoulder = offset(base,identity[2],85);
+  const wrist = offset(tcp,toolAxes[2],-80), bend = offset(tcp,toolAxes[2],-36);
+  const radial = sub(wrist,shoulder); radial[2] = 0;
+  const shoulderAxis = Math.hypot(...radial) > 1e-6 ? unit(cross(identity[2],radial)) : identity[1];
+  const elbow = shoulder.map((v,i) => i === 2 ? Math.max(v,wrist[i])+160 : v+(wrist[i]-v)*.48);
+  cylinder(offset(base,identity[2],-9),offset(base,identity[2],9),43,metal,"mount");
+  cylinder(base,shoulder,22,metal,"pedestal");
+  link(shoulder,elbow,32,"upper-arm"); link(elbow,wrist,28,"forearm");
+  link(wrist,bend,24,"wrist"); link(bend,tcp,20,"flange-link");
+  const joints = [
+    [offset(base,identity[2],30),identity[2],25,22],
+    [shoulder,shoulderAxis,27,45], [elbow,shoulderAxis,23,40],
+    [wrist,toolAxes[2],19,28], [bend,toolAxes[1],19,34], [tcp,toolAxes[2],17,13]
+  ];
+  joints.forEach(([point,axis,r,width],i) => joint(point,axis,r,width,"J"+(i+1)));
+  return {parts,taught};
 }
 
 function gridFromEdge(center, across, extension, rows) {
   const point = (u,v) => center.map((n,i) => n + u*extentY*across[i] + v*extension[i]);
   const lines = [];
-  for (let y=-100; y<=100; y+=25) lines.push([point(y/extentY,0),point(y/extentY,1)]);
+  for (let y=Math.ceil(-extentY/50)*50; y<extentY; y+=50) lines.push([point(y/extentY,0),point(y/extentY,1)]);
   for (let i=1; i<rows; i++) lines.push([point(-1,i/rows),point(1,i/rows)]);
   return {points:[point(-1,0),point(1,0),point(1,1),point(-1,1)], lines};
 }
@@ -85,53 +130,61 @@ export function workSurfaces(camera, wallX, floorZ, tcpZ) {
   const meets = inWall > 0 && Math.abs(dz) <= inWall*reach;
   const bottom = meets ? dz/inWall : -extentZ;
   const edge = meets ? wallPoint(bottom) : vertical.map((v,i) => (i === 0 ? wallX : 0) + dz*v);
-  const floor = gridFromEdge(edge,across,scaled(cross(vertical,across),250),10);
+  const floor = gridFromEdge(edge,across,scaled(cross(vertical,across),floorDepth),10);
   floor.baseZ = floorZ;
   return {wall:wallFrom(bottom), floor};
 }
 
 export function depthModel(settings, toolAxes, camera = identity, estimate = null, anchor = null) {
-  const {distance, tcpDepth, kind, protrusion, length} = settings;
+  const {distance, tcpDepth, protrusion, length, example = defaultExample, editingExample = false, manipulator = false} = settings;
   const opening = Number.isFinite(estimate?.opening_mm) ? estimate.opening_mm : null;
   const drawnOpening = opening ?? exampleOpeningMm;
   const center = estimate?.center_base_mm;
-  const projectedCenter = anchor?.every(Number.isFinite) && center?.length === 3 && center.every(Number.isFinite)
+  const projectedCenter = !editingExample && anchor?.every(Number.isFinite) && center?.length === 3 && center.every(Number.isFinite)
     ? camera.map(axis => dot(sub(center,anchor),axis)) : null;
   const worldTool = toolAxes.map(axis => camera.map(direction => dot(axis, direction)));
   const transform = p => [0,1,2].map(i => p.reduce((n, v, j) => n + v * worldTool[j][i], 0));
-  const frontDepth = distance - (kind === "object" ? protrusion : 0);
   // Preview coordinates follow the camera's sight axis through the fixed TCP.
   const lens = [-tcpDepth, 0, 0];
-  const wallX = distance - tcpDepth, frontX = frontDepth - tcpDepth;
+  const wallX = distance - tcpDepth;
   const parts = [], pads = [];
   function part(center, size, palette, pad = false) {
     const points = box(center, size, transform);
     parts.push({points, palette});
     if (pad) pads.push(...points);
   }
-  part([0,0,-length-26], [29,30,18], steel);
-  part([0,0,-length-9], [drawnOpening+30,32,24], metal);
-  for (const sign of [-1,1]) {
-    part([sign*(drawnOpening/2+9),0,(-length-5)/2], [10,15,length-5], metal);
-    part([sign*(drawnOpening/2+6),0,-5], [12,19,10], steel, true);
+  const arm = manipulator ? manipulatorParts(toolAxes,camera,anchor) : null;
+  if (arm) parts.push(...arm.parts);
+  else {
+    part([0,0,-length-26], [29,30,18], steel);
+    part([0,0,-length-9], [drawnOpening+30,32,24], metal);
+    for (const sign of [-1,1]) {
+      part([sign*(drawnOpening/2+9),0,(-length-5)/2], [10,15,length-5], metal);
+      part([sign*(drawnOpening/2+6),0,-5], [12,19,10], steel, true);
+    }
   }
-  let face = [], exampleObject = false;
-  if (kind === "object") {
-    const footprint = estimate?.footprint_base_mm;
-    const hasFootprint = Array.isArray(footprint) && footprint.length === 4 &&
-      footprint.every(p => Array.isArray(p) && p.length === 3 && p.every(Number.isFinite));
-    exampleObject = !hasFootprint;
-    // The 58 × 64 mm example is drawn in the camera plane, even before teaching.
-    face = hasFootprint ? footprint.map(p => [frontX, dot(p,camera[1])+(projectedCenter?.[1] ?? 0),
-      dot(p,camera[2])+(projectedCenter?.[2] ?? 0)])
-      : planeRectangle(frontX,29,32);
+  const footprint = estimate?.footprint_base_mm;
+  const hasFootprint = Array.isArray(footprint) && footprint.length === 4 &&
+    footprint.every(p => Array.isArray(p) && p.length === 3 && p.every(Number.isFinite));
+  const exampleObject = example !== null && (editingExample || (!hasFootprint && example.showWhenMissing));
+  let face = [], objectPoints = [], frontX = wallX;
+  if (exampleObject) {
+    const origin = [0,1,2].map(i => anchor?.[i] ?? 0);
+    objectPoints = box([example.x,example.y,example.z], [example.sizeX,example.sizeY,example.sizeZ],
+      p => camera.map(axis => dot(sub(p,origin),axis)));
+    frontX = Math.min(...objectPoints.map(p => p[0]));
+  } else if (hasFootprint && !editingExample) {
+    frontX = wallX-protrusion;
+    face = footprint.map(p => [frontX, dot(p,camera[1])+(projectedCenter?.[1] ?? 0),
+      dot(p,camera[2])+(projectedCenter?.[2] ?? 0)]);
     // Front/back pairs, in the vertex order used by box().
-    const vertices = [0,1,3,2].flatMap(i => [face[i], [wallX,face[i][1],face[i][2]]]);
-    parts.push({points:vertices, palette:amber});
+    objectPoints = [0,1,3,2].flatMap(i => [face[i], [wallX,face[i][1],face[i][2]]]);
   }
-  const tip = opening === null || exampleObject ? null : pads.reduce((best, p) => p[0] > best[0] ? p : best);
-  return {parts, face, exampleObject, projectedCenter, opening, drawnOpening, frontDepth, wallX, frontX, lens, tip,
-    gap:tip ? frontX-tip[0] : null, toolZ:worldTool[2], camera};
+  if (objectPoints.length) parts.push({points:objectPoints, palette:amber});
+  const tip = exampleObject || editingExample ? null : manipulator ? (objectPoints.length ? [0,0,0] : null) :
+    opening === null ? null : pads.reduce((best, p) => p[0] > best[0] ? p : best);
+  return {parts, face, objectPoints, exampleObject, projectedCenter, opening, drawnOpening, frontDepth:frontX+tcpDepth, wallX, frontX, lens, tip,
+    gap:tip ? frontX-tip[0] : null, toolZ:worldTool[2], camera, manipulator, taught:arm?.taught};
 }
 
 function svgNode(tag, attrs, value) {
@@ -159,13 +212,15 @@ function cameraMarker([x,y], wall, tcpDepth) {
   return marker;
 }
 
-function drawRuler(svg, {distance,tcpDepth,kind}, front) {
+function drawRuler(svg, {distance,tcpDepth}, front, hasObject) {
   const w = svg.clientWidth, h = 66, y = 32;
   if (!w) return;
-  const max = Math.ceil((Math.max(distance,tcpDepth)+25)/50)*50;
-  const pos = v => 12 + (w-24) * v / max;
-  const nodes = [line([pos(0),y],[pos(max),y],"var(--line)",2)];
-  for (let x=0; x<=max; x+=50) nodes.push(line([pos(x),y-2],[pos(x),y+3],"var(--sub)",.7));
+  const min = Math.floor(Math.min(0,front)/50)*50;
+  const max = Math.ceil((Math.max(distance,tcpDepth,front)+25)/50)*50;
+  const pos = v => 12 + (w-24) * (v-min) / (max-min);
+  const nodes = [line([pos(min),y],[pos(max),y],"var(--line)",2)];
+  const step = Math.max(50, Math.ceil((max-min)/1000)*50);
+  for (let x=min; x<=max; x+=step) nodes.push(line([pos(x),y-2],[pos(x),y+3],"var(--sub)",.7));
   function mark(depth, text, labelX, above, anchor, color) {
     const x = pos(depth), dy = above ? -1 : 1;
     nodes.push(svgNode("polyline",{points:pointsAttr([[x,y],[x,y+dy*6],[labelX,y+dy*12]]),fill:"none",stroke:color}),
@@ -175,7 +230,7 @@ function drawRuler(svg, {distance,tcpDepth,kind}, front) {
   mark(tcpDepth,"TCP "+tcpDepth+" mm",w*.47,true,"end","var(--ink)");
   mark(distance,"벽 "+distance+" mm",w-8,true,"end","var(--mint)");
   const frontLabel = +front.toFixed(2);
-  if (kind === "object") mark(front,"물체 앞면 "+frontLabel+" mm",Math.max(117,Math.min(w-62,pos(front))),false,"middle","var(--ink)");
+  if (hasObject) mark(front,"물체 앞면 "+frontLabel+" mm",Math.max(117,Math.min(w-62,pos(front))),false,"middle","var(--ink)");
   svg.setAttribute("viewBox", "0 0 "+w+" "+h);
   svg.setAttribute("aria-label", "카메라 기준 TCP "+tcpDepth+" mm, 벽 "+distance+" mm, 대상 앞면 "+frontLabel+" mm");
   svg.replaceChildren(...nodes);
@@ -184,22 +239,25 @@ function drawRuler(svg, {distance,tcpDepth,kind}, front) {
 function drawScene(el, settings, model, anglesText, {wall,floor}) {
   const {scene, world} = el, w = scene.clientWidth, h = scene.clientHeight;
   if (!w || !h) return;
-  const {parts, face, opening, drawnOpening, tip, wallX, frontX, frontDepth, gap, toolZ, camera, lens} = model;
+  const {parts, face, objectPoints, opening, drawnOpening, tip, wallX, frontX, frontDepth, gap, toolZ, camera, lens, manipulator} = model;
   const side = settings.view === "side";
   const xy = ([x,y,z]) => side ? [x,-z] : [.866*x-.5*y, -.17*x-.294*y-.94*z];
   const depth = ([x,y,z]) => side ? -y : -.47*x-.814*y+.34*z;
-  const bounds = [lens, ...wall.points, ...face, ...face.map(([,y,z]) => [wallX,y,z]), ...(floor?.points ?? [])];
+  const bounds = [lens, ...wall.points, ...objectPoints, ...(floor?.points ?? [])];
+  if (manipulator) bounds.push(...parts.flatMap(part => part.points));
   if (model.projectedCenter) bounds.push(model.projectedCenter);
   const projected = bounds.map(xy);
-  const radius = Math.hypot(settings.length + 35, drawnOpening/2+15, 16);
+  const radius = manipulator ? 35 : Math.hypot(settings.length + 35, drawnOpening/2+15, 16);
   const minX = Math.min(-radius, ...projected.map(([x]) => x));
   const maxX = Math.max(radius, ...projected.map(([x]) => x));
-  const halfH = Math.max(radius, ...projected.map(([,y]) => Math.abs(y)));
+  const minY = Math.min(-radius, ...projected.map(([,y]) => y));
+  const maxY = Math.max(radius, ...projected.map(([,y]) => y));
   // Keep the TCP centered where possible, leaving room for the camera icon on narrow screens.
   const left = 36, right = 24;
-  const scale = Math.min((w-left-right)/(maxX-minX), (h-28)/(2*halfH));
+  const scale = Math.min((w-left-right)/(maxX-minX), (h-28)/(maxY-minY));
   const tcpX = Math.max(left-minX*scale, Math.min(w/2, w-right-maxX*scale));
-  function project(p) {const [x,y] = xy(p); return [tcpX+x*scale,h/2+y*scale];}
+  const tcpY = Math.max(14-minY*scale, Math.min(h/2, h-14-maxY*scale));
+  function project(p) {const [x,y] = xy(p); return [tcpX+x*scale,tcpY+y*scale];}
   const origin = project([0,0,0]);
   const lensPoint = project(lens), wallCenter = project([wallX,0,0]);
   scene.setAttribute("viewBox","0 0 "+w+" "+h);
@@ -209,23 +267,24 @@ function drawScene(el, settings, model, anglesText, {wall,floor}) {
     for (const [a,b] of floor.lines) nodes.push(line(project(a),project(b),"#629d85",.8));
   }
   nodes.push(svgNode("polygon",{points:pointsAttr(wall.points.map(project)),fill:"#364a51",
-    stroke:settings.kind === "wall" ? "#ffc08b" : "#90a7a9","stroke-width":1.3}));
+    stroke:objectPoints.length ? "#90a7a9" : "#ffc08b","stroke-width":1.3}));
   if (!side) {
     for (const [a,b] of wall.lines) nodes.push(line(project(a),project(b),"#587074",.7));
   }
   nodes.push(line(lensPoint,wallCenter,cameraColor,1,{"stroke-dasharray":"4 5"}));
-  const faces = parts.flatMap(({points,palette}) => sides.map((indices,i) => {
+  const faces = parts.flatMap(({points,palette,faces = sides,id}) => faces.map((indices,i) => {
     const ps = indices.map(j => points[j]);
-    return {points:ps, color:palette[i], depth:ps.reduce((n,p) => n+depth(p),0)/4};
+    return {points:ps, color:palette[i%palette.length], id, example:model.exampleObject && points === objectPoints,
+      depth:ps.reduce((n,p) => n+depth(p),0)/4};
   })).sort((a,b) => a.depth-b.depth);
   for (const f of faces) nodes.push(svgNode("polygon",{points:pointsAttr(f.points.map(project)),fill:f.color,
-    stroke:"#24383d","stroke-width":.85,"stroke-linejoin":"round"}));
-  const objectLabel = model.exampleObject ? "예시 물체" : "탐지 상자 기준 물체";
+    ...(f.id ? {"data-arm-part":f.id} : {}),
+    stroke:f.example ? "#ffc08b" : "#24383d","stroke-dasharray":f.example ? "4 2" : "none","stroke-width":.85,"stroke-linejoin":"round"}));
+  const objectLabel = model.exampleObject ? "예시 객체" : "탐지 상자 기준 물체";
   if (face.length) {
-    nodes.push(svgNode("polygon",{points:pointsAttr(face.map(project)),fill:"none",stroke:"#ffc08b","stroke-width":1.5,
-      "stroke-dasharray":model.exampleObject ? "4 2" : "none"}));
-    nodes.push(label(w-14,21,objectLabel,"#ffc08b",{"text-anchor":"end"}));
+    nodes.push(svgNode("polygon",{points:pointsAttr(face.map(project)),fill:"none",stroke:"#ffc08b","stroke-width":1.5}));
   }
+  if (objectPoints.length) nodes.push(label(w-14,21,objectLabel,"#ffc08b",{"text-anchor":"end"}));
   nodes.push(cameraMarker(lensPoint,wallCenter,settings.tcpDepth));
   const end = project(scaled(toolZ, 30));
   if (Math.hypot(...sub(end,origin)) > 1) nodes.push(line(origin,end,"#83ead3",2.8,{"marker-end":"url(#pick-z-arrow)"}));
@@ -240,38 +299,61 @@ function drawScene(el, settings, model, anglesText, {wall,floor}) {
   if (floor) {
     nodes.push(label(w-10,h-6,"바닥 0 mm · BASE Z "+floor.baseZ+" mm","#ade4c6",{"text-anchor":"end"}));
   }
-  if (settings.kind === "object" && model.projectedCenter) {
+  if (model.projectedCenter) {
     const [x,y] = project(model.projectedCenter);
     nodes.push(svgNode("circle",{cx:x,cy:y,r:3.5,fill:"#ffe3bd",stroke:"#563e2e"}),
       label(Math.max(5,Math.min(w-54,x+5)),Math.max(14,y-5),"탐지 중심","#ffe3bd"));
   }
   // Small BASE triad keeps the camera-relative view tied to the robot frame.
-  const base = [lensPoint[0] < 100 && lensPoint[1] > h-83 ? lensPoint[0]+65 : 41, h-33];
+  const baseX = lensPoint[0] < 100 && lensPoint[1] > h-83 ? lensPoint[0]+65 : 41;
+  const base = [Math.max(41,Math.min(baseX,w-178)),h-33];
   for (const [i,name] of ["X","Y","Z"].entries()) {
     const [dx,dy] = xy(camera.map(axis => axis[i])), to = [base[0]+dx*21,base[1]+dy*21];
     if (Math.hypot(dx,dy) > .1) nodes.push(line(base,to,"#a0b3ba",1.2),label(to[0]+dx*6,to[1]+dy*5+3,name,"#c0d2d8",{"font-size":10,"text-anchor":"middle"}));
   }
   nodes.push(label(base[0]-1,h-6,"BASE","#a0b3ba",{"font-size":10,"text-anchor":"middle"}));
-  const openingHint = opening === null ? "손가락 간격은 예시입니다." : "";
+  const openingHint = !manipulator && opening === null ? "손가락 간격은 예시입니다." : "";
   if (openingHint) nodes.push(label(14,21,openingHint,"#d3e5e5"));
   world.replaceChildren(...nodes);
   const past = gap < -.05;
-  el.gapLabel.textContent = past ? "앞면을 지난 깊이" : "손끝 → 앞면";
+  el.gapLabel.textContent = past ? "앞면을 지난 깊이" : manipulator ? "TCP → 앞면" : "손끝 → 앞면";
   el.gap.textContent = gap === null ? "—" : Math.abs(gap).toFixed(1)+" mm";
-  scene.setAttribute("aria-label", "고정 TCP의 그리퍼 방향: "+anglesText+". "+(face.length ? "벽과 "+objectLabel : "벽")+
+  scene.dataset.previewModel = manipulator ? "manipulator" : "gripper";
+  if (el.modelHint) el.modelHint.textContent = "관절 배치는 도식입니다. "+
+    (model.taught ? "TCP는 선택한 모서리의 교시값을 따릅니다." : "TCP 위치를 교시하면 BASE 원점에 베이스를 표시합니다.");
+  scene.setAttribute("aria-label", "고정 TCP의 "+(manipulator ? "매니퓰레이터" : "그리퍼")+" 방향: "+anglesText+". "+(objectPoints.length ? "벽과 "+objectLabel : "벽")+
     ". 카메라에서 시선축을 따라 TCP까지 "+settings.tcpDepth+" mm, 벽까지 "+settings.distance+" mm. 대상 앞면 "+
     (+frontDepth.toFixed(2))+" mm. "+el.gapLabel.textContent+" "+el.gap.textContent+" (시선축 기준). "+
-    (floor ? "바닥 BASE Z "+floor.baseZ+" mm. " : "")+el.tcpHeight.textContent+" "+el.objectHeight.textContent+" "+openingHint);
-  drawRuler(el.ruler,settings,frontDepth);
+    (floor ? "바닥 BASE Z "+floor.baseZ+" mm. " : "")+el.tcpHeight.textContent+" "+el.objectHeight.textContent+" "+
+    (manipulator ? "관절 배치는 도식입니다." : openingHint));
+  drawRuler(el.ruler,settings,frontDepth,Boolean(objectPoints.length));
 }
 
 const dimensions = [
   ["distance","카메라 → 벽",300,700,"depthFields"],
-  ["protrusion","물체 돌출 깊이",10,120,"depthFields"],
+  ["protrusion","탐지 객체 돌출 깊이",10,120,"jawPanel"],
   ["tcpDepth","카메라 → TCP",0,1000,"depthFields"],
   ["length","손가락 길이",25,110,"jawPanel"]
 ];
-const choices = {view:["oblique","side"],kind:["wall","object"],panel:["angles","jaws"]};
+const choices = {view:["oblique","side"],panel:["angles","jaws"]};
+const exampleKey = "vision-work-plane-example-v1";
+const exampleLimit = 1e6; // Same mm range as BASE teaching coordinates.
+
+function validExampleValue(name, value) {
+  return Number.isFinite(value) && Math.abs(value) <= exampleLimit && (!name.startsWith("size") || value > 0);
+}
+
+function restoredExample() {
+  const example = {...defaultExample};
+  try {
+    const saved = JSON.parse(localStorage.getItem(exampleKey));
+    for (const name of Object.keys(example)) {
+      if (typeof example[name] === "number" && validExampleValue(name,saved?.[name])) example[name] = saved[name];
+    }
+    if (typeof saved?.showWhenMissing === "boolean") example.showWhenMissing = saved.showWhenMissing;
+  } catch { /* Storage is optional. */ }
+  return example;
+}
 
 function restoredSettings(key) {
   const result = {...defaultScene};
@@ -288,25 +370,60 @@ function restoredSettings(key) {
 
 export function connectDepthPreview(el, signal) {
   let key, settings = {...defaultScene}, pose, estimate = null, floorZ = null;
+  const example = restoredExample();
+  let editingExample = false, manipulator = false;
+  let fit;
+  const controls = [...el.calibration.querySelectorAll("[data-example]")].map(number => {
+    const name = number.dataset.example;
+    const slider = el.calibration.querySelector('[data-example-range="'+name+'"]');
+    return {name,number,slider,limits:slider.nextElementSibling};
+  });
   const fields = {};
   const on = (node, type, fn) => node.addEventListener(type, fn, {signal});
   function remember() {
     try { if (key) localStorage.setItem(key,JSON.stringify(settings)); } catch { /* Private browsing. */ }
   }
-  function draw() {
+  function draw(typing) {
     if (!pose) return;
     const tcpZ = pose.xyz[2];
     const height = Number.isFinite(floorZ) && Number.isFinite(tcpZ) ? tcpZ-floorZ : null;
     const describe = h => h === 0 ? "바닥면 0 mm" :
       (h < 0 ? "바닥 아래 " : "바닥 위 ") + Number(h.toFixed(2)) + " mm";
     const base = pose.basis ?? identity;
+    const surfaces = workSurfaces(base,settings.distance-settings.tcpDepth,floorZ,tcpZ);
+    fit = constrainExample(exampleGuide(base,pose.xyz,surfaces),example);
+    const shown = fit?.value;
+    for (const {name,number,slider,limits} of controls) {
+      number.disabled = slider.disabled = !fit;
+      if (!fit) { number.value = ""; limits.textContent = "—"; continue; }
+      const {min,max} = fit.ranges[name];
+      number.min = slider.min = min; number.max = slider.max = max;
+      slider.value = shown[name];
+      slider.disabled = max-min < 1e-7;
+      if (number !== typing) {
+        number.value = Math.max(min,Math.min(max,Number(shown[name].toFixed(6))));
+        number.removeAttribute("aria-invalid");
+      }
+      limits.textContent = Number(min.toFixed(1))+" ~ "+Number(max.toFixed(1))+" mm";
+    }
+    const adjusted = fit && controls.some(({name}) => Math.abs(shown[name]-example[name])>1e-6);
+    el.exampleError.textContent = !fit ? (surfaces.floor ? "현재 벽과 바닥 사이에 객체를 놓을 공간이 없습니다." : "바닥 Z를 입력하면 예시 객체를 조절할 수 있습니다.") :
+      adjusted ? "현재 가이드 범위에 맞춰 예시 객체를 표시합니다." : "";
     el.tcpHeight.textContent = floorZ === null ? "바닥 Z를 입력하세요." :
       (pose.corner+1)+"번 모서리 TCP · "+(height === null ? "Z 미교시 · 높이는 BASE 원점 기준입니다." : describe(height));
     const z = estimate?.center_base_mm?.[2];
-    el.objectHeight.textContent = floorZ === null ? "" : "탐지 물체 중심 · "+
-      (Number.isFinite(z) ? describe(z-floorZ) : estimate?.center_reason || estimate?.reason || "탐지 객체를 선택하세요.");
-    const model = depthModel(settings, pose.axes, base, estimate, height === null ? null : pose.xyz);
-    drawScene(el, settings, model, pose.anglesText, workSurfaces(base,model.wallX,floorZ,tcpZ));
+    if (editingExample) {
+      el.objectHeight.textContent = shown ? "예시 중심 · BASE ("+[shown.x,shown.y,shown.z].map(v=>Number(v.toFixed(2))).join(", ")+") mm" : "";
+    } else {
+      el.objectHeight.textContent = floorZ === null ? "" : "탐지 물체 중심 · "+
+        (Number.isFinite(z) ? describe(z-floorZ) : estimate?.center_reason || estimate?.reason || "탐지 객체를 선택하세요.");
+    }
+    const model = depthModel({...settings,example:shown ?? null,editingExample,manipulator}, pose.axes, base, estimate, pose.xyz);
+    const sizing = editingExample && shown ? "예시 크기 (X × Y × Z) · "+[shown.sizeX,shown.sizeY,shown.sizeZ].map(v=>Number(v.toFixed(2))).join(" × ")+" mm"+
+      (model.opening === null ? "" : " · 탐지 기준 손가락 벌림 "+model.opening.toFixed(1)+" mm") :
+      editingExample ? el.exampleError.textContent : describeGripper(estimate);
+    if (el.sizing.textContent !== sizing) el.sizing.textContent = sizing;
+    drawScene(el, settings, model, pose.anglesText, surfaces);
   }
   function sync() {
     for (const [name,buttons] of Object.entries(groups)) {
@@ -314,10 +431,39 @@ export function connectDepthPreview(el, signal) {
     }
     el.anglePanel.hidden = settings.panel !== "angles";
     el.jawPanel.hidden = settings.panel !== "jaws";
-    fields.protrusion.row.hidden = settings.kind === "wall";
     for (const [name,{range,number}] of Object.entries(fields)) range.value = number.value = settings[name];
     draw();
   }
+  function rememberExample(typing) {
+    try { localStorage.setItem(exampleKey,JSON.stringify(example)); } catch { /* Storage is optional. */ }
+    draw(typing);
+  }
+  for (const {name,number,slider,limits} of controls) {
+    function apply(value, typing) {
+      if (!fit || !Number.isFinite(value)) return;
+      const {min,max} = fit.ranges[name];
+      Object.assign(example,fit.value,{[name]:Math.max(min,Math.min(max,value))});
+      number.removeAttribute("aria-invalid");
+      rememberExample(typing);
+    }
+    on(slider,"input",() => {
+      const value = slider.valueAsNumber;
+      apply(value === Number(slider.min) || value === Number(slider.max) ? value : Math.round(value*10)/10);
+    });
+    on(number,"input",() => {
+      if (number.validity.valid) apply(number.valueAsNumber,number);
+      else {
+        number.setAttribute("aria-invalid","true");
+        el.exampleError.textContent = "입력 범위 · "+limits.textContent;
+      }
+    });
+    on(number,"blur",() => {
+      if (number.getAttribute("aria-invalid") === "true" && Number.isFinite(number.valueAsNumber)) apply(number.valueAsNumber);
+      else draw();
+    });
+  }
+  el.showExample.checked = example.showWhenMissing;
+  on(el.showExample,"change",() => { example.showWhenMissing = el.showExample.checked; rememberExample(); });
   const groups = {};
   for (const name of Object.keys(choices)) {
     groups[name] = el.calibration.querySelectorAll("[data-depth-"+name+"]");
@@ -357,5 +503,13 @@ export function connectDepthPreview(el, signal) {
       key = next; settings = restoredSettings(key); sync();
     } else draw();
   }
-  return {render, setEstimate(result) { estimate = result; draw(); }, setFloor(z) { floorZ = z; draw(); }};
+  return {render, setEstimate(result) { estimate = result; draw(); }, setFloor(z) { floorZ = z; draw(); },
+    editExample(active) { editingExample = active; draw(); },
+    setManipulator(active) {
+      manipulator = active;
+      el.modelTitle.textContent = active ? "매니퓰레이터 방향" : "그리퍼 방향";
+      el.modelHint.hidden = !active;
+      el.surfaceNote.textContent = (active ? "TCP" : "손끝")+"과 앞면의 깊이 차이는 충돌 판정이 아닙니다.";
+      draw();
+    }};
 }

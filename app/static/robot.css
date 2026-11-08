@@ -108,3 +108,9 @@
 .hand-actions input,.hand-sample input { width:5.8em; padding:6px; font:inherit; color:var(--ink); background:var(--surface); border:1px solid var(--line); border-radius:5px; }
 .hand-sample { padding:6px 0; }
 .hand-sample label { font-size:13px; }
+#plane-hand-table .pose-body { padding:4px 0; }
+@media (max-width:620px) {
+  .hand-sample { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr) auto; align-items:end; }
+  .hand-sample label { display:grid; gap:3px; }
+  .hand-sample input { width:100%; }
+}

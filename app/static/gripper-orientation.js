@@ -59,5 +59,6 @@ export function connectOrientation(el, onAngle, signal) {
       slider.disabled = number.disabled = locked;
     });
   }
-  return {render, setEstimate:depth.setEstimate, setFloor:depth.setFloor};
+  return {render, setEstimate:depth.setEstimate, setFloor:depth.setFloor, editExample:depth.editExample,
+    setManipulator:depth.setManipulator};
 }
