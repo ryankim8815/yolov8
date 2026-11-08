@@ -11,7 +11,7 @@ from fastapi.responses import JSONResponse
 def request_host(operation, settings, ticket=None):
     target = "host.docker.internal" if os.getenv("ROBOT_BRIDGE_NETWORK") == "compose" else "127.0.0.1"
     try:
-        with closing(HTTPConnection(target, 8011, timeout=155 if operation in {"pose", "line"} else 2)) as conn:
+        with closing(HTTPConnection(target, 8011, timeout=155 if operation in {"pose", "line", "gripper"} else 2)) as conn:
             conn.request("POST" if ticket else "GET", "/api/robot/host-access/" + operation,
                          body=ticket.model_dump_json() if ticket else None,
                          headers={"Host": "127.0.0.1:8011", "Content-Type": "application/json",

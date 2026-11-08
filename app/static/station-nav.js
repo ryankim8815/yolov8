@@ -8,6 +8,12 @@ export const destinations = [
   { id: "logs", label: "로그", icon: "scroll-text" }
 ];
 
+const robotPages = [
+  {id:"manipulator", label:"메니퓰레이터", icon:"robot-arm"},
+  {id:"gripper", label:"그리퍼", icon:"settings"},
+  {id:"work-plane", label:"작업 평면 보정", icon:"scan-line"}
+];
+
 export function icon(name) {
   return '<svg class="station-icon" aria-hidden="true"><use href="/static/station-icons.svg#' + name + '"></use></svg>';
 }
@@ -15,7 +21,11 @@ export function icon(name) {
 const training = document.body.dataset.workspace === "training";
 
 export function currentDestination() {
-  if (document.body.dataset.workspace === "robot") return destinations.find(item => item.id === "robot");
+  if (document.body.dataset.workspace === "robot") {
+    const id = location.hash.slice(1);
+    if (["work-points-title","pose-title"].includes(id)) return robotPages[0];
+    return robotPages.find(page => page.id === id) || destinations.find(page => page.id === "robot");
+  }
   if (training) return destinations.find(item => item.id === "model-management");
   const route = location.hash.slice(1);
   return destinations.find(item => item.id === route) || destinations[0];
@@ -23,6 +33,7 @@ export function currentDestination() {
 
 function highlightDestination() {
   const current = currentDestination();
+  if (robotPages.some(page => page.id === current.id)) expand(true);
   for (const link of document.querySelectorAll(".station-nav a")) {
     if (link.dataset.page === current.id) link.setAttribute("aria-current", "page");
     else link.removeAttribute("aria-current");
@@ -33,6 +44,22 @@ const rail = document.getElementById("station-rail");
 const nav = document.createElement("nav");
 nav.className = "station-nav";
 nav.setAttribute("aria-label", "주 메뉴");
+const toggle = document.createElement("button"), children = document.createElement("div");
+toggle.type = "button"; toggle.className = "station-disclosure";
+toggle.innerHTML = icon("robot-arm") + "로봇 관리";
+children.id = "robot-nav-children"; children.className = "station-children";
+toggle.setAttribute("aria-controls",children.id);
+function expand(open) {
+  toggle.setAttribute("aria-expanded", String(open));
+  children.hidden = !open;
+}
+expand(false);
+toggle.addEventListener("click", () => expand(children.hidden));
+for (const page of robotPages) {
+  const link = document.createElement("a");
+  link.dataset.page = page.id; link.href = "/robot#" + page.id; link.textContent = page.label;
+  children.append(link);
+}
 for (const item of destinations) {
   if (item.id === "dashboard" || item.id === "people") {
     const group = document.createElement("div");
@@ -40,6 +67,7 @@ for (const item of destinations) {
     group.textContent = item.id === "dashboard" ? "운영" : "관리";
     nav.append(group);
   }
+  if (item.id === "people") nav.append(toggle,children);
   const link = document.createElement("a");
   link.href = item.id === "robot" ? "/robot" : "/#" + item.id;
   link.dataset.page = item.id;

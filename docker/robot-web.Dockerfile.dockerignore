@@ -7,3 +7,6 @@
 !app/static/station-*
 !docker/
 !docker/robot-web-requirements.txt
+!app/static/dashboard-camera.css
+!app/static/detection-feed.js
+!app/static/gripper-*.js

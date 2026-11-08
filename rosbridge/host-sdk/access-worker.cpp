@@ -1,5 +1,6 @@
 // One SDK session owns access and operator-confirmed joint and Cartesian moves.
 #include "DRFLEx.h"
+#include "rh_p12.hpp"
 #include <atomic>
 #include <chrono>
 #include <cstdio>
@@ -122,6 +123,60 @@ static void move_pose(DRAFramework::CDRFLEx& sdk, const char* command) {
     event("pose", completed ? "completed" : "failed");
 }
 
+// One open serial port per explicit operation. No hardware I/O on feature discovery.
+struct FlangePort {
+    DRAFramework::CDRFLEx& sdk;
+    unsigned grant;
+    void check() {
+        if (!mode_verified || !held || down || !initialized || grant != grant_number.load() ||
+            !last_frame.load() || now_ms()-last_frame.load()>2000 ||
+            sdk.get_robot_state()!=STATE_STANDBY || sdk.get_robot_mode()!=ROBOT_MODE_AUTONOMOUS ||
+            sdk.get_robot_system()!=ROBOT_SYSTEM_REAL) throw std::runtime_error("control");
+    }
+    void write(rhp12::Bytes bytes) {
+        if (!sdk.flange_serial_write(bytes.size(), reinterpret_cast<char*>(bytes.data())))
+            throw std::runtime_error("serial_write");
+    }
+    rhp12::Bytes read(float timeout) {
+        auto rx = sdk.flange_serial_read(timeout);
+        if (!rx || rx->_iSize <= 0 || rx->_iSize > 256) return {};
+        return {rx->_cRxd, rx->_cRxd + rx->_iSize};
+    }
+};
+
+static void gripper(DRAFramework::CDRFLEx& sdk, const char* command) {
+    unsigned grant;
+    int target, contact;
+    char extra;
+    if (std::sscanf(command, "hand %u %d %d %c", &grant,&target,&contact,&extra) != 3 ||
+        target < -1 || target > 700 || (contact && target != 700) || !can_move(sdk,grant)) {
+        event("hand","failed control -1 0 0 0 0 0"); return;
+    }
+    FlangePort port{sdk,grant};
+    rhp12::Hand<FlangePort> hand(port);
+    rhp12::Status feedback;
+    std::string state = "completed", reason = "ok";
+    bool opened = false;
+    in_move = true;
+    try {
+        port.check();
+        opened = sdk.flange_serial_open(57600, BYTE_SIZE_EIGHTBITS, PARITY_CHECK_NONE, STOPBITS_ONE);
+        if (!opened) throw std::runtime_error("serial_open");
+        hand.run(target, contact, feedback);
+        port.check();
+    } catch (const std::exception& e) {
+        state = hand.attempted ? "unknown" : "failed"; reason = e.what();
+    }
+    if (opened && !sdk.flange_serial_close()) {
+        state = hand.attempted ? "unknown" : "failed"; reason = "serial_close";
+    }
+    in_move = false;
+    char result[200];
+    std::snprintf(result,sizeof(result),"%s %s %d %d %d %d %d %d",state.c_str(),reason.c_str(),
+                  feedback.position,feedback.current,feedback.goal_current,feedback.limit,feedback.mode,feedback.error);
+    event("hand",result);
+}
+
 int main() {
     DRAFramework::CDRFLEx sdk;
     const char *version = sdk.get_library_version(), *ip = std::getenv("ROBOT_IP"), *port = std::getenv("ROBOT_PORT");
@@ -130,6 +185,7 @@ int main() {
     event("feature", "servo_on");
     event("feature", "operation_mode");
     event("feature", "line");
+    event("feature", "rh_p12");
     sdk.set_on_disconnected([] { down = true; event("disconnect", "SDK disconnected"); });
     sdk.set_on_monitoring_data([](const LPMONITORING_DATA data) {
         if (!data) return;
@@ -186,6 +242,7 @@ int main() {
         if (!std::strncmp(command, "mode ", 5)) { set_operation_mode(sdk, command); continue; }
         if (!std::strncmp(command, "servo ", 6)) { servo_on(sdk, command); continue; }
         if (!std::strncmp(command, "move ", 5)) { move_pose(sdk, command); continue; }
+        if (!std::strncmp(command, "hand ", 5)) { gripper(sdk, command); continue; }
         if (!std::strncmp(command, "line ", 5)) { move_line(sdk, command); continue; }
         if (std::strcmp(command, "force\n")) continue;
         const auto state = sdk.get_robot_state();

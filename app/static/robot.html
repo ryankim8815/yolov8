@@ -7,6 +7,7 @@
   <link rel="stylesheet" href="/static/station-shell.css">
   <link rel="stylesheet" href="/static/packing.css">
   <link rel="stylesheet" href="/static/robot.css">
+  <link rel="stylesheet" href="/static/dashboard-camera.css">
   <script type="module" src="/static/robot.js"></script>
 </head>
 <body class="station-shell" data-workspace="robot">
@@ -16,11 +17,11 @@
     <div class="content">
       <div class="headline">
         <div><p class="date">두산 매니퓰레이터 · E0509 · 유선 LAN</p><h1>로봇 모니터링</h1></div>
-        <button id="connection-settings" type="button" aria-expanded="false" aria-controls="robot-settings"><svg class="station-icon" aria-hidden="true"><use href="/static/station-icons.svg#settings"></use></svg>연결 설정</button>
+        <button data-view="manipulator" id="connection-settings" type="button" aria-expanded="false" aria-controls="robot-settings"><svg class="station-icon" aria-hidden="true"><use href="/static/station-icons.svg#settings"></use></svg>연결 설정</button>
       </div>
       <p id="robot-api-error" class="packing-error" role="alert" hidden></p>
       <div class="robot-stack">
-        <section id="robot-settings" class="panel" aria-label="LAN 연결 설정" hidden>
+        <div data-view="manipulator" hidden><section id="robot-settings" class="panel" aria-label="LAN 연결 설정" hidden>
           <div class="panel-head"><h2>LAN 연결 설정</h2><span class="meta">서버 환경변수로 관리</span></div>
           <div class="robot-settings-body">
             <ol class="lan-steps">
@@ -42,7 +43,8 @@ docker compose run --rm --no-deps doosan-driver timeout 15 check-e0509</pre>
             </details>
           </div>
         </section>
-        <section class="panel robot-link" aria-label="로봇 연결 경로">
+        </div>
+        <section data-view="robot" class="panel robot-link" aria-label="로봇 연결 경로">
           <div class="robot-hero">
             <div class="robot-identity"><p>DOOSAN MANIPULATOR</p><div class="robot-model">E0509 <span>6축</span></div><div class="robot-host"><svg class="station-icon" aria-hidden="true"><use href="/static/station-icons.svg#ethernet"></use></svg><span id="robot-endpoint">설정 조회 중</span></div></div>
             <div class="robot-topology">
@@ -57,6 +59,10 @@ docker compose run --rm --no-deps doosan-driver timeout 15 check-e0509</pre>
             <div><span>수신 관절 수</span><strong><b id="robot-axis-count">—</b> <small>/ 6</small></strong></div>
             <div><span>마지막 관절 수신</span><strong id="robot-received" class="robot-time">—</strong></div>
           </div>
+          <p class="robot-overview" id="robot-overview">제어 상태 확인 중</p>
+        </section>
+        <section data-view="manipulator" class="panel" aria-label="메니퓰레이터 제어" hidden>
+          <div class="panel-head"><h2>로봇 제어</h2></div>
           <div class="robot-control">
             <div><label for="control-view" class="meta">제어권 보기</label>
               <select id="control-view" disabled>
@@ -114,15 +120,15 @@ docker compose run --rm --no-deps doosan-driver timeout 15 check-e0509</pre>
           <div class="pose-actions"><button id="servo-cancel" type="button" autofocus>취소</button>
             <button id="servo-confirm" type="button" disabled>서보 ON 요청</button></div>
         </dialog>
-        <div class="robot-notice" id="robot-notice" role="status">연결 설정을 불러오는 중입니다.</div>
-        <section class="panel">
+        <div data-view="robot" class="robot-notice" id="robot-notice" role="status">연결 설정을 불러오는 중입니다.</div>
+        <section class="panel" data-view="robot">
           <div class="panel-head"><h2>관절 위치</h2><span id="joint-age" class="meta">수신 대기 · °</span></div>
           <div class="robot-joints" id="robot-joints"></div>
         </section>
-        <section class="panel" aria-labelledby="work-points-title">
+        <section data-view="manipulator" hidden class="panel" aria-labelledby="work-points-title">
           <div class="panel-head"><h2 id="work-points-title">주요 좌표값 설정</h2><span class="meta">로봇 베이스 기준 · BASE</span></div>
           <div class="pose-body">
-            <p class="work-point-help">공구 끝점(TCP)의 위치 X·Y·Z는 mm, 방향 A·B·C는 °(ZYZ)로 입력하세요. 좌표를 저장해도 로봇 이동이나 RFID 스캔은 시작되지 않습니다.</p>
+            <p class="work-point-help">공구 끝점(TCP)의 위치 X·Y·Z는 mm, 방향 A·B·C는 °(ZYZ)로 입력하세요. 이송 경로는 파지 위치 → 경유점 → 택배 박스 순서입니다. 물체를 든 상태에서 두 직선 구간이 장애물과 박스 테두리를 통과하지 않도록 경유점을 교시하세요.</p>
             <div id="work-points"></div>
             <p id="work-point-source" class="meta">현재 위치 수신 상태 확인 중</p>
           </div>
@@ -139,7 +145,7 @@ docker compose run --rm --no-deps doosan-driver timeout 15 check-e0509</pre>
             </form>
           </template>
         </section>
-        <section class="panel" aria-labelledby="pose-title">
+        <section data-view="manipulator" hidden class="panel" aria-labelledby="pose-title">
           <div class="panel-head"><h2 id="pose-title">자세 테스트</h2><span class="meta" id="pose-bridge">rosbridge 확인 중</span></div>
           <div class="pose-body">
             <div class="pose-slots" aria-label="테스트 자세 선택">
@@ -169,7 +175,147 @@ docker compose run --rm --no-deps doosan-driver timeout 15 check-e0509</pre>
             <button id="pose-cancel" type="button" autofocus>취소</button>
             <button id="pose-confirm" type="button">이 자세로 이동</button></div>
         </dialog>
-        <div class="robot-split">
+        <section id="work-plane" data-view="work-plane" hidden>
+          <header class="panel plane-summary">
+            <dl class="robot-config plane-meta">
+              <div><dt>입력 카메라</dt><dd data-plane="camera">확인 중</dd></div>
+              <div><dt>원본 해상도</dt><dd data-plane="resolution">—</dd></div>
+              <div><dt>보정 상태</dt><dd data-plane="state" role="status">영상 대기</dd></div>
+            </dl>
+            <p data-plane="message" role="status"></p>
+            <div class="plane-actions">
+              <button type="button" data-plane="refresh" disabled>새 영상 고정</button>
+              <button type="button" data-plane="reload" hidden>저장값 다시 불러오기</button>
+              <a href="/#dashboard">탐지 대시보드 열기</a>
+            </div>
+          </header>
+          <div data-plane="mount"></div>
+          <template data-plane="template">
+            <article class="panel pick-dialog teaching plane-editor">
+              <section data-pick="calibration">
+                <div class="gripper-panel">
+                  <div class="gripper-heading"><div><h4>그리퍼 방향 <small>· 가상 작업면</small></h4><span data-pick="basisHint" class="gripper-basis"></span></div>
+                    <div class="pick-segments scene-views" role="group" aria-label="보기 방향">
+                      <button type="button" data-depth-view="oblique" aria-pressed="true">입체</button>
+                      <button type="button" data-depth-view="side" aria-pressed="false">측면</button>
+                    </div>
+                  </div>
+                  <svg class="gripper-scene" data-pick="scene" role="img" aria-label="그리퍼와 작업면 미리보기">
+                    <defs><marker id="pick-z-arrow" viewBox="0 0 10 8" refX="9" refY="4" orient="auto" markerUnits="userSpaceOnUse" markerWidth="10" markerHeight="8"><path d="M0 0L10 4 0 8Z" fill="#7cebd7"></path></marker></defs>
+                    <g data-pick="world"></g>
+                  </svg>
+                  <div class="gripper-scene-foot">
+                    <div class="gripper-legend"><span>TCP 고정</span><span>공구 +Z</span><span>대상 앞면</span></div>
+                    <div class="gripper-gap"><span data-pick="gapLabel">손끝 → 앞면</span><strong data-pick="gap">—</strong><small>시선축 기준</small></div>
+                  </div>
+                  <div class="gripper-sizing" data-pick="sizing" role="status"></div>
+                  <div class="plane-heights" aria-label="바닥 기준 높이">
+                    <span data-pick="tcpHeight"></span><span data-pick="objectHeight"></span>
+                  </div>
+                </div>
+                <div class="plane-tabs" role="tablist" aria-label="작업 평면 보정 설정">
+                  <button type="button" role="tab" id="plane-camera-tab" aria-selected="true" aria-controls="plane-camera-settings">카메라 좌표 설정</button>
+                  <button type="button" role="tab" id="plane-surface-tab" aria-selected="false" aria-controls="plane-surface-settings" tabindex="-1">작업면 설정</button>
+                  <button type="button" role="tab" id="plane-floor-tab" aria-selected="false" aria-controls="plane-floor-settings" tabindex="-1">바닥 기준</button>
+                  <button type="button" role="tab" id="plane-gripper-tab" aria-selected="false" aria-controls="plane-gripper-settings" tabindex="-1">그리퍼 설정</button>
+                </div>
+                <section id="plane-camera-settings" role="tabpanel" aria-labelledby="plane-camera-tab" tabindex="0">
+                  <div class="pick-steps" data-pick="steps" role="group" aria-label="교시할 모서리"></div>
+                  <h3 data-pick="positionTitle">1번 모서리 위치</h3>
+                  <div class="pick-position-body">
+                    <div class="plane-pose-fields"><h4>TCP 위치 <small>· BASE 기준</small></h4><div class="pick-fields" data-pick="fields"></div>
+                      <button type="button" data-pick="read">현재 위치 불러오기</button>
+                    </div>
+                    <div class="plane-corner-frame"><span class="pick-subtitle" data-pick="frameSize"></span><canvas data-pick="photo" aria-label="교시할 원본 영상"></canvas><p data-pick="pixel"></p></div>
+                  </div>
+                </section>
+                <section id="plane-surface-settings" role="tabpanel" aria-labelledby="plane-surface-tab" tabindex="0" hidden>
+                  <div data-pick="surfaceGeometry">
+                    <svg class="gripper-ruler" data-pick="ruler" role="img" aria-label="카메라 기준 깊이 눈금"></svg>
+                    <div class="pick-segments" role="group" aria-label="가상 대상">
+                      <button type="button" data-depth-kind="wall" aria-pressed="false">벽만</button>
+                      <button type="button" data-depth-kind="object" aria-pressed="true">벽 + 물체</button>
+                    </div>
+                    <div data-pick="depthFields"></div>
+                    <p class="pick-depth-note">거리는 카메라 시선 방향으로 잰 값을 입력하세요. 벽 거리는 이 브라우저에서 기억합니다.
+                      손끝과 앞면의 깊이 차이는 충돌 판정이 아닙니다.</p>
+                  </div>
+                </section>
+                <section id="plane-floor-settings" role="tabpanel" aria-labelledby="plane-floor-tab" tabindex="0" hidden>
+                  <fieldset class="floor-reference">
+                    <legend>바닥 기준</legend>
+                    <p>수평인 바닥 한 점에 공구 끝점을 맞춰 Z를 읽거나 직접 입력하세요. 같은 로봇의 모든 카메라에 적용됩니다.</p>
+                    <label>바닥 Z (BASE, mm) <input data-pick="floorZ" type="number" step="any" required disabled></label>
+                    <div class="floor-actions">
+                      <button type="button" data-pick="floorRead" disabled>현재 TCP에서 불러오기</button>
+                      <button type="button" data-pick="floorSave" disabled>바닥 기준 저장</button>
+                      <button type="button" data-pick="floorCancel" aria-label="바닥 기준 변경 취소" disabled>변경 취소</button>
+                      <button type="button" data-pick="floorReload" hidden>최신 바닥 기준 불러오기</button>
+                    </div>
+                    <p data-pick="floorStatus" role="status">바닥 기준 조회 중</p>
+                  </fieldset>
+                </section>
+                <section id="plane-gripper-settings" class="pick-angle-panel" role="tabpanel" aria-labelledby="plane-gripper-tab" tabindex="0" hidden>
+                  <div class="pick-segments" role="group" aria-label="그리퍼 설정">
+                    <button type="button" data-depth-panel="angles" aria-pressed="true">공구 방향</button>
+                    <button type="button" data-depth-panel="jaws" aria-pressed="false">손가락 치수</button>
+                  </div>
+                  <div data-pick="anglePanel">
+                    <p data-pick="angleHint"></p>
+                    <div data-pick="angles"></div>
+                  </div>
+                  <div data-pick="jawPanel" hidden>
+                    <label class="pick-measure-object">측정할 탐지 객체 <select data-pick="measureObject"></select></label>
+                    <canvas data-pick="measurePhoto" aria-label="고정된 영상에서 측정할 탐지 상자"></canvas>
+                    <label class="pick-angle-label">한쪽 여유 (mm)
+                      <span class="pick-angle-value"><input data-pick="clearance" type="number" min="0" step="any" required></span>
+                    </label>
+                    <p>탐지 상자가 비스듬한 물체의 주변 공간을 포함하면 추정 폭이 커질 수 있습니다.</p>
+                    <p>한쪽 여유는 작업 평면과 함께 저장됩니다. 손가락 길이는 이 브라우저에서 기억합니다.</p>
+                  </div>
+                </section>
+              </section>
+              <footer class="pick-footer">
+                <p data-pick="note" role="status"></p>
+                <div class="pick-actions">
+                  <button type="button" data-pick="discard" disabled>변경 취소</button>
+                  <button type="button" data-pick="save" disabled>보정 저장</button>
+                </div>
+              </footer>
+            </article>
+          </template>
+        </section>
+        <section data-view="gripper" hidden class="panel">
+          <div class="panel-head"><h2>RH-P12-RN-A</h2><span class="meta">플랜지 RS-485 · 장치 1</span></div>
+          <div class="pose-body">
+            <p id="hand-ready" class="meta">SDK 상태 확인 중</p>
+            <dl class="robot-config">
+              <div><dt>마지막 명령 위치</dt><dd id="hand-target">—</dd></div>
+              <div><dt>실제 위치 · 최근 응답</dt><dd id="hand-actual">—</dd></div>
+              <div><dt>실측 전류 / 목표 / 한계</dt><dd id="hand-current">—</dd></div>
+              <div><dt>장치 모드 · 오류</dt><dd id="hand-mode">—</dd></div>
+            </dl>
+            <div class="hand-actions">
+              <button type="button" data-hand="read" disabled>상태 읽기</button>
+              <button type="button" data-hand="open" disabled>열기 (0)</button>
+              <button type="button" data-hand="close" disabled>닫기 (700)</button>
+            </div>
+            <div class="hand-actions"><label>지정 위치 <input type="number" id="hand-position" min="0" max="700" step="1" placeholder="0–700"></label>
+              <button type="button" data-hand="position" disabled>지정 위치로 이동</button></div>
+            <p id="hand-result" role="status"></p>
+          </div>
+        </section>
+        <section data-view="gripper" hidden class="panel">
+          <div class="panel-head"><h2>실측 벌림표</h2><span class="meta">로봇별 교시</span></div>
+          <div class="pose-body">
+            <p>정지한 손가락의 실제 위치와 안쪽 간격을 두 점 이상 등록하세요. 위치값이 커질수록 측정 간격은 작아져야 합니다.</p>
+            <div id="hand-samples"></div>
+            <div class="hand-actions"><button id="hand-add">교시점 추가</button><button id="hand-capture" disabled>최근 실측 위치 추가</button></div>
+            <div class="pose-actions"><button id="hand-reload">저장값 불러오기</button><button id="hand-save" disabled>벌림표 저장</button></div>
+            <p id="hand-table-note" role="status"></p>
+          </div>
+        </section>
+        <div data-view="robot" class="robot-split">
           <section class="panel"><div class="panel-head"><h2>모니터링 토픽</h2><span class="meta">관절 · 오류 · 연결 이벤트</span></div>
             <div class="robot-topic-head"><span>토픽 이름</span><span>수신율</span><span>상태</span></div>
             <div id="robot-topics"></div>
@@ -178,7 +324,7 @@ docker compose run --rm --no-deps doosan-driver timeout 15 check-e0509</pre>
             <div class="robot-message"><strong id="selected-topic">토픽 선택</strong><pre id="robot-message">메시지 수신 대기 중</pre></div>
           </section>
         </div>
-        <div class="robot-footer"><p class="meta">관절 위치는 라디안을 도로 변환합니다. 화면 수신은 최대 10 Hz입니다.</p><button id="robot-pause" type="button" aria-pressed="false">표시 일시정지</button></div>
+        <div data-view="robot" class="robot-footer"><p class="meta">관절 위치는 라디안을 도로 변환합니다. 화면 수신은 최대 10 Hz입니다.</p><button id="robot-pause" type="button" aria-pressed="false">표시 일시정지</button></div>
       </div>
     </div>
   </main>

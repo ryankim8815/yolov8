@@ -27,16 +27,16 @@ function createEditor(name, title) {
   });
   document.getElementById("work-points").append(form);
 
-  let point = null, dirty = false, revision = null, pending = false;
+  let point = null, dirty = false, revision = null, pending = false, locked = false;
   function update() {
     const conflict = dirty && revision !== point?.revision;
-    state.textContent = !point ? "조회 중" : conflict ? "다른 화면에서 변경됨" : dirty ? "저장 전" :
+    state.textContent = !point ? "조회 중" : locked ? "박스 이송 작업 중" : conflict ? "다른 화면에서 변경됨" : dirty ? "저장 전" :
       point.pose ? "저장됨 · " + new Date(point.updated_at).toLocaleString("ko-KR") : "미설정";
-    fields.forEach(input => { input.disabled = !point || pending; });
-    read.disabled = !point || !canRead || pending || conflict;
+    fields.forEach(input => { input.disabled = !point || pending || locked; });
+    read.disabled = !point || !canRead || pending || conflict || locked;
     reset.hidden = !dirty;
     reset.disabled = pending;
-    save.disabled = !serverAvailable || !dirty || pending || conflict;
+    save.disabled = !serverAvailable || !dirty || pending || conflict || locked;
   }
   function fill(values) {
     fields.forEach((input, i) => { input.value = values?.[i] ?? ""; });
@@ -94,7 +94,8 @@ function createEditor(name, title) {
     if (form.reportValidity()) void request(false);
   });
   update();
-  return function render(next) {
+  return function render(next, inUse) {
+    locked = inUse;
     // A poll started before a successful save may deliver an older revision.
     if (next && (!point || (next.updated_at || "") >= (point.updated_at || "")) &&
         (!point || point.revision !== next.revision)) {
@@ -106,6 +107,7 @@ function createEditor(name, title) {
 }
 
 const editors = {
+  waypoint: createEditor("waypoint", "박스 이송 경유점"),
   box: createEditor("box", "택배 박스 위치"),
   shipping_label: createEditor("shipping_label", "택배 박스의 송장 위치 (RFID 스캔)")
 };
@@ -118,5 +120,5 @@ export function renderWorkPoints(data, {paused, apiUnavailable}) {
     ? "현재 위치를 불러올 수 있습니다. 공구를 원하는 위치에 멈춘 뒤 불러오세요."
     : apiUnavailable ? "웹 서버 응답 대기 중입니다." : paused ? "현재 위치를 불러오려면 화면 표시를 재개하세요."
     : "현재 위치를 불러오려면 읽기 전용 관절 모니터 연결이 필요합니다. 수동 입력은 가능합니다.";
-  for (const [key, render] of Object.entries(editors)) render(data.work_points?.[key]);
+  for (const [key, render] of Object.entries(editors)) render(data.work_points?.[key], key !== "shipping_label" && data.transfer_active);
 }

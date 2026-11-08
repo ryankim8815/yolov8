@@ -24,6 +24,7 @@ let config = null;
 let live = false;
 let host = null;
 let pending = false;
+let transferring = false;
 let confirmation = null;
 const drafts = new Map();
 
@@ -49,7 +50,7 @@ function show() {
     draft ? "편집 중" : pose.angles ? "저장됨" : "관절각 6개를 입력하세요.";
   get("pose-reload").hidden = !draft;
   get("pose-save").disabled = pending || tests.busy || !draft || conflict;
-  get("pose-execute").disabled = pending || tests.busy || !live || !pose.angles || !!draft;
+  get("pose-execute").disabled = transferring || pending || tests.busy || !live || !pose.angles || !!draft;
   const mac = config.access_backend === "mac-sdk";
   const stale = confirmation && (confirmation.backend !== config.access_backend ||
     confirmation.slot !== slot || confirmation.revision !== pose.revision ||
@@ -62,6 +63,7 @@ function show() {
       !pose.angles ? `자세 ${slot}에 관절각 6개를 먼저 저장하세요.` :
       host.motion_reason || "Mac SDK 제어권 보유 · 이동 준비 완료";
   }
+  if (transferring) get("pose-bridge").textContent = "택배 박스 이송 작업 진행 중";
   for (const button of document.querySelectorAll("[data-pose]")) {
     button.disabled = pending;
     button.setAttribute("aria-pressed", String(Number(button.dataset.pose) === slot));
@@ -73,6 +75,7 @@ function show() {
 
 export function renderPoseTests(data, {paused, apiUnavailable, teachPending, hostAccess}) {
   tests = data.pose_tests;
+  transferring = Boolean(data.transfer_active);
   config = data.config;
   host = hostAccess;
   if (config.access_backend === "mac-sdk") {

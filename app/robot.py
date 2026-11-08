@@ -21,8 +21,9 @@ from websockets.exceptions import ConnectionClosed
 from .robot_access_protocol import ModeTicket, ReclaimTicket, ServoTicket, local_json
 from .robot_access_proxy import forward_host, request_host
 from .robot_poses import PoseExecution, PoseInput, PoseTests
+from .robot_gripper import Gripper, router as hand_router
 from .robot_pick import PickTargets, router as pick_router
-from .robot_work_points import PointName, WorkPointInput, WorkPoints
+from .robot_work_points import TRANSFER_POINTS, FloorReference, FloorReferenceInput, PointName, WorkPointInput, WorkPoints
 from .store import DomainError
 
 RECLAIM_SERVICE = "system/reclaim_control"
@@ -109,6 +110,8 @@ class RobotMonitor:
         self.teach_lock = asyncio.Lock()
         self.pose_tests = PoseTests(self, state_dir) if state_dir is not None else None
         self.work_points = WorkPoints(self.pose_tests.path.with_name("work-points.json")) if self.pose_tests else None
+        self.floor = FloorReference(self.pose_tests.path.with_name("floor-reference.json")) if self.pose_tests else None
+        self.hand = Gripper(self.pose_tests.path.parent) if self.pose_tests else None
         self.picks = PickTargets(self, self.pose_tests.path.parent) if self.pose_tests else None
 
     def start(self):
@@ -116,6 +119,8 @@ class RobotMonitor:
             self.task = asyncio.create_task(self._run())
 
     async def stop(self):
+        if self.picks:
+            await self.picks.stop()
         if self.task is not None:
             self.task.cancel()
             with suppress(asyncio.CancelledError):
@@ -123,8 +128,6 @@ class RobotMonitor:
             self.task = None
         if self.pose_tests and self.pose_tests.task:
             await self.pose_tests.task
-        if self.picks and self.picks.task:
-            await self.picks.task
 
     async def _run(self):
         host = self.bridge_host
@@ -402,6 +405,9 @@ class RobotMonitor:
                 "error": self.error, "topics": topics, "joint_publishers": self.joint_publishers,
                 "display_joint_topic": displayed["name"],
                 "work_points": self.work_points.points if self.work_points else None,
+                "pick_active": bool(self.picks and self.picks.busy),
+                "hand_busy": bool(self.hand and self.hand.busy),
+                "transfer_active": bool(self.picks and self.picks.transfer_active),
                 "pose_tests": self.pose_tests.snapshot() if self.pose_tests else None}
 
 
@@ -412,6 +418,7 @@ def require_robot_owner(request: Request):
 
 router = APIRouter(prefix="/api/robot", dependencies=[Depends(require_robot_owner)])
 router.include_router(pick_router)
+router.include_router(hand_router)
 
 
 @router.get("/status")
@@ -477,15 +484,28 @@ async def current_work_pose(request: Request):
     return JSONResponse(pose, headers={"Cache-Control": "no-store"})
 
 
+@router.get("/floor-reference")
+async def floor_reference(request: Request):
+    return JSONResponse(request.app.state.robot.floor.value, headers={"Cache-Control": "no-store"})
+
+
+@router.put("/floor-reference", dependencies=[Depends(same_site_json)])
+async def save_floor_reference(body: FloorReferenceInput, request: Request):
+    return request.app.state.robot.floor.save(body)
+
+
 @router.put("/work-points/{name}", dependencies=[Depends(same_site_json)])
 async def save_work_point(name: PointName, body: WorkPointInput, request: Request):
-    return request.app.state.robot.work_points.save(name, body)
+    robot = request.app.state.robot
+    if name in TRANSFER_POINTS and robot.picks.transfer_active:
+        raise DomainError("박스 이송 작업이 끝난 뒤 경유점이나 박스 좌표를 변경하세요.")
+    return robot.work_points.save(name, body)
 
 
 @router.post("/poses/{slot}/execute", status_code=202, dependencies=[Depends(same_site_json)])
 async def execute_pose(slot: int, body: PoseExecution, request: Request):
     robot = request.app.state.robot
-    if robot.picks.busy:
+    if robot.picks.busy or robot.hand.busy:
         raise DomainError("파지 위치 이동이 끝난 뒤 다시 시도하세요.")
     if robot.settings.access_backend == "mac-sdk":
         local_json(request)
@@ -498,7 +518,7 @@ async def execute_pose(slot: int, body: PoseExecution, request: Request):
             raise HTTPException(409, "제어권이 변경되었습니다. 현재 세션에서 자세를 다시 확인하세요.")
         if not access.get("can_move"):
             raise HTTPException(409, access.get("motion_reason") or "SDK 이동 준비 상태를 확인하세요.")
-        if robot.picks.busy:
+        if robot.picks.busy or robot.hand.busy:
             raise DomainError("파지 위치 이동이 끝난 뒤 다시 시도하세요.")
         return robot.pose_tests.execute(slot, body.revision, body)
     if body.session_id or body.motion_token:

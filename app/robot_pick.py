@@ -3,18 +3,21 @@ import asyncio
 import json
 import math
 import time
-from contextlib import closing
+from contextlib import closing, suppress
 from http.client import HTTPConnection, HTTPException as HTTPError
+from typing import Literal
 from urllib.parse import urlencode
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import Field, FiniteFloat
 
-from .pick_plane import Calibration, CameraFrame, Input, PickPlane
+from .pick_plane import Calibration, CameraFrame, Input, PickPlane, PreviewCalibration
 from .robot_access_protocol import local_json
 from .robot_access_proxy import request_host
+from .robot_gripper import HandCommand
 from .robot_poses import HostLineCommand
+from .robot_work_points import TRANSFER_POINTS
 from .store import DomainError, atomic_json
 
 
@@ -22,6 +25,8 @@ class Selection(Input):
     session_id: str = Field(min_length=1, max_length=64)
     frame_id: int = Field(ge=1)
     object_index: int = Field(ge=0)
+    mode: Literal["pick", "transfer"] = "pick"
+    handling: Literal["manual", "rh_p12"] = "manual"
 
 
 class Approval(Input):
@@ -29,7 +34,7 @@ class Approval(Input):
 
 
 class GripperPreview(Input):
-    calibration: Calibration
+    calibration: PreviewCalibration
     xyxy: list[FiniteFloat] = Field(min_length=4, max_length=4)
 
 
@@ -62,6 +67,11 @@ def center(obj):
     return ((left + right) / 2, (top + bottom) / 2)
 
 
+ACTIVE_STATES = {"checking", "moving", "awaiting_grip", "to_waypoint", "to_box", "awaiting_release",
+                 "preopening", "closing", "awaiting_open", "opening"}
+POINT_LABELS = {"pick": "파지 위치", "waypoint": "박스 이송 경유점", "box": "택배 박스 위치"}
+
+
 class PickTargets:
     def __init__(self, robot, directory):
         self.robot = robot
@@ -71,20 +81,38 @@ class PickTargets:
         self.approvals = {}
         self.moves = {}
         self.task = None
+        self.active_id = None
+        self.continuation = None
         if self.last_path.exists():
             last = json.loads(self.last_path.read_text())
             self.moves[last["approval_id"]] = last
-            if last["state"] in {"checking", "moving"}:
+            if last["state"] in ACTIVE_STATES:
                 self.record(last["approval_id"], "unknown", "서버가 재시작되었습니다. 실제 위치를 확인하세요.")
 
     @property
     def busy(self):
-        return self.task is not None and not self.task.done()
+        return self.active_id is not None
 
-    def record(self, identifier, state, message):
-        last = dict(approval_id=identifier, state=state, message=message)
+    @property
+    def transfer_active(self):
+        return self.busy and self.moves[self.active_id]["mode"] == "transfer"
+
+    async def stop(self):
+        if self.task and not self.task.done():
+            self.task.cancel()
+            with suppress(asyncio.CancelledError):
+                await self.task
+        if self.busy:
+            self.record(self.active_id, "unknown", "서버가 종료되었습니다. 실제 위치를 확인하세요.")
+
+    def record(self, identifier, state, message, **fields):
+        last = {**self.moves.get(identifier, {}), **fields, "approval_id":identifier, "state":state, "message":message}
         atomic_json(self.last_path, last)
         self.moves[identifier] = last
+        if state in ACTIVE_STATES:
+            self.active_id = identifier
+        elif self.active_id == identifier:
+            self.active_id = self.continuation = None
         if len(self.moves) > 128:
             del self.moves[next(iter(self.moves))]
         return last
@@ -94,9 +122,12 @@ class PickTargets:
         return dict(camera=camera, revision=entry.get("revision"), corners=entry.get("corners", []),
                     clearance_per_side_mm=entry.get("clearance_per_side_mm", 5.0))
 
+    def transfer_route(self):
+        return {name: self.robot.work_points.points[name] for name in TRANSFER_POINTS}
+
     def save(self, body, active):
-        if self.busy:
-            raise DomainError("이동 확인이 끝난 뒤 다시 보정하세요.")
+        if self.busy or self.robot.pose_tests.snapshot()["busy"] or self.robot.hand.busy:
+            raise DomainError("로봇 작업이 끝난 뒤 다시 보정하세요.")
         if active != body.camera:
             raise DomainError("카메라 입력이 변경되었습니다. 보정을 다시 시작하세요.")
         current = self.calibration(active)
@@ -122,6 +153,22 @@ class PickTargets:
         obj = packet["objects"][selection.object_index]
         plane = PickPlane(Calibration(**calibration))
         pose = plane.target(center(obj))
+        route = self.transfer_route() if selection.mode == "transfer" else None
+        missing = [POINT_LABELS[name] for name, point in (route or {}).items() if point["pose"] is None]
+        automatic = selection.handling == "rh_p12"
+        if automatic and not route:
+            raise DomainError("RH-P12 사용은 택배 박스 이송에서 선택하세요.", 422)
+        estimate = plane.gripper_estimate(obj["xyxy"])
+        hand_revision = self.robot.hand.table["revision"] if automatic else None
+        position = hand_error = None
+        if automatic:
+            if estimate["reason"]:
+                hand_error = estimate["reason"]
+            else:
+                try:
+                    position = self.robot.hand.position_for(estimate["opening_mm"])
+                except DomainError as exc:
+                    hand_error = str(exc)
         sdk = None
         reason = "파지 위치 이동에는 Mac SDK 제어 모드가 필요합니다."
         if self.robot.settings.access_backend == "mac-sdk":
@@ -131,6 +178,10 @@ class PickTargets:
                 if code == 200:
                     if not host.get("line_supported"):
                         reason = "직선 이동을 지원하는 Mac SDK 작업자를 시작하세요."
+                    elif route and not host.get("transfer_supported"):
+                        reason = "박스 이송을 지원하는 Mac SDK 서버를 시작하세요."
+                    elif automatic and not host.get("gripper_supported"):
+                        reason = "RH-P12 지원 SDK 작업자를 시작하세요."
                     elif host.get("can_move") and host.get("motion_token"):
                         sdk = HostLineCommand(pose=pose, session_id=host["session_id"], motion_token=host["motion_token"])
                         reason = None
@@ -138,6 +189,11 @@ class PickTargets:
                         reason = host.get("motion_reason") or reason
             except HTTPException as exc:
                 reason = str(exc.detail)
+        if hand_error:
+            sdk, reason = None, hand_error
+        if missing:
+            reason = "주요 좌표값 설정에서 " + ", ".join(missing) + " 좌표를 저장하세요."
+            sdk = None
         current = time.monotonic()
         self.approvals = {k: v for k, v in self.approvals.items() if v["deadline"] > current}
         if len(self.approvals) >= 128:
@@ -145,20 +201,30 @@ class PickTargets:
         identifier = uuid4().hex
         self.approvals[identifier] = dict(deadline=current + 30, camera=camera, revision=calibration["revision"],
                                           model=packet["model_version"], class_id=obj["class_id"], plane=plane,
-                                          pose=pose, command=sdk, reason=reason)
+                                          pose=pose, command=sdk, reason=reason, mode=selection.mode, route=route,
+                                          label=obj["label"], handling=selection.handling, position=position,
+                                          hand_revision=hand_revision, opening=estimate.get("opening_mm"))
         return dict(approval_id=identifier, expires_in=30, pose=pose, label=obj["label"],
-                    confidence=obj["confidence"], motion_reason=reason, gripper=plane.gripper_estimate(obj["xyxy"]))
+                    confidence=obj["confidence"], motion_reason=reason, gripper=estimate, handling=selection.handling,
+                    hand_position=position, hand_error=hand_error,
+                    mode=selection.mode, route=route)
 
     def approve(self, identifier, reader):
         # Single event loop, with no await between consuming and reserving the move.
         target = self.approvals.pop(identifier, None)
         if target is None or time.monotonic() >= target["deadline"]:
             raise DomainError("승인이 만료되었거나 이미 사용되었습니다. 다시 선택하세요.")
+        if target["route"] is not None and target["route"] != self.transfer_route():
+            raise DomainError("경유점 또는 박스 좌표가 변경되었습니다. 새 경로를 확인하고 다시 승인하세요.", 412)
+        if target["handling"] == "rh_p12" and target["hand_revision"] != self.robot.hand.table["revision"]:
+            raise DomainError("벌림표가 변경되었습니다. 새 명령값을 확인하고 다시 승인하세요.", 412)
         if target["command"] is None:
             raise DomainError(target["reason"])
-        if self.busy or self.robot.pose_tests.snapshot()["busy"]:
+        if self.busy or self.robot.hand.busy or self.robot.pose_tests.snapshot()["busy"]:
             raise DomainError("이전 로봇 이동이 끝난 뒤 다시 선택하세요.")
-        state = self.record(identifier, "checking", "현재 영상에서 선택한 대상을 확인하고 있습니다.")
+        state = self.record(identifier, "checking", "현재 영상에서 선택한 대상을 확인하고 있습니다.",
+                            mode=target["mode"], route=target["route"], pick_pose=target["pose"],
+                            label=target["label"], last_reached=None, handling=target["handling"])
         self.task = asyncio.create_task(self.run(identifier, target, reader))
         return state
 
@@ -175,35 +241,167 @@ class PickTargets:
             pixel = center(obj)
             xyz = plane.project(pixel)
             if xyz is not None and math.dist(xyz, target["pose"][:3]) <= 10.0 + 1e-8:
-                matches.append(pixel)
+                matches.append(obj)
         if not matches:
             raise DomainError("선택한 중심에서 10 mm 이내에 같은 클래스의 객체가 없습니다.")
         if len(matches) != 1:
             raise DomainError("10 mm 이내에 같은 클래스의 객체가 여러 개입니다. 다시 선택하세요.")
-        if not plane.contains(matches[0]):
+        if not plane.contains(center(matches[0])):
             raise DomainError("현재 객체가 작업 영역 밖에 있습니다.")
         if time.monotonic() >= target["deadline"]:
             raise DomainError("승인이 만료되었습니다. 다시 선택하세요.")
 
+        return matches[0]
+
+    async def send_operation(self, identifier, operation, command):
+        """Every call dispatches once. An ambiguous response ends the whole job."""
+        try:
+            code, data = await asyncio.to_thread(request_host, operation, self.robot.settings, command)
+            if code == 200 and data.get("state") == "completed":
+                return data
+            if 400 <= code < 500 or (code == 200 and data.get("state") == "failed"):
+                self.record(identifier, "failed", data.get("message") or data.get("detail") or "SDK가 이동을 거절했습니다.")
+            else:
+                self.record(identifier, "unknown", data.get("message") or "명령 결과 미확인 · 실제 상태를 확인하세요.")
+        except (Exception, asyncio.CancelledError):
+            self.record(identifier, "unknown", "이동 결과 미확인 · 실제 위치를 확인하세요.")
+        return None
+
+    def set_continuation(self, identifier, command, response, reached):
+        token = response.get("next_motion_token")
+        if not isinstance(token, str) or len(token) != 32 or token == command.motion_token:
+            self.record(identifier, "failed", "SDK에서 다음 이동의 제어권을 확인할 수 없습니다.", last_reached=reached)
+            return False
+        self.continuation = (command.session_id, token)
+        return True
+
+    async def command_hand(self, identifier, ticket, action, reached, position=None):
+        command = HandCommand(**ticket, action=action, position=position)
+        result = await self.send_operation(identifier, "gripper", command)
+        if result is None or not self.set_continuation(identifier, command, result, reached):
+            return None
+        feedback = result.get("feedback") or {}
+        actual = feedback.get("position")
+        if (type(actual) is not int or not 0 <= actual <= 700 or feedback.get("error") != 0
+                or feedback.get("state") != "completed" or (action == "open" and actual > 2)):
+            self.record(identifier, "unknown", "그리퍼의 실제 위치를 확인할 수 없습니다.", last_reached=reached)
+            return None
+        self.record(identifier, self.moves[identifier]["state"], self.moves[identifier]["message"],
+                    hand_feedback=feedback, hand_command=command.target)
+        return actual
+
     async def run(self, identifier, target, reader):
-        dispatched = False
         try:
             frame = await asyncio.to_thread(reader, target["camera"].session_id)
             self.revalidate(target, frame)
-            self.record(identifier, "moving", "파지 위치로 이동 중입니다.")
-            dispatched = True
-            code, data = await asyncio.to_thread(request_host, "line", self.robot.settings, target["command"])
-            if 400 <= code < 500:
-                self.record(identifier, "failed", data.get("detail", "SDK가 이동을 거절했습니다."))
-            elif code == 200 and data.get("state") in {"completed", "failed", "unknown"}:
-                self.record(identifier, data["state"], data["message"])
-            else:
-                self.record(identifier, "unknown", "이동 결과 미확인 · 실제 위치를 확인하세요.")
+            command = target["command"]
+            if target["handling"] == "rh_p12":
+                self.record(identifier, "preopening", "RH-P12를 권장 폭으로 벌리는 중입니다.")
+                ticket = dict(session_id=command.session_id, motion_token=command.motion_token)
+                actual = await self.command_hand(identifier, ticket, "position", None, target["position"])
+                if actual is None:
+                    return
+                width = self.robot.hand.width_at(actual)
+                if width is None or width + 1e-8 < target["opening"]:
+                    raise DomainError("실측 벌림이 승인한 폭에 도달하지 않았습니다.")
+                command = HostLineCommand(**await self.next_ticket(), pose=target["pose"])
+                frame = await asyncio.to_thread(reader, target["camera"].session_id)
+                obj = self.revalidate(target, frame)
+                fresh = target["plane"].gripper_estimate(obj["xyxy"], tcp=target["pose"][:3])
+                if fresh["reason"] or width + 1e-8 < fresh["opening_mm"]:
+                    raise DomainError("현재 탐지 상자에 필요한 벌림을 확인할 수 없습니다. 대상을 다시 선택하세요.")
         except DomainError as exc:
             self.record(identifier, "failed", str(exc))
+            return
         except (Exception, asyncio.CancelledError):
-            self.record(identifier, "unknown" if dispatched else "failed",
-                        "이동 결과 미확인 · 실제 위치를 확인하세요." if dispatched else "최신 영상을 확인할 수 없습니다.")
+            self.record(identifier, "failed", "최신 영상을 확인할 수 없습니다.")
+            return
+        self.record(identifier, "moving", "파지 위치로 이동 중입니다.")
+        result = await self.send_operation(identifier, "line", command)
+        if result is None:
+            return
+        if target["mode"] == "pick":
+            self.record(identifier, "completed", result["message"], last_reached="pick")
+        elif self.set_continuation(identifier, command, result, "pick"):
+            if target["handling"] == "rh_p12":
+                self.record(identifier, "closing", "파지 위치 도착 · 그리퍼를 닫는 중입니다.", last_reached="pick")
+                actual = await self.hand_after_stop(identifier, "close", "pick")
+                if actual is None:
+                    return
+            self.record(identifier, "awaiting_grip", "파지 위치에 도착했습니다. 파지 상태와 이동 경로를 확인하세요.",
+                        last_reached="pick")
+
+    async def hand_after_stop(self, identifier, action, reached):
+        try:
+            ticket = await self.next_ticket()
+        except (Exception, asyncio.CancelledError) as exc:
+            self.record(identifier, "failed", str(exc) or "그리퍼 제어권을 확인할 수 없습니다.")
+            return None
+        return await self.command_hand(identifier, ticket, action, reached)
+
+    async def next_ticket(self):
+        session, token = self.continuation
+        # The synchronous line may finish just before the next STANDBY sample.
+        # Poll status only; never re-send a motion or adopt a different grant.
+        deadline = time.monotonic() + 3
+        while True:
+            code, status = await asyncio.to_thread(request_host, "status", self.robot.settings)
+            if code != 200 or not status.get("held") or status.get("session_id") != session or status.get("motion_token") != token:
+                raise DomainError("SDK 연결·세션 또는 제어권이 변경되어 이송을 중단했습니다.")
+            if status.get("can_move") and status.get("robot_state") == "STANDBY" and status.get("operation_mode") == "AUTO":
+                return dict(session_id=session, motion_token=token)
+            if (status.get("robot_state") not in (None, "MOVING") or status.get("operation_mode") != "AUTO"
+                    or time.monotonic() >= deadline):
+                raise DomainError(status.get("motion_reason") or "SDK 자동 모드와 STANDBY를 확인하세요.")
+            await asyncio.sleep(.1)
+
+    async def transport(self, identifier):
+        route = self.moves[identifier]["route"]
+        for name in TRANSFER_POINTS:
+            try:
+                command = HostLineCommand(pose=route[name]["pose"], **await self.next_ticket())
+            except DomainError as exc:
+                self.record(identifier, "failed", str(exc))
+                return
+            except (Exception, asyncio.CancelledError):
+                self.record(identifier, "failed", "다음 구간의 SDK 상태를 확인할 수 없습니다.")
+                return
+            result = await self.send_operation(identifier, "line", command)
+            if result is None:
+                return
+            if name == "waypoint":
+                if not self.set_continuation(identifier, command, result, name):
+                    return
+                self.record(identifier, "to_box", "경유점 도착 · 택배 박스로 이송 중입니다.", last_reached=name)
+            elif self.moves[identifier]["handling"] == "rh_p12":
+                if self.set_continuation(identifier, command, result, name):
+                    self.record(identifier, "awaiting_open", "박스 도착 · 물체를 놓을 준비가 되면 열기를 승인하세요.", last_reached=name)
+            else:
+                self.record(identifier, "awaiting_release", "박스에 도착했습니다. 물체를 놓은 뒤 완료를 확인하세요.",
+                            last_reached=name)
+
+    async def open_at_box(self, identifier):
+        if await self.hand_after_stop(identifier, "open", "box") is not None:
+            self.record(identifier, "awaiting_release", "그리퍼 열림 확인 · 물체를 놓았는지 확인하세요.")
+
+    def operator_action(self, identifier, action):
+        if self.active_id != identifier:
+            raise DomainError("이 작업은 종료되었거나 현재 작업이 아닙니다.")
+        state = self.moves[identifier]["state"]
+        if state == "awaiting_grip":
+            if action == "cancel-transfer":
+                return self.record(identifier, "cancelled", "파지 위치에서 이송을 취소했습니다.")
+            if action == "confirm-grip":
+                move = self.record(identifier, "to_waypoint", "파지 확인 · 박스 이송 경유점으로 이동 중입니다.")
+                self.task = asyncio.create_task(self.transport(identifier))
+                return move
+        if state == "awaiting_open" and action == "open-at-box":
+            move = self.record(identifier, "opening", "박스에서 그리퍼를 여는 중입니다.")
+            self.task = asyncio.create_task(self.open_at_box(identifier))
+            return move
+        if state == "awaiting_release" and action == "confirm-release":
+            return self.record(identifier, "completed", "물체 놓기 확인 · 택배 박스 이송을 완료했습니다.")
+        raise DomainError("이미 처리했거나 현재 단계에서 사용할 수 없는 동작입니다.")
 
 
 router = APIRouter(prefix="/pick")
@@ -241,6 +439,17 @@ async def cancel(body: Approval, request: Request):
 @router.post("/approve", status_code=202, dependencies=[Depends(local_json)])
 async def approve(body: Approval, request: Request):
     return request.app.state.robot.picks.approve(body.approval_id, frame_reader(request))
+
+
+@router.get("/active")
+async def active_pick(request: Request):
+    picks = request.app.state.robot.picks
+    return {"move": picks.moves.get(picks.active_id)}
+
+
+@router.post("/moves/{identifier}/{action}", dependencies=[Depends(local_json)])
+async def operator_action(identifier: str, action: Literal["confirm-grip", "confirm-release", "cancel-transfer", "open-at-box"], request: Request):
+    return request.app.state.robot.picks.operator_action(identifier, action)
 
 
 @router.get("/moves/{identifier}")

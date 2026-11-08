@@ -12,6 +12,7 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from scripts.check_robot_sdk_host import CACHE, lan_route, lan_settings, sdk_environment
 from .robot_access_protocol import ModeTicket, ReclaimTicket, ServoTicket, local_json
+from .robot_gripper import HandCommand
 from .robot_poses import ACCELERATION, SPEED, HostLineCommand, HostPoseCommand
 
 WORKER = "/usr/local/bin/e0509-access-worker"
@@ -38,6 +39,9 @@ class AccessServer:
     def reset(self, connection, detail):
         self.finish_motion("unknown", "SDK 연결이 끊겨 자세 이동 결과를 확인할 수 없습니다.")
         self.mode_supported = False
+        self.gripper_supported = False
+        self.hand_feedback = None
+        self.hand_target = None
         self.line_supported = False
         self.mode_token = self.mode_request = self.mode_target = None
         self.mode_result = "idle"
@@ -67,7 +71,9 @@ class AccessServer:
         held = connected and self.held
         reason = self.motion_reason()
         return dict(mode_change=self.mode_status(), servo=self.servo_status(), motion_token=self.motion_token, can_move=reason is None, motion_reason=reason,
-                    line_supported=self.line_supported, operation_mode=self.mode, connection=self.connection, route=self.route, detail=self.detail,
+                    gripper_supported=self.gripper_supported, gripper_feedback=self.hand_feedback, gripper_target=self.hand_target,
+                    line_supported=self.line_supported, transfer_supported=self.line_supported,
+                    operation_mode=self.mode, connection=self.connection, route=self.route, detail=self.detail,
                     sdk_version=self.sdk, controller_version=self.controller, robot_state=self.state,
                     initialized=self.initialized, session_id=self.session, revision=self.revision,
                     worker_pid=self.process.pid if self.process and self.session else None,
@@ -193,6 +199,9 @@ class AccessServer:
             raise HTTPException(409, reason)
 
     async def move_pose(self, command):
+        hand = isinstance(command, HandCommand)
+        if hand and not self.gripper_supported:
+            raise HTTPException(409, "RH-P12 지원 SDK 작업자가 필요합니다.")
         line = isinstance(command, HostLineCommand)
         if line and not self.line_supported:
             raise HTTPException(409, "직선 이동을 지원하는 SDK 작업자를 시작하세요.")
@@ -202,8 +211,14 @@ class AccessServer:
         self.mode_token = None
         self.state = None  # The last STANDBY sample is no longer current during a move.
         self.motion_token = uuid4().hex  # Consume the confirmation before writing to the worker.
+        continuation_token = self.motion_token
         future = self.motion = asyncio.get_running_loop().create_future()
-        if line:
+        if hand:
+            operation, parameters = "hand", [command.target, int(command.action == "close")]
+            self.hand_feedback = None
+            if command.action != "read":
+                self.hand_target = command.target
+        elif line:
             operation, parameters = "line", command.pose
         else:
             operation, parameters = "move", (SPEED, ACCELERATION, *command.angles)
@@ -213,7 +228,12 @@ class AccessServer:
         except (OSError, RuntimeError):
             self.drop_worker("SDK 작업자 연결이 끊겼습니다.")
         try:
-            return await asyncio.wait_for(asyncio.shield(future), 145)
+            result = await asyncio.wait_for(asyncio.shield(future), 145)
+            if (line or hand) and result["state"] == "completed":
+                # Bind the next leg to this grant. Loss/regrant, mode changes or
+                # intervening commands invalidate this token even in the same session.
+                return {**result, "next_motion_token": continuation_token}
+            return result
         except asyncio.TimeoutError:
             # Keep the worker busy until it actually returns or the connection ends.
             return dict(state="unknown", message="SDK 이동 응답 시간 초과 · 로봇의 실제 위치를 확인하세요.")
@@ -264,9 +284,35 @@ class AccessServer:
             with suppress(ProcessLookupError):
                 self.process.kill()
 
+    def hand_result(self, value):
+        if self.motion is None or self.motion.done():
+            self.finish_motion("unknown", "그리퍼 결과 미확인")
+            return
+        reasons = {"wrong_model":"장치 1의 모델 번호가 RH-P12-RN-A와 다릅니다.", "control":"제어권과 로봇 정지 상태를 확인하세요.", "current_config":"장치의 위치 제어 모드와 목표 전류·한계를 확인하세요.",
+                   "device_state":"장치 오류·동작 상태 또는 위치 범위를 확인하세요.", "timeout":"응답 또는 목표 위치 확인 시간 초과",
+                   "bad_response":"Modbus 응답 형식 또는 CRC 오류", "device_exception":"Modbus 장치 예외"}
+        try:
+            state, reason, *numbers = value.split()
+            pos, current, goal, limit, mode, error = map(int,numbers)
+            if state not in {"completed","failed","unknown"}:
+                raise ValueError()
+        except ValueError:
+            self.finish_motion("unknown", "그리퍼 응답을 해석할 수 없습니다.")
+            return
+        self.hand_feedback = {"position":pos if pos >= 0 else None, "current_ma":current, "goal_current_ma":goal,
+                              "limit_ma":limit, "mode":mode, "error":error, "state":state,
+                              "observed_at":datetime.now(timezone.utc).isoformat()}
+        message = "장치 응답 확인" if state == "completed" else reasons.get(reason, "플랜지 직렬통신 실패 · " + reason)
+        self.motion.set_result({"state":state, "message":message, "feedback":self.hand_feedback})
+        self.motion = None
+
     def event(self, key, value):
         if key == "sdk":
             self.sdk = value
+        elif key == "feature" and value == "rh_p12":
+            self.gripper_supported = True
+        elif key == "hand":
+            self.hand_result(value)
         elif key == "feature" and value == "line":
             self.line_supported = True
         elif key == "feature" and value == "operation_mode":
@@ -441,6 +487,12 @@ def create_host_app(server=None):
     async def line(command: HostLineCommand, request: Request):
         if not request.headers.get("x-robot-target"):
             raise HTTPException(403, "탐지 카메라에서 이동할 대상을 승인하세요.")
+        return await owner.move_pose(command)
+
+    @app.post("/api/robot/host-access/gripper", dependencies=[Depends(same_target), Depends(local_json)])
+    async def gripper(command: HandCommand, request: Request):
+        if not request.headers.get("x-robot-target"):
+            raise HTTPException(403, "로봇 관리 또는 승인된 이송 작업을 사용하세요.")
         return await owner.move_pose(command)
 
     return app

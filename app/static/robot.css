@@ -102,3 +102,9 @@
 .work-point button[type="submit"]:enabled { background: var(--mint); border-color: var(--mint); color: var(--surface); }
 
 #control-view { margin: 0 8px 4px 4px; font: inherit; color: inherit; background: var(--surface); border: 1px solid var(--line); border-radius: 4px; }
+
+.robot-overview { padding:12px 20px; background:var(--soft); }
+.hand-actions,.hand-sample { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
+.hand-actions input,.hand-sample input { width:5.8em; padding:6px; font:inherit; color:var(--ink); background:var(--surface); border:1px solid var(--line); border-radius:5px; }
+.hand-sample { padding:6px 0; }
+.hand-sample label { font-size:13px; }

@@ -23,6 +23,7 @@ print('E0509 sdk GL010117')
 print('E0509 feature servo_on')
 print('E0509 feature operation_mode')
 print('E0509 feature line')
+print('E0509 feature rh_p12')
 print('E0509 connected GF02100300')
 state = 'SAFE_OFF MANUAL REAL'
 print('E0509 ready ' + state, flush=True)
@@ -48,6 +49,12 @@ for command in sys.stdin:
             time.sleep(.12)
             state='STANDBY MANUAL REAL'
             print('E0509 ready ' + state, flush=True)
+        continue
+    if command.startswith('hand '):
+        _, grant, pos, contact = command.split()
+        if callback == 'DROP': sys.exit(0)
+        print('E0509 hand completed ok 349 14 150 300 5 0',flush=True)
+        print('E0509 ready ' + state,flush=True)
         continue
     if command.startswith(('move ', 'line ')):
         if callback == 'DROP': sys.exit(0)
@@ -243,9 +250,37 @@ class HostAccessTests(unittest.TestCase):
         with ThreadPoolExecutor(max_workers=2) as pool:
             replies = list(pool.map(lambda _: self.client.post(BASE + "/line", json=target, headers=headers), range(2)))
         self.assertEqual(sorted(r.status_code for r in replies), [200, 409])
-        self.assertEqual(next(r.json() for r in replies if r.is_success)["state"], "completed")
+        completed = next(r.json() for r in replies if r.is_success)
+        self.assertEqual(completed["state"], "completed")
+        token = completed["next_motion_token"]
+        self.assertEqual(token, self.until(lambda s: s["can_move"])["motion_token"])
+        self.assertNotEqual(token, target["motion_token"])
         self.assertEqual(self.move(ready).status_code, 409)
+        self.client.portal.call(self.owner.event, "callback", "LOSS")
+        self.client.portal.call(self.owner.event, "callback", "GRANT")
+        self.assertEqual(self.client.post(BASE+"/line", json={**target,"motion_token":token}, headers=headers).status_code, 409)
         self.assertEqual(self.log.read(), b"force\nline 1 300 -25 150 0 90 0\n")
+
+    def test_manual_gripper_and_arm_share_one_token_and_worker(self):
+        self.response_file.write_text("GRANT|STANDBY AUTO REAL")
+        self.force()
+        ready = self.until(lambda s: s["can_move"] and s["gripper_supported"])
+        headers = {"X-Robot-Target":f"{self.owner.cfg['ROBOT_IP']}:{self.owner.cfg['ROBOT_PORT']}"}
+        body = {"action":"close","motion_token":ready["motion_token"],"session_id":ready["session_id"]}
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            hand = pool.submit(self.client.post, BASE+"/gripper", json=body, headers=headers)
+            self.until(lambda s: not s["can_move"])
+            self.assertEqual(self.move(ready).status_code,409)
+            self.assertEqual(self.client.post(BASE+"/gripper",json=body,headers=headers).status_code,409)
+            result = hand.result().json()
+        self.assertEqual(result["state"],"completed")
+        self.assertEqual(result["feedback"]["position"],349)
+        self.assertEqual(result["feedback"]["current_ma"],14)
+        self.assertEqual(self.until(lambda s:s["can_move"])["gripper_target"],700)
+        self.assertEqual(self.log.read().splitlines(),[b"force",b"hand 1 700 1"])
+        self.response_file.write_text("DROP")
+        body.update(action="open",motion_token=result["next_motion_token"])
+        self.assertEqual(self.client.post(BASE+"/gripper",json=body,headers=headers).json()["state"],"unknown")
 
     def test_two_confirmations_send_one_move_and_disconnect_is_unknown(self):
         self.response_file.write_text("GRANT|STANDBY AUTO REAL")

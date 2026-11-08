@@ -7,7 +7,8 @@ from pydantic import BaseModel, ConfigDict, Field, FiniteFloat
 
 from .store import DomainError, atomic_json, now
 
-PointName = Literal["box", "shipping_label"]
+PointName = Literal["waypoint", "box", "shipping_label"]
+TRANSFER_POINTS = ("waypoint", "box")
 
 
 class WorkPointInput(BaseModel):
@@ -16,11 +17,36 @@ class WorkPointInput(BaseModel):
     revision: str | None = Field(max_length=32)
 
 
+class FloorReferenceInput(BaseModel):
+    model_config = ConfigDict(strict=True, extra="forbid")
+    z_mm: FiniteFloat
+    revision: str | None = Field(max_length=32)
+
+
+class FloorReference:
+    """Horizontal BASE plane shared by all cameras on this robot."""
+    def __init__(self, path):
+        self.path = path
+        self.value = json.loads(path.read_text()) if path.exists() else {"revision": None}
+        if self.value.get("z_mm") is None:
+            self.value["z_mm"] = 0.0
+
+    def save(self, body):
+        if body.revision != self.value["revision"]:
+            raise DomainError("다른 화면에서 바닥 기준을 변경했습니다. 최신 바닥 기준을 불러오세요.")
+        value = {"z_mm": body.z_mm, "revision": uuid4().hex}
+        atomic_json(self.path, value)
+        self.value = value
+        return value
+
+
 class WorkPoints:
     def __init__(self, path):
         self.path = path
-        self.points = json.loads(path.read_text()) if path.exists() else {
-            name: dict(pose=None, revision=None, updated_at=None) for name in ("box", "shipping_label")}
+        self.points = {name: dict(pose=None, revision=None, updated_at=None)
+                       for name in (*TRANSFER_POINTS, "shipping_label")}
+        if path.exists():
+            self.points.update(json.loads(path.read_text()))
 
     def save(self, name, body):
         if self.points[name]["revision"] != body.revision:

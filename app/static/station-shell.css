@@ -58,3 +58,13 @@
   .station-nav .station-icon { width: 14px; height: 14px; }
 }
 @media (pointer: coarse) { .station-nav a { min-height: 44px; } }
+
+.station-disclosure { display:flex; align-items:center; gap:10px; min-height:39px; padding:8px 12px; border:none; border-radius:7px; background:transparent; color:#cbd8d9; font:inherit; font-weight:560; cursor:pointer; }
+.station-disclosure::after { content:"▸"; margin-left:auto; }
+.station-disclosure[aria-expanded=true]::after { content:"▾"; }
+.station-disclosure:hover { background:#20323d; }
+.station-disclosure:focus-visible { outline:2px solid #93edc9; }
+.station-children { border-left:1px solid #476158; margin-left:18px; padding-left:5px; }
+.station-children[hidden] { display:none; }
+@media(max-width:750px) { .station-children { grid-column:1/-1; display:flex; flex-wrap:wrap; margin:0; } .station-disclosure { font-size:13px; padding:6px; } }
+@media(pointer:coarse) { .station-disclosure { min-height:44px; } }

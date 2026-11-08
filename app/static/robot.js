@@ -1,4 +1,6 @@
-import "./station-nav.js";
+import {connectWorkPlane} from "./robot-work-plane.js";
+import {currentDestination} from "./station-nav.js";
+import {loadHandTable,renderHand} from "./robot-gripper.js";
 import {renderPoseTests} from "./robot-poses.js";
 import {renderWorkPoints} from "./robot-work-points.js";
 
@@ -130,7 +132,7 @@ function render(data) {
       "rosbridge 연결 완료. 관절 토픽의 발행자를 확인하고 있습니다.",
     no_publisher: `rosbridge의 ROS 그래프에서 ${joint.name} 발행자가 0개입니다. 두산 드라이버, ROS 도메인과 네임스페이스를 확인하세요.`,
     live: "ROS 2 관절 데이터를 수신하고 있습니다.",
-    monitoring: `E0509 제어기의 실제 관절각을 ${joint.name}에서 수신하고 있습니다. 자세 이동 조건은 아래 자세 테스트에서 확인하세요.`,
+    monitoring: `E0509 제어기의 실제 관절각을 ${joint.name}에서 수신하고 있습니다. 자세 테스트는 메니퓰레이터에서 사용할 수 있습니다.`,
     stale: "관절 데이터 갱신이 멈췄습니다. 마지막 수신값을 표시합니다.",
     robot_disconnected: "드라이버에서 로봇 연결 끊김 이벤트를 수신했습니다. LAN 케이블과 컨트롤러를 확인하세요."
   };
@@ -289,6 +291,14 @@ get("servo-confirm").addEventListener("click", async () => {
 });
 
 function renderControl() {
+  renderHand(latest, !paused && !apiUnavailable ? hostAccess : null);
+  const overview = get("robot-overview");
+  if (macMode()) {
+    const state = hostAccess?.robot_state;
+    const servo = state === "SAFE_OFF" ? "꺼짐" : ["STANDBY","MOVING"].includes(state) ? "켜짐" : "미확인";
+    overview.textContent = "제어권 "+(hostAccess ? hostAccess.held ? "보유" : "미보유" : "미확인")+
+      " · 서보 "+servo+" · 운전 모드 "+(hostAccess?.operation_mode || "미확인");
+  } else overview.textContent = "ROS 드라이버 · 운전 모드 "+(latest?.direct_teach?.mode || "미확인")+" · 서보 미확인";
   renderOperationMode();
   renderServo();
   const view = get("control-view");
@@ -406,8 +416,9 @@ get("control-confirm").addEventListener("click", async () => {
   }
 });
 
+let workPlane = null;
 async function refresh() {
-  if (stopped || paused || document.hidden || requestController) return;
+  if (stopped || (paused && !workPlane) || document.hidden || requestController) return;
   const controller = new AbortController();
   requestController = controller;
   const timeout = setTimeout(() => controller.abort(), 4000);
@@ -415,7 +426,9 @@ async function refresh() {
     const response = await fetch("/api/robot/status", {cache: "no-store", signal: controller.signal});
     if (!response.ok) throw new Error("status unavailable");
     const data = await response.json();
-    if (stopped || paused) return;
+    if (stopped) return;
+    workPlane?.robotStatus(data);
+    if (paused) return;
     latest = data;
     apiUnavailable = false;
     if (macMode()) {
@@ -441,6 +454,7 @@ async function refresh() {
     get("robot-api-error").hidden = true;
     render(data);
   } catch {
+    workPlane?.robotStatus(null);
     if (stopped || paused) return;
     apiUnavailable = true;
     hostAccess = null;
@@ -457,6 +471,25 @@ async function refresh() {
     if (requestController === controller) requestController = null;
   }
 }
+function routeRobot() {
+  const page = currentDestination();
+  for (const dialog of document.querySelectorAll("dialog[open]")) dialog.close();
+  document.querySelectorAll("[data-view]").forEach(el=>{el.hidden = el.dataset.view !== page.id;});
+  document.querySelector("h1").textContent = page.label;
+  document.title = page.label+" · Vision Lab";
+  if (page.id === "work-plane" && !workPlane) {
+    workPlane = connectWorkPlane(get("work-plane"));
+    void refresh();
+  } else if (page.id !== "work-plane" && workPlane) {
+    workPlane.dispose(); workPlane = null;
+  }
+  if (page.id === "gripper") void loadHandTable();
+  if (location.hash === "#work-points-title" || location.hash === "#pose-title") {
+    requestAnimationFrame(()=>get(location.hash.slice(1))?.scrollIntoView());
+  }
+}
+window.addEventListener("hashchange", routeRobot);
+routeRobot();
 get("connection-settings").addEventListener("click", () => {
   const panel = get("robot-settings");
   panel.hidden = !panel.hidden;
@@ -481,8 +514,8 @@ function clearHostStatus() {
     renderPoseTests(latest, {paused, apiUnavailable, teachPending, hostAccess});
   }
 }
-window.addEventListener("pagehide", () => { stopped = true; clearHostStatus(); requestController?.abort(); });
-window.addEventListener("pageshow", () => { stopped = false; refresh(); });
+window.addEventListener("pagehide", () => { stopped = true; workPlane?.dispose(); workPlane = null; clearHostStatus(); requestController?.abort(); });
+window.addEventListener("pageshow", e => { stopped = false; if (e.persisted) routeRobot(); refresh(); });
 document.addEventListener("visibilitychange", () => document.hidden ? clearHostStatus() : refresh());
 setInterval(refresh, 1000);
 refresh();

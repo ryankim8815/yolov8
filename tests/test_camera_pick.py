@@ -123,6 +123,20 @@ def station(tmp_path, monkeypatch):
 URL = "/api/robot/pick"
 
 
+@pytest.mark.parametrize("owner", ["hand", "pose_tests"])
+def test_teaching_during_a_robot_operation_keeps_the_saved_revision(station, monkeypatch, owner):
+    client, _, moves, _ = station
+    url = URL + "/calibration"
+    before = client.get(url).json()
+    task = Mock()
+    task.done.return_value = False
+    with monkeypatch.context() as patch:
+        patch.setattr(getattr(client.app.state.robot, owner), "task", task)
+        assert client.put(url, json={**before, "clearance_per_side_mm":9}).status_code == 409
+    assert client.get(url).json() == before
+    moves.assert_not_called()
+
+
 def preview(client):
     result = client.post(URL + "/preview", json={"session_id": "test-session", "frame_id": 17, "object_index": 1})
     assert result.status_code == 200, result.text
@@ -172,6 +186,42 @@ def test_unmeasurable_box_can_still_move_to_approved_center(station):
         assert finish(client,result["approval_id"])["state"] == "completed"
     moves.assert_called_once()
     assert moves.call_args.args[0] == "line"
+
+
+def test_center_height_preview_is_independent_of_gripper_measurement(station):
+    client, _, moves, _ = station
+    draft = flat_calibration(angles=(0,90,0))
+    def estimate(xyxy):
+        response = client.post(URL+"/gripper-preview", json={"calibration":draft, "xyxy":xyxy})
+        assert response.status_code == 200, response.text
+        return response.json()
+    for box, expected in [([0,40,80,60],[140,150,60]), ([60,40,100,55],[180,152.5,60])]:
+        result = estimate(box)
+        assert result["center_base_mm"] == pytest.approx(expected)
+        assert not result["center_reason"] and "opening_mm" not in result
+    outside = estimate([1,5,10,15])
+    assert outside["center_base_mm"] is None
+    assert "중심" in outside["center_reason"]
+    draft["clearance_per_side_mm"] = None
+    for p in draft["corners"]:
+        p["pose"][3:] = [None]*3
+    partial = estimate([50,40,70,60])
+    assert partial["center_base_mm"] == pytest.approx([160,150,60])
+    assert "opening_mm" not in partial
+    assert client.put(URL+"/calibration", json=draft).status_code == 422
+    assert not client.app.state.robot.picks.approvals
+    moves.assert_not_called()
+
+
+def test_floor_edit_does_not_invalidate_approved_pose(station):
+    client, _, moves, _ = station
+    target = preview(client)
+    assert client.put("/api/robot/floor-reference", json={"revision":None,"z_mm":1000}).status_code == 200
+    moves.assert_not_called()
+    assert client.post(URL+"/approve", json={"approval_id":target["approval_id"]}).status_code == 202
+    assert finish(client,target["approval_id"])["state"] == "completed"
+    moves.assert_called_once()
+    assert moves.call_args.args[1].pose == target["pose"]
 
 
 def test_only_one_move_to_original_preview(station):
@@ -280,3 +330,199 @@ def test_native_dashboard_uses_displayed_frame_and_camera_identity(tmp_path, mon
             response = client.post(URL + "/preview", json={**ref, "object_index": 0})
             assert response.json()["pose"] == pytest.approx(base(37, 61) + [10, 20, 30])
             assert client.get("/api/detections/pick-frame", params={**ref, "session_id": "old"}).status_code == 409
+
+
+WAYPOINT = [210, -100, 320, 0, 90, 15]
+BOX = [290, -100, 165, 0, 85, 12]
+
+
+def set_route(client):
+    for key, pose in [("waypoint", WAYPOINT), ("box", BOX)]:
+        assert client.put("/api/robot/work-points/"+key, json={"revision":None, "pose":pose}).status_code == 200
+
+
+def transfer_preview(client):
+    return client.post(URL+"/preview", json={"session_id":"test-session", "frame_id":17,
+                                            "object_index":1, "mode":"transfer"}).json()
+
+
+def until_stage(client, ticket, stage):
+    path = URL+"/moves/"+ticket["approval_id"]
+    wait_until(lambda: client.get(path).json()["state"] == stage)
+    return client.get(path).json()
+
+
+@pytest.fixture
+def transfer_station(station):
+    client, live, lines, sdk = station
+    sdk.update(transfer_supported=True, held=True, robot_state="STANDBY", operation_mode="AUTO")
+    def move(operation, command):
+        assert operation == "line"
+        assert command.session_id == sdk["session_id"] and command.motion_token == sdk["motion_token"]
+        sdk["motion_token"] = f"{lines.call_count+1:032x}"
+        return 200, {"state":"completed", "message":"완료", "next_motion_token":sdk["motion_token"]}
+    lines.side_effect = move
+    return station
+
+
+def start_transfer(client):
+    result = transfer_preview(client)
+    ticket = {"approval_id":result["approval_id"]}
+    assert not result["motion_reason"]
+    assert client.post(URL+"/approve",json=ticket).status_code == 202
+    return ticket
+
+
+def action(client, ticket, name):
+    return client.post(URL+"/moves/"+ticket["approval_id"]+"/"+name, json={})
+
+
+def test_transfer_needs_both_points_and_a_current_approved_route(transfer_station):
+    client, _, lines, _ = transfer_station
+    missing = transfer_preview(client)
+    assert "경유점" in missing["motion_reason"] and "박스 위치" in missing["motion_reason"]
+    assert client.post(URL+"/approve", json={"approval_id":missing["approval_id"]}).status_code == 409
+    set_route(client)
+    preview = transfer_preview(client)
+    point = preview["route"]["waypoint"]
+    revised = [WAYPOINT[0]+5, *WAYPOINT[1:]]
+    assert client.put("/api/robot/work-points/waypoint", json={"pose":revised,"revision":point["revision"]}).status_code == 200
+    assert client.post(URL+"/approve", json={"approval_id":preview["approval_id"]}).status_code == 412
+    assert transfer_preview(client)["route"]["waypoint"]["pose"] == revised
+    lines.assert_not_called()
+
+
+def test_transfer_stops_for_grip_and_release_and_never_rechecks_camera_after_pick(transfer_station):
+    client, live, lines, _ = transfer_station
+    set_route(client)
+    ticket = start_transfer(client)
+    job = until_stage(client,ticket,"awaiting_grip")
+    assert client.get(URL+"/active").json()["move"] == job
+    assert job["last_reached"] == "pick" and lines.call_count == 1
+    live["objects"].clear()
+    other = transfer_preview(client)
+    assert client.post(URL+"/approve",json={"approval_id":other["approval_id"]}).status_code == 409
+    assert client.post("/api/robot/poses/1/execute",json={"revision":None}).status_code == 409
+    for name, entry in job["route"].items():
+        assert client.put("/api/robot/work-points/"+name,json={"revision":entry["revision"],"pose":BOX}).status_code == 409
+    assert action(client,ticket,"confirm-release").status_code == 409
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        codes = list(pool.map(lambda _: action(client,ticket,"confirm-grip").status_code,range(2)))
+    assert sorted(codes) == [200,409]
+    job = until_stage(client,ticket,"awaiting_release")
+    assert job["last_reached"] == "box"
+    assert client.get("/api/robot/status").json()["transfer_active"]
+    assert action(client,ticket,"cancel-transfer").status_code == 409
+    assert action(client,ticket,"confirm-release").json()["state"] == "completed"
+    assert action(client,ticket,"confirm-release").status_code == 409
+    assert client.get(URL+"/active").json()["move"] is None
+    assert [args.args[1].pose for args in lines.call_args_list] == [
+        pytest.approx(base(37,61)+[10,20,30]), WAYPOINT, BOX]
+    assert len({args.args[1].motion_token for args in lines.call_args_list}) == 3
+
+
+@pytest.mark.parametrize("change", ["cancel", "sdk-error", "lost-response", "session", "new-grant", "safe-off"])
+def test_interrupted_transfer_sends_no_following_leg(transfer_station, change):
+    client, _, lines, sdk = transfer_station
+    set_route(client)
+    ticket = start_transfer(client)
+    until_stage(client,ticket,"awaiting_grip")
+    if change == "cancel":
+        assert action(client,ticket,"cancel-transfer").json()["state"] == "cancelled"
+        assert action(client,ticket,"confirm-grip").status_code == 409
+        lines.assert_called_once()
+        return
+    if change == "sdk-error":
+        lines.side_effect = None
+        lines.return_value = (200, {"state":"failed", "message":"SDK 실패"})
+    elif change == "lost-response":
+        lines.side_effect = ConnectionError()
+    elif change == "session":
+        sdk["session_id"] = "replacement"
+    elif change == "new-grant":
+        sdk["motion_token"] = "f"*32
+    elif change == "safe-off":
+        sdk.update(robot_state="SAFE_OFF", can_move=False)
+    assert action(client,ticket,"confirm-grip").status_code == 200
+    last = until_stage(client,ticket,"unknown" if change == "lost-response" else "failed")
+    assert last["last_reached"] == "pick"
+    assert lines.call_count == (2 if change in {"sdk-error","lost-response"} else 1)
+
+
+def test_restart_during_operator_wait_never_resumes(transfer_station):
+    from app.robot_pick import PickTargets
+    client, _, lines, _ = transfer_station
+    set_route(client)
+    ticket = start_transfer(client)
+    until_stage(client,ticket,"awaiting_grip")
+    robot = client.app.state.robot
+    restored = PickTargets(robot, robot.picks.path.parent)
+    assert not restored.busy
+    job = restored.moves[ticket["approval_id"]]
+    assert job["state"] == "unknown" and job["last_reached"] == "pick"
+    with pytest.raises(DomainError):
+        restored.operator_action(ticket["approval_id"],"confirm-grip")
+    lines.assert_called_once()
+
+
+@pytest.mark.parametrize("fault", [None,"preopen-timeout","too-narrow","lost-after-open","table-changed"])
+def test_rh_p12_sequence_and_fail_closed(station, fault):
+    client, live, calls, sdk = station
+    set_route(client)
+    sdk.update(gripper_supported=True,transfer_supported=True,held=True,robot_state="STANDBY",operation_mode="AUTO")
+    points = [dict(position=0,width_mm=106),dict(position=700,width_mm=0)]
+    url = "/api/robot/gripper/table"
+    original = client.put(url,json={"revision":None,"points":points}).json()
+    request = dict(session_id="test-session",frame_id=17,object_index=1,mode="transfer",handling="rh_p12")
+    live["objects"] = [obj(37,61)]
+    preview = client.post(URL+"/preview",json=request).json()
+    assert preview["motion_reason"] is None
+    commands = []
+    def process(operation, command):
+        assert command.motion_token == sdk["motion_token"]
+        sdk["motion_token"] = f"{len(commands)+2:032x}"
+        result = dict(state="completed",message="완료",next_motion_token=sdk["motion_token"])
+        if operation=="line":
+            commands.append("line")
+        else:
+            assert operation=="gripper"
+            commands.append(command.action)
+            actual = command.target
+            if command.action=="position":
+                assert actual == preview["hand_position"]
+                if fault=="preopen-timeout":
+                    return 200,dict(state="unknown",message="timeout")
+                if fault=="too-narrow":
+                    actual=700
+                if fault=="lost-after-open":
+                    live["objects"]=[]
+            if command.action=="close":
+                actual=680  # Object stops the fingers before the end of travel.
+            result["feedback"]=dict(position=actual, error=0,state="completed")
+        return 200,result
+    calls.side_effect=process
+    ticket={"approval_id":preview["approval_id"]}
+    if fault=="table-changed":
+        assert client.put(url,json={"revision":original["revision"],"points":points}).status_code==200
+        assert client.post(URL+"/approve",json=ticket).status_code==412
+        assert commands==[]
+        return
+    assert client.post(URL+"/approve",json=ticket).status_code==202
+    if fault:
+        until_stage(client,ticket,"unknown" if fault=="preopen-timeout" else "failed")
+        assert commands==["position"]
+        return
+    job=until_stage(client,ticket,"awaiting_grip")
+    assert job["hand_feedback"]["position"]==680
+    assert commands==["position","line","close"]
+    manual = dict(session_id=sdk["session_id"],motion_token=sdk["motion_token"],action="open")
+    assert client.post("/api/robot/gripper/command",json=manual).status_code==409
+    assert action(client,ticket,"confirm-grip").status_code==200
+    until_stage(client,ticket,"awaiting_open")
+    assert commands==["position","line","close","line","line"]
+    assert action(client,ticket,"confirm-release").status_code==409
+    assert action(client,ticket,"open-at-box").status_code==200
+    assert action(client,ticket,"open-at-box").status_code==409
+    until_stage(client,ticket,"awaiting_release")
+    assert action(client,ticket,"confirm-release").json()["state"]=="completed"
+    assert commands==["position","line","close","line","line","open"]

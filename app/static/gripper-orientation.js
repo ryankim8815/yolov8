@@ -47,19 +47,17 @@ export function connectOrientation(el, onAngle, signal) {
     const complete = angles.every(Number.isFinite);
     const illustrated = angles.map((angle, i) => Number.isFinite(angle) ? angle : exampleAngles[i]);
     depth.render(corners, toolAxes(illustrated),
-      illustrated.map((v, i) => "ABC"[i] + " " + v + "도").join(", ") + (complete ? "" : " (미입력 각도는 예시)"), camera);
-    el.angleHint.textContent = (corner === 0 ? "1번에서 설정한 방향을 모든 대상에 적용합니다." :
-      "1번 모서리에 설정한 방향을 함께 사용합니다.") + (complete ? "" : " 빈 각도는 예시로 표시합니다.");
-    el.editDirection.hidden = corner === 0;
-    el.editDirection.disabled = locked;
+      illustrated.map((v, i) => "ABC"[i] + " " + v + "도").join(", ") + (complete ? "" : " (미입력 각도는 예시)"), camera, corner);
+    el.angleHint.textContent = "A·B·C는 1번 모서리에 저장되고 네 모서리에 공통으로 적용됩니다." +
+      (complete ? "" : " 빈 각도는 예시로 표시합니다.");
     controls.forEach(({slider, number}, i) => {
       const value = illustrated[i];
       // Keep previously taught angles outside ±180° and full readback precision.
       const limit = Math.max(180, Math.ceil(Math.abs(value) / 180) * 180);
       slider.min = -limit; slider.max = limit; slider.value = value;
       if (number !== editing) number.value = angles[i] ?? "";
-      slider.disabled = number.disabled = locked || corner !== 0;
+      slider.disabled = number.disabled = locked;
     });
   }
-  return {render, setEstimate:depth.setEstimate};
+  return {render, setEstimate:depth.setEstimate, setFloor:depth.setFloor};
 }
