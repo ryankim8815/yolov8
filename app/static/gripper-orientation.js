@@ -19,7 +19,7 @@ const exampleAngles = [9, 103, 33];
 const axisNames = ["BASE Z축", "회전된 Y축", "공구 Z축"];
 
 export function connectOrientation(el, onAngle, signal) {
-  const renderDepth = connectDepthPreview(el, signal);
+  const depth = connectDepthPreview(el, signal);
   const controls = ["A", "B", "C"].map((name, index) => {
     const row = document.createElement("div"), label = document.createElement("label");
     row.className = "pick-angle-row";
@@ -42,11 +42,11 @@ export function connectOrientation(el, onAngle, signal) {
     return {slider, number};
   });
 
-  return function render(corners, corner, locked, camera, editing = null) {
+  function render(corners, corner, locked, camera, editing = null) {
     const angles = corners[0].pose.slice(3);
     const complete = angles.every(Number.isFinite);
     const illustrated = angles.map((angle, i) => Number.isFinite(angle) ? angle : exampleAngles[i]);
-    renderDepth(corners, toolAxes(illustrated),
+    depth.render(corners, toolAxes(illustrated),
       illustrated.map((v, i) => "ABC"[i] + " " + v + "도").join(", ") + (complete ? "" : " (미입력 각도는 예시)"), camera);
     el.angleHint.textContent = (corner === 0 ? "1번에서 설정한 방향을 모든 대상에 적용합니다." :
       "1번 모서리에 설정한 방향을 함께 사용합니다.") + (complete ? "" : " 빈 각도는 예시로 표시합니다.");
@@ -60,5 +60,6 @@ export function connectOrientation(el, onAngle, signal) {
       if (number !== editing) number.value = angles[i] ?? "";
       slider.disabled = number.disabled = locked || corner !== 0;
     });
-  };
+  }
+  return {render, setEstimate:depth.setEstimate};
 }

@@ -9,7 +9,7 @@ from urllib.parse import urlencode
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import Field
+from pydantic import Field, FiniteFloat
 
 from .pick_plane import Calibration, CameraFrame, Input, PickPlane
 from .robot_access_protocol import local_json
@@ -26,6 +26,11 @@ class Selection(Input):
 
 class Approval(Input):
     approval_id: str = Field(pattern="^[a-f0-9]{32}$")
+
+
+class GripperPreview(Input):
+    calibration: Calibration
+    xyxy: list[FiniteFloat] = Field(min_length=4, max_length=4)
 
 
 def read_camera(session_id=None, frame_id=None):
@@ -86,15 +91,19 @@ class PickTargets:
 
     def calibration(self, camera):
         entry = self.planes.get(camera_key(camera), {})
-        return dict(camera=camera, revision=entry.get("revision"), corners=entry.get("corners", []))
+        return dict(camera=camera, revision=entry.get("revision"), corners=entry.get("corners", []),
+                    clearance_per_side_mm=entry.get("clearance_per_side_mm", 5.0))
 
     def save(self, body, active):
         if self.busy:
             raise DomainError("이동 확인이 끝난 뒤 다시 보정하세요.")
         if active != body.camera:
             raise DomainError("카메라 입력이 변경되었습니다. 보정을 다시 시작하세요.")
-        if self.calibration(active)["revision"] != body.revision:
+        current = self.calibration(active)
+        if current["revision"] != body.revision:
             raise DomainError("다른 화면에서 작업 평면을 수정했습니다. 보정을 다시 시작하세요.")
+        if "clearance_per_side_mm" not in body.model_fields_set:
+            body = body.model_copy(update={"clearance_per_side_mm": current["clearance_per_side_mm"]})
         PickPlane(body)
         entry = {**body.model_dump(), "revision": uuid4().hex}
         updated = {**self.planes, camera_key(active): entry}
@@ -138,7 +147,7 @@ class PickTargets:
                                           model=packet["model_version"], class_id=obj["class_id"], plane=plane,
                                           pose=pose, command=sdk, reason=reason)
         return dict(approval_id=identifier, expires_in=30, pose=pose, label=obj["label"],
-                    confidence=obj["confidence"], motion_reason=reason)
+                    confidence=obj["confidence"], motion_reason=reason, gripper=plane.gripper_estimate(obj["xyxy"]))
 
     def approve(self, identifier, reader):
         # Single event loop, with no await between consuming and reserving the move.
@@ -215,6 +224,12 @@ async def save_calibration(body: Calibration, request: Request):
 @router.post("/preview", dependencies=[Depends(local_json)])
 async def preview(body: Selection, request: Request):
     return await request.app.state.robot.picks.preview(body, frame_reader(request))
+
+
+@router.post("/gripper-preview", dependencies=[Depends(local_json)])
+async def gripper_preview(body: GripperPreview):
+    # The draft is for visualization only. It never issues an approval or contacts the SDK.
+    return PickPlane(body.calibration).gripper_estimate(body.xyxy)
 
 
 @router.post("/cancel", dependencies=[Depends(local_json)])

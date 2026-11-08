@@ -38,8 +38,8 @@ const metal = ["#83979f","#e8ece6","#a2b3b5","#c3d1d0","#a5b7b9","#e0e6e1"];
 const steel = ["#344c57","#829599","#49616b","#617a81","#526b75","#8c9d9e"];
 const amber = ["#dcaa74","#91623e","#aa7048","#d38f5c","#bb8052","#ce9668"];
 const sides = [[0,2,3,1],[4,5,7,6],[0,1,5,4],[2,6,7,3],[0,4,6,2],[1,3,7,5]];
-const extentY = 113, extentZ = 75, objectY = 29, objectZ = 32;
-export const defaultScene = Object.freeze({distance:480, tcpDepth:410, protrusion:50, opening:65, length:70,
+const extentY = 113, extentZ = 75;
+export const defaultScene = Object.freeze({distance:480, tcpDepth:410, protrusion:50, length:70,
   kind:"object", view:"oblique", panel:"angles"});
 
 function box(center, size, transform) {
@@ -51,8 +51,9 @@ function box(center, size, transform) {
   return points;
 }
 
-export function depthModel(settings, toolAxes, camera = identity) {
-  const {distance, tcpDepth, kind, protrusion, opening, length} = settings;
+export function depthModel(settings, toolAxes, camera = identity, estimate = null) {
+  const {distance, tcpDepth, kind, protrusion, length} = settings;
+  const opening = estimate?.opening_mm;
   const worldTool = toolAxes.map(axis => camera.map(direction => dot(axis, direction)));
   const transform = p => [0,1,2].map(i => p.reduce((n, v, j) => n + v * worldTool[j][i], 0));
   const frontDepth = distance - (kind === "object" ? protrusion : 0);
@@ -64,14 +65,22 @@ export function depthModel(settings, toolAxes, camera = identity) {
     if (pad) pads.push(...points);
   }
   part([0,0,-length-26], [29,30,18], steel);
-  part([0,0,-length-9], [opening+30,32,24], metal);
-  for (const sign of [-1,1]) {
-    part([sign*(opening/2+9),0,(-length-5)/2], [10,15,length-5], metal);
-    part([sign*(opening/2+6),0,-5], [12,19,10], steel, true);
+  let face = [];
+  if (Number.isFinite(opening)) {
+    part([0,0,-length-9], [opening+30,32,24], metal);
+    for (const sign of [-1,1]) {
+      part([sign*(opening/2+9),0,(-length-5)/2], [10,15,length-5], metal);
+      part([sign*(opening/2+6),0,-5], [12,19,10], steel, true);
+    }
+    if (kind === "object") {
+      face = estimate.footprint_base_mm.map(p => [frontX, dot(p,camera[1]), dot(p,camera[2])]);
+      // Front/back pairs, in the vertex order used by box().
+      const vertices = [0,1,3,2].flatMap(i => [face[i], [wallX,face[i][1],face[i][2]]]);
+      parts.push({points:vertices, palette:amber});
+    }
   }
-  if (kind === "object") parts.push({points:box([frontX+protrusion/2,0,0], [protrusion,objectY*2,objectZ*2]), palette:amber});
-  const tip = pads.reduce((best, p) => p[0] > best[0] ? p : best);
-  return {parts, frontDepth, wallX, frontX, tip, gap:frontX-tip[0], toolZ:worldTool[2], camera};
+  const tip = pads.length ? pads.reduce((best, p) => p[0] > best[0] ? p : best) : null;
+  return {parts, face, opening, frontDepth, wallX, frontX, tip, gap:tip ? frontX-tip[0] : null, toolZ:worldTool[2], camera};
 }
 
 function svgNode(tag, attrs, value) {
@@ -110,14 +119,14 @@ function drawRuler(svg, {distance,tcpDepth,kind}, front) {
 function drawScene(el, settings, model, anglesText) {
   const {scene, world} = el, w = scene.clientWidth, h = scene.clientHeight;
   if (!w || !h) return;
-  const {parts, tip, wallX, frontX, frontDepth, gap, toolZ, camera} = model;
+  const {parts, face, opening, tip, wallX, frontX, frontDepth, gap, toolZ, camera} = model;
   const side = settings.view === "side";
   const xy = ([x,y,z]) => side ? [x,-z] : [.866*x-.5*y, -.17*x-.294*y-.94*z];
   const depth = ([x,y,z]) => side ? -y : -.47*x-.814*y+.34*z;
   const rect = (x, y, z) => [[x,-y,-z],[x,y,-z],[x,y,z],[x,-y,z]];
-  const wall = rect(wallX,extentY,extentZ), face = rect(frontX,objectY,objectZ);
-  const bounds = [...wall, ...(settings.kind === "object" ? face : [])].map(xy);
-  const radius = Math.hypot(settings.length + 35, settings.opening/2+15, 16);
+  const wall = rect(wallX,extentY,extentZ);
+  const bounds = [...wall, ...face, ...face.map(([,y,z]) => [wallX,y,z])].map(xy);
+  const radius = Math.hypot(settings.length + 35, (opening ?? 0)/2+15, 16);
   const halfW = Math.max(radius, ...bounds.map(([x]) => Math.abs(x)));
   const halfH = Math.max(radius, ...bounds.map(([,y]) => Math.abs(y)));
   // Fit without following the rotating mesh: TCP remains at the same screen pixel.
@@ -138,14 +147,16 @@ function drawScene(el, settings, model, anglesText) {
   })).sort((a,b) => a.depth-b.depth);
   for (const f of faces) nodes.push(svgNode("polygon",{points:pointsAttr(f.points.map(project)),fill:f.color,
     stroke:"#24383d","stroke-width":.85,"stroke-linejoin":"round"}));
-  if (settings.kind === "object") nodes.push(svgNode("polygon",{points:pointsAttr(face.map(project)),fill:"none",stroke:"#ffc08b","stroke-width":1.5}));
+  if (face.length) nodes.push(svgNode("polygon",{points:pointsAttr(face.map(project)),fill:"none",stroke:"#ffc08b","stroke-width":1.5}));
   if (side && settings.kind === "wall") nodes.push(line(project([wallX,0,-extentZ]),project([wallX,0,extentZ]),"#ffc08b",1.5));
   const end = project(scaled(toolZ, 30));
   if (Math.hypot(...sub(end,origin)) > 1) nodes.push(line(origin,end,"#83ead3",2.8,{"marker-end":"url(#pick-z-arrow)"}));
   nodes.push(svgNode("circle",{cx:origin[0],cy:origin[1],r:4.6,fill:"#27363a",stroke:"#ffe4a2","stroke-width":2}));
-  const a = project(tip), b = project([frontX,tip[1],tip[2]]);
-  nodes.push(line(a,b,"#ffba81",2,{"stroke-dasharray":"3 2"}));
-  for (const [x,y] of [a,b]) nodes.push(line([x,y-4],[x,y+4],"#ffba81",1.5));
+  if (tip) {
+    const a = project(tip), b = project([frontX,tip[1],tip[2]]);
+    nodes.push(line(a,b,"#ffba81",2,{"stroke-dasharray":"3 2"}));
+    for (const [x,y] of [a,b]) nodes.push(line([x,y-4],[x,y+4],"#ffba81",1.5));
+  }
   const [wx,wy] = project(wall[3]);
   nodes.push(label(Math.min(w-22,wx+5),Math.max(14,wy-4),"벽","#d3e5e5"));
   // Small BASE triad keeps the camera-relative view tied to the robot frame.
@@ -158,8 +169,8 @@ function drawScene(el, settings, model, anglesText) {
   world.replaceChildren(...nodes);
   const past = gap < -.05;
   el.gapLabel.textContent = past ? "앞면을 지난 깊이" : "손끝 → 앞면";
-  el.gap.textContent = Math.abs(gap).toFixed(1)+" mm";
-  scene.setAttribute("aria-label", "고정 TCP의 그리퍼 방향: "+anglesText+". "+(settings.kind === "object" ? "벽과 가상 물체" : "벽")+
+  el.gap.textContent = gap === null ? "—" : Math.abs(gap).toFixed(1)+" mm";
+  scene.setAttribute("aria-label", "고정 TCP의 그리퍼 방향: "+anglesText+". "+(face.length ? "벽과 가상 물체" : "벽")+
     ". 대상 앞면 "+(+frontDepth.toFixed(2))+" mm. "+el.gapLabel.textContent+" "+el.gap.textContent+" (시선축 기준).");
   drawRuler(el.ruler,settings,frontDepth);
 }
@@ -168,7 +179,6 @@ const dimensions = [
   ["distance","카메라 → 벽",300,700,"depthFields"],
   ["protrusion","물체 돌출 깊이",10,120,"depthFields"],
   ["tcpDepth","카메라 → TCP",0,1000,"depthFields"],
-  ["opening","손가락 안쪽 벌림",0,100,"jawPanel"],
   ["length","손가락 길이",25,110,"jawPanel"]
 ];
 const choices = {view:["oblique","side"],kind:["wall","object"],panel:["angles","jaws"]};
@@ -187,7 +197,7 @@ function restoredSettings(key) {
 }
 
 export function connectDepthPreview(el, signal) {
-  let key, settings = {...defaultScene}, pose;
+  let key, settings = {...defaultScene}, pose, estimate = null;
   const fields = {};
   const on = (node, type, fn) => node.addEventListener(type, fn, {signal});
   function remember() {
@@ -195,7 +205,7 @@ export function connectDepthPreview(el, signal) {
   }
   function draw() {
     if (!pose) return;
-    drawScene(el, settings, depthModel(settings, pose.axes, pose.basis ?? identity), pose.anglesText);
+    drawScene(el, settings, depthModel(settings, pose.axes, pose.basis ?? identity, estimate), pose.anglesText);
   }
   function sync() {
     for (const [name,buttons] of Object.entries(groups)) {
@@ -237,12 +247,13 @@ export function connectDepthPreview(el, signal) {
   const observer = new ResizeObserver(draw);
   observer.observe(el.scene);
   signal.addEventListener("abort",() => observer.disconnect(),{once:true});
-  return function render(corners, axes, anglesText, camera) {
+  function render(corners, axes, anglesText, camera) {
     const next = camera?.camera_id ? "vision-gripper-preview-v1:"+JSON.stringify([camera.camera_id,camera.width,camera.height]) : null;
     pose = {basis:cameraBasis(corners), axes, anglesText};
     el.basisHint.textContent = pose.basis ? "시선: 네 모서리의 작업면에 수직." : "예시 시선: BASE +X (유효한 네 점을 교시하기 전).";
     if (next !== key) {
       key = next; settings = restoredSettings(key); sync();
     } else draw();
-  };
+  }
+  return {render, setEstimate(result) { estimate = result; draw(); }};
 }

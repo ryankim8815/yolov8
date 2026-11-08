@@ -75,6 +75,11 @@
 .gripper-scene-foot { justify-content: space-between; padding: 8px 14px; background: #162830; color: #d2e3e3; font-size: 12px; }
 .gripper-gap { gap: 5px; }
 .gripper-gap strong { color: #ffceaa; font: 600 15px var(--mono); }
+.gripper-sizing { background: #162830; border-top: 1px solid #35494e; padding: 7px 14px; color: #edf8f6; font-size: 12px; }
+.pick-measure-object { display: grid; gap: 4px; color: var(--sub); font-size: 12px; }
+.pick-dialog select[data-pick="measureObject"] { width: 100%; color: var(--ink); background: var(--surface); }
+.pick-dialog.teaching canvas[data-pick="measurePhoto"] { max-height: 100px; cursor: default; }
+.pick-dialog .pick-gripper-result { margin: 8px 0; }
 .gripper-gap small { color: #c1d5d5; font-size: 11px; }
 .gripper-legend { gap: 12px; font-size: 11px; }
 .gripper-legend span { display: inline-flex; align-items: center; gap: 5px; }

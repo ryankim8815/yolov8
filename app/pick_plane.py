@@ -34,6 +34,7 @@ class Calibration(Input):
     camera: CameraFrame
     revision: str | None = Field(max_length=32)
     corners: list[Corner] = Field(min_length=4, max_length=4)
+    clearance_per_side_mm: FiniteFloat = Field(default=5.0, ge=0)
 
 
 def area(a, b, c):
@@ -57,7 +58,8 @@ def triangle_weights(vertices, point):
 
 class PickPlane:
     def __init__(self, calibration):
-        camera = calibration.camera
+        self.camera = camera = calibration.camera
+        self.clearance = calibration.clearance_per_side_mm
         self.pixels = [p.pixel for p in calibration.corners]
         if any(not (0 <= u < camera.width and 0 <= v < camera.height) for u, v in self.pixels):
             raise DomainError("영상 안에서 네 모서리를 선택하세요.", 422)
@@ -73,6 +75,7 @@ class PickPlane:
         length = math.hypot(*normal)
         if length < 1e-6:
             raise DomainError("교시한 TCP 좌표가 한 직선 위에 있습니다.", 422)
+        self.normal = tuple(n / length for n in normal)
         residual = abs(sum(n*(v-u) for n, v, u in zip(normal, d, a))) / length
         if residual > 2:
             raise DomainError("네 번째 TCP가 교시 평면에서 2 mm 넘게 벗어났습니다.", 422)
@@ -101,3 +104,40 @@ class PickPlane:
         if xyz is None:
             raise DomainError("선택한 중심이 보정한 작업 영역 밖에 있습니다.")
         return xyz + self.abc
+
+    def gripper_estimate(self, xyxy):
+        """Planar footprint about the pick TCP, and symmetric opening along tool X."""
+        def unavailable(reason):
+            return {"reason": reason, "clearance_per_side_mm": self.clearance}
+
+        left, top, right, bottom = xyxy
+        if not all(map(math.isfinite, xyxy)) or right <= left or bottom <= top:
+            return unavailable("탐지 상자의 크기를 확인할 수 없습니다.")
+        if left <= 0 or top <= 0 or right >= self.camera.width - 1 or bottom >= self.camera.height - 1:
+            return unavailable("탐지 상자가 영상 가장자리에 닿아 전체 폭을 측정할 수 없습니다.")
+        corners = [(left, top), (right, top), (right, bottom), (left, bottom)]
+        if not all(self.contains(p) for p in corners):
+            return unavailable("탐지 상자의 일부가 교시 영역 밖에 있습니다.")
+
+        a, b, c = map(math.radians, self.abc)
+        # First column of Rz(A) Ry(B) Rz(C), expressed in BASE.
+        tool_x = (math.cos(a)*math.cos(b)*math.cos(c) - math.sin(a)*math.sin(c),
+                  math.sin(a)*math.cos(b)*math.cos(c) + math.cos(a)*math.sin(c),
+                  -math.sin(b)*math.cos(c))
+        normal_component = sum(x*n for x, n in zip(tool_x, self.normal))
+        planar_axis = [x - normal_component*n for x, n in zip(tool_x, self.normal)]
+        length = math.hypot(*planar_axis)
+        if length <= 1e-6:
+            return unavailable("손가락 벌림축이 작업면에 수직이어서 폭을 측정할 수 없습니다.")
+        direction = [v / length for v in planar_axis]
+        center = self.project(((left + right) / 2, (top + bottom) / 2))
+        points = [self.project(p) for p in corners]
+        if center is None or any(p is None for p in points):
+            return unavailable("탐지 상자를 작업면에 투영할 수 없습니다.")
+        footprint = [[x-y for x, y in zip(p, center)] for p in points]
+        extents = [sum(x*d for x, d in zip(p, direction)) for p in footprint]
+        opening = 2 * (max(map(abs, extents)) + self.clearance)
+        if not math.isfinite(opening):
+            return unavailable("계산 가능한 벌림 범위를 초과했습니다.")
+        return {"reason": None, "width_mm": max(extents) - min(extents), "opening_mm": opening,
+                "clearance_per_side_mm": self.clearance, "footprint_base_mm": footprint}

@@ -26,6 +26,10 @@ test('the preview rotates around the taught Z–Y′–Z″ axes', async () => {
   close(rotated[2], z);
 });
 
+function measured(opening_mm = 65) {
+  return {opening_mm, footprint_base_mm:[[0,-20,15],[0,20,15],[0,20,-15],[0,-20,-15]]};
+}
+
 test('camera depth uses the taught face normal, independent of BASE origin and teaching order', async () => {
   const {cameraBasis, depthModel, defaultScene} = await import('../app/static/gripper-depth.js');
   const {toolAxes} = await import('../app/static/gripper-orientation.js');
@@ -35,7 +39,7 @@ test('camera depth uses the taught face normal, independent of BASE origin and t
   for (const ordered of [points,[...points].reverse(),[...points.slice(2),...points.slice(0,2)]]) {
     const basis = cameraBasis(ordered);
     basis[0].forEach((v,i) => assert.ok(Math.abs(v-[0,1,0][i])<1e-10));
-    const result = depthModel(defaultScene, toolAxes([90,90,0]), basis);
+    const result = depthModel(defaultScene, toolAxes([90,90,0]), basis, measured());
     assert.ok(Math.abs(result.gap-20)<1e-10);
   }
   // Invalid/incomplete teaching must not masquerade as a measured camera direction.
@@ -51,7 +55,7 @@ test('camera depth uses the taught face normal, independent of BASE origin and t
 test('signed depth is measured to the foremost finger pad, not to the TCP or the wrist', async () => {
   const {depthModel,defaultScene} = await import('../app/static/gripper-depth.js');
   const {toolAxes} = await import('../app/static/gripper-orientation.js');
-  const model = (overrides={}, angles=[0,90,0]) => depthModel({...defaultScene,...overrides},toolAxes(angles));
+  const model = (overrides={}, angles=[0,90,0], opening=65) => depthModel({...defaultScene,...overrides},toolAxes(angles),undefined,measured(opening));
   assert.equal(model().frontDepth,430);
   const near = (value, expected) => assert.ok(Math.abs(value-expected)<1e-9, value+' should equal '+expected);
   near(model().gap,20);
@@ -61,7 +65,36 @@ test('signed depth is measured to the foremost finger pad, not to the TCP or the
   near(model({protrusion:90}).gap,-20);
   // With local X along sight, the positive pad ends at opening/2 + 12 mm.
   near(model({},[0,0,0]).gap,20-65/2-12);
-  near(model({opening:0},[0,0,0]).gap,20-12);
+  near(model({},[0,0,0],0).gap,20-12);
   near(model({length:100}).gap,20); // Extending the finger moves the wrist, not the defined TCP.
   assert.equal(model({},[9,103,33]).gap.toFixed(1),'7.8');
+});
+
+test('the detection footprint sizes the object and missing measurements clear the jaws and gap', async () => {
+  const {depthModel,defaultScene} = await import('../app/static/gripper-depth.js');
+  const {toolAxes} = await import('../app/static/gripper-orientation.js');
+  const axes = toolAxes([0,0,0]);
+  const drawn = depthModel(defaultScene,axes,undefined,measured(50));
+  assert.deepEqual(drawn.face.map(p=>p.slice(1)),[[-20,15],[20,15],[20,-15],[-20,-15]]);
+  assert.equal(drawn.tip[0],37); // 25 mm inner half-opening plus the 12 mm pad
+  const missing = depthModel({...defaultScene,opening:65},axes,undefined,{reason:'unmeasurable'});
+  assert.equal(missing.tip,null);
+  assert.equal(missing.gap,null);
+  assert.deepEqual(missing.face,[]);
+});
+
+test('a late measurement cannot restore an old selection after its replacement is unavailable', {timeout:1500}, async () => {
+  const {trackGripperEstimate} = await import('../app/static/gripper-measurement.js');
+  let finish, started;
+  const waiting = new Promise(resolve => { started = resolve; });
+  const results = [];
+  const tracker = trackGripperEstimate(() => new Promise(resolve => {finish=resolve; started();}), result=>results.push(result));
+  tracker.update({}, {xyxy:[10,10,30,50]}, 0, null);
+  await waiting;
+  tracker.update(null, null, -1, '객체를 선택하세요.');
+  finish(measured(50));
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.deepEqual(results.at(-1),{reason:'객체를 선택하세요.'});
+  assert.ok(results.every(result=>result.opening_mm === undefined));
+  tracker.reset();
 });

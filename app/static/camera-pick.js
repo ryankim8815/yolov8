@@ -1,4 +1,5 @@
 import { connectOrientation } from "./gripper-orientation.js";
+import { describeGripper, trackGripperEstimate } from "./gripper-measurement.js";
 
 // The bitmap is drawn with object-fit: contain. Ignore clicks in its letterbox.
 export function imagePixel(rect, size, clientX, clientY) {
@@ -13,8 +14,8 @@ const axes = ["X", "Y", "Z", "A", "B", "C"];
 const units = ["mm", "mm", "mm", "°", "°", "°"];
 const motionKey = "vision-last-camera-pick";
 
-async function api(path, method = "GET", body) {
-  const response = await fetch("/api/robot/" + path, {method, cache: "no-store",
+async function api(path, method = "GET", body, signal) {
+  const response = await fetch("/api/robot/" + path, {method, signal, cache: "no-store",
     headers: body ? {"Content-Type": "application/json"} : {}, body: body && JSON.stringify(body)});
   let data;
   try { data = await response.json(); } catch { throw new Error("로봇 웹 서버에 연결할 수 없습니다."); }
@@ -51,6 +52,7 @@ export function connectCameraPick(panel) {
   const lifetime = new AbortController();
   const on = (node, type, handler) => node.addEventListener(type, handler, {signal: lifetime.signal});
   let live = null, frozen = null, mode = "", selected = -1, calibration, corners, savedCorners, corner = 0;
+  let clearance, measureIndex = -1;
   let approval, expiryTimer, pending = false, moveId = sessionStorage.getItem(motionKey);
   let pollTimer, disposed = false;
   const fields = axes.slice(0, 3).map((axis, index) => {
@@ -64,16 +66,42 @@ export function connectCameraPick(panel) {
     });
     return input;
   });
-  const renderOrientation = connectOrientation(el, (index, value, input) => {
+  const orientation = connectOrientation(el, (index, value, input) => {
     corners[0].pose[3 + index] = value;
     showOrientation(input);
     updateSave();
   }, lifetime.signal);
+  const measurement = trackGripperEstimate(
+    (body, signal) => api("pick/gripper-preview", "POST", body, signal),
+    estimate => {
+      el.sizing.textContent = describeGripper(estimate);
+      orientation.setEstimate(estimate);
+    });
+
+  function draftCalibration() {
+    if (!calibration || !Number.isFinite(clearance) || clearance < 0 || !corners.every((p,i) =>
+      p.pixel && p.pose.slice(0,i === 0 ? 6 : 3).every(Number.isFinite))) return null;
+    return {...calibration, clearance_per_side_mm:clearance,
+      corners:corners.map(p => ({pixel:p.pixel, pose:[...p.pose.slice(0,3),...corners[0].pose.slice(3)]}))};
+  }
+
+  function updateMeasurement() {
+    const {objects} = frozen.packet;
+    const object = objects[measureIndex];
+    const draft = draftCalibration();
+    let reason = null;
+    if (!objects.length) reason = "고정된 영상에 탐지된 객체가 없습니다.";
+    else if (!object) reason = "손가락 치수에서 측정할 탐지 객체를 선택하세요.";
+    else if (!Number.isFinite(clearance) || clearance < 0) reason = "한쪽 여유를 0 이상의 mm 값으로 입력하세요.";
+    else if (!draft) reason = "네 모서리의 영상·BASE 좌표와 공구 방향을 입력하세요.";
+    measurement.update(draft, object, measureIndex, reason);
+  }
 
   function showOrientation(editing) {
     // The preview belongs to this frozen input even while calibration is loading.
     const packet = frozen.packet;
-    renderOrientation(corners, corner, pending || !calibration, {camera_id:packet.camera_id, ...packet.source_size}, editing);
+    updateMeasurement();
+    orientation.render(corners, corner, pending || !calibration, {camera_id:packet.camera_id, ...packet.source_size}, editing);
   }
 
   function controls() {
@@ -118,18 +146,28 @@ export function connectCameraPick(panel) {
         ctx.lineWidth = 4; ctx.strokeStyle = "#18302b"; ctx.fillStyle = "white";
         ctx.strokeText(String(i + 1), x + radius, y); ctx.fillText(String(i + 1), x + radius, y);
       });
-    } else if (selected >= 0) {
-      const obj = packet.objects[selected], [x1, y1, x2, y2] = obj.xyxy;
-      ctx.strokeStyle = "#80ffd0"; ctx.lineWidth = 4; ctx.strokeRect(x1, y1, x2 - x1, y2 - y1);
-      marker(ctx, ...center(obj), radius, "#ffcf61");
+    }
+    const index = mode === "calibration" ? measureIndex : selected;
+    const highlight = context => {
+      if (index < 0) return;
+      const obj = packet.objects[index], [x1,y1,x2,y2] = obj.xyxy;
+      context.strokeStyle = "#80ffd0"; context.lineWidth = 4; context.strokeRect(x1,y1,x2-x1,y2-y1);
+      marker(context,...center(obj),radius,"#ffcf61");
+    };
+    highlight(ctx);
+    if (mode === "calibration") {
+      const sample = el.measurePhoto;
+      sample.width = canvas.width; sample.height = canvas.height;
+      const sampleContext = sample.getContext("2d");
+      sampleContext.drawImage(photo,0,0,sample.width,sample.height);
+      highlight(sampleContext);
     }
   }
 
   function updateSave() {
-    const dirty = JSON.stringify(corners) !== JSON.stringify(savedCorners);
+    const dirty = clearance !== (calibration?.clearance_per_side_mm ?? 5) || JSON.stringify(corners) !== JSON.stringify(savedCorners);
     el.discard.disabled = pending || !calibration || !dirty;
-    el.save.disabled = el.discard.disabled || !corners.every((p, i) =>
-      p.pixel && p.pose.slice(0, i === 0 ? 6 : 3).every(Number.isFinite));
+    el.save.disabled = el.discard.disabled || !draftCalibration();
     if (!pending && calibration) el.note.textContent = dirty ? "저장 전 변경 사항이 있습니다." :
       calibration.revision ? "저장된 작업 평면입니다." : "영상의 네 모서리를 둘레 순서로 교시하세요.";
   }
@@ -167,6 +205,7 @@ export function connectCameraPick(panel) {
     });
     showPosition();
     showOrientation();
+    el.clearance.disabled = pending || !calibration;
     el.read.disabled = !calibration || pending;
     draw(); updateSave();
   }
@@ -194,6 +233,7 @@ export function connectCameraPick(panel) {
       approval = result.approval_id;
       changeMode("confirmation");
       el.object.textContent = result.label + " · 신뢰도 " + Math.round(result.confidence * 100) + "%";
+      el.confirmationSizing.textContent = describeGripper(result.gripper);
       el.target.replaceChildren(...result.pose.map((v, i) => {
         const cell = document.createElement("div"), dt = document.createElement("dt"), dd = document.createElement("dd");
         dt.textContent = "BASE " + axes[i]; dd.textContent = v.toFixed(2) + " " + units[i];
@@ -222,6 +262,13 @@ export function connectCameraPick(panel) {
     el.photo.width = snapshot.packet.source_size.width; el.photo.height = snapshot.packet.source_size.height;
     el.dialog.showModal();
     if (next === "calibration") {
+      clearance = 5; el.clearance.value = clearance;
+      const objects = snapshot.packet.objects;
+      measureIndex = objects.length === 1 ? 0 : -1;
+      el.measureObject.replaceChildren(new Option(objects.length ? "객체 선택" : "탐지된 객체 없음", "-1"),
+        ...objects.map((obj,i) => new Option((i+1)+"번 · "+obj.label+" · 중심 "+center(obj).map(Math.round).join(", ")+" px",String(i))));
+      el.measureObject.value = String(measureIndex);
+      el.measureObject.disabled = !objects.length;
       el.position.open = true;
       el.frameSize.textContent = "탐지 영상 · " + el.photo.width + " × " + el.photo.height + " px";
       el.note.textContent = "작업 평면을 불러오고 있습니다.";
@@ -240,6 +287,7 @@ export function connectCameraPick(panel) {
         if (c.session_id !== p.session_id || c.camera_id !== p.camera_id || c.camera_generation !== p.camera_generation ||
             c.width !== p.source_size.width || c.height !== p.source_size.height) throw new Error("입력 영상이 바뀌었습니다. 보정을 다시 시작하세요.");
         calibration = data;
+        clearance = data.clearance_per_side_mm ?? 5; el.clearance.value = clearance;
         if (data.corners.length) {
           savedCorners = data.corners;
           corners = structuredClone(savedCorners);
@@ -270,6 +318,13 @@ export function connectCameraPick(panel) {
     if (hits.length) void open("candidates", hits);
   });
   on(el.choices, "change", () => { selected = Number(el.choices.value); draw(); });
+  on(el.measureObject, "change", () => {
+    measureIndex = Number(el.measureObject.value); updateMeasurement(); draw();
+  });
+  on(el.clearance, "input", () => {
+    clearance = Number.isFinite(el.clearance.valueAsNumber) ? el.clearance.valueAsNumber : null;
+    updateMeasurement(); updateSave();
+  });
   on(el.preview, "click", () => void preview());
   on(el.photo, "click", event => {
     if (mode !== "calibration" || !calibration || pending) return;
@@ -298,10 +353,10 @@ export function connectCameraPick(panel) {
     pending = true; showCorner();
     el.note.textContent = "작업 평면을 저장하고 있습니다.";
     try {
-      const saved = await api("pick/calibration", "PUT", {...calibration, corners: corners.map((p, i) =>
-        ({pixel: p.pixel, pose: i ? [...p.pose.slice(0, 3), ...corners[0].pose.slice(3)] : p.pose}))});
+      const saved = await api("pick/calibration", "PUT", draftCalibration());
       if (frozen !== snapshot) return;
       calibration = saved; savedCorners = saved.corners;
+      clearance = saved.clearance_per_side_mm; el.clearance.value = clearance;
       corners = structuredClone(savedCorners);
       pending = false; showCorner();
       el.status.textContent = el.note.textContent = "작업 평면을 저장했습니다.";
@@ -312,6 +367,7 @@ export function connectCameraPick(panel) {
   on(el.editDirection, "click", () => selectCorner(0));
   on(el.discard, "click", () => {
     corners = structuredClone(savedCorners);
+    clearance = calibration.clearance_per_side_mm ?? 5; el.clearance.value = clearance;
     showCorner();
     el.note.textContent = "변경 사항을 취소했습니다.";
   });
@@ -321,6 +377,7 @@ export function connectCameraPick(panel) {
     try { await api("pick/cancel", "POST", {approval_id: id}); } catch { /* Also expires on the server. */ }
   }
   function resetDialog() {
+    measurement.reset();
     if (approval) void cancelId(approval);
     clearTimeout(expiryTimer); approval = null; frozen = null; pending = false;
   }

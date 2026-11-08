@@ -99,6 +99,7 @@
                   <div class="gripper-legend"><span>TCP 고정</span><span>공구 +Z</span><span>대상 앞면</span></div>
                   <div class="gripper-gap"><span data-pick="gapLabel">손끝 → 앞면</span><strong data-pick="gap">—</strong><small>시선축 기준</small></div>
                 </div>
+                <div class="gripper-sizing" data-pick="sizing" role="status"></div>
               </div>
               <svg class="gripper-ruler" data-pick="ruler" role="img" aria-label="카메라 기준 깊이 눈금"></svg>
               <div class="pick-orientation">
@@ -121,12 +122,19 @@
                     <div data-pick="angles"></div>
                     <button type="button" data-pick="editDirection" hidden>1번에서 방향 편집</button>
                   </div>
-                  <div data-pick="jawPanel" hidden><p>손끝 사이의 중심을 TCP로 둔 평행 그리퍼 예시입니다.</p></div>
+                  <div data-pick="jawPanel" hidden>
+                    <label class="pick-measure-object">측정할 탐지 객체 <select data-pick="measureObject"></select></label>
+                    <canvas data-pick="measurePhoto" aria-label="고정된 영상에서 측정할 탐지 상자"></canvas>
+                    <label class="pick-angle-label">한쪽 여유 (mm)
+                      <span class="pick-angle-value"><input data-pick="clearance" type="number" min="0" step="any" required></span>
+                    </label>
+                    <p>탐지 상자가 비스듬한 물체의 주변 공간을 포함하면 추정 폭이 커질 수 있습니다.</p>
+                  </div>
                 </div>
               </div>
             </div>
             <p class="pick-depth-note">거리는 카메라 시선 방향으로 잰 값을 입력하세요.
-              거리·치수의 초기값은 예시이며 이 브라우저에서 카메라별로 기억합니다. 실제 이동이나 벌림에는 적용되지 않습니다.
+              한쪽 여유는 작업 평면과 함께 저장됩니다. 벽 거리와 손가락 길이는 이 브라우저에서 기억합니다.
               손끝과 앞면의 깊이 차이는 충돌 판정이 아닙니다.</p>
             <details data-pick="position" class="pick-position">
               <summary><strong data-pick="positionTitle">1번 모서리 위치</strong> <span data-pick="xyzSummary"></span></summary>
@@ -144,6 +152,7 @@
           <section data-pick="confirmation" hidden>
             <strong data-pick="object"></strong>
             <dl data-pick="target" class="pick-target"></dl>
+            <p class="pick-gripper-result" data-pick="confirmationSizing"></p>
           </section>
           <footer class="pick-footer">
             <p data-pick="note" role="status"></p>
