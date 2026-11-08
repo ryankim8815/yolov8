@@ -47,6 +47,13 @@ class HostPoseCommand(JointTarget):
     motion_token: str = Field(min_length=32, max_length=32)
 
 
+class HostLineCommand(BaseModel):
+    model_config = ConfigDict(strict=True, extra="forbid")
+    pose: list[FiniteFloat] = Field(min_length=6, max_length=6)
+    session_id: str = Field(max_length=36)
+    motion_token: str = Field(pattern="^[0-9a-f]{32}$")
+
+
 class PoseTests:
     def __init__(self, monitor, state_dir):
         self.monitor = monitor

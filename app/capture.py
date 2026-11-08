@@ -38,7 +38,9 @@ def open_camera(settings):
         from .realsense import RealSenseCamera
         if len(real_devices) == 1:
             try:
-                return RealSenseCamera(selected["index"])
+                camera = RealSenseCamera(selected["index"])
+                camera.device_id = selected["id"]
+                return camera
             except (OSError, RuntimeError) as exc:
                 logging.getLogger(__name__).warning("RealSense sensor capture unavailable: %s", exc)
                 if "No module named 'pyrealsense2'" in str(exc):
@@ -48,6 +50,7 @@ def open_camera(settings):
         else:
             note = "RealSense 장치가 여러 개여서 깊이 센서를 식별할 수 없습니다."
     camera = OpenCVCamera(settings)
+    camera.device_id = selected["id"] if selected else settings.camera_id
     camera.mode_note = note
     return camera
 

@@ -12,7 +12,7 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from scripts.check_robot_sdk_host import CACHE, lan_route, lan_settings, sdk_environment
 from .robot_access_protocol import ModeTicket, ReclaimTicket, ServoTicket, local_json
-from .robot_poses import ACCELERATION, SPEED, HostPoseCommand
+from .robot_poses import ACCELERATION, SPEED, HostLineCommand, HostPoseCommand
 
 WORKER = "/usr/local/bin/e0509-access-worker"
 LOG = logging.getLogger("uvicorn.error")
@@ -38,6 +38,7 @@ class AccessServer:
     def reset(self, connection, detail):
         self.finish_motion("unknown", "SDK 연결이 끊겨 자세 이동 결과를 확인할 수 없습니다.")
         self.mode_supported = False
+        self.line_supported = False
         self.mode_token = self.mode_request = self.mode_target = None
         self.mode_result = "idle"
         self.mode_deadline = 0
@@ -66,7 +67,7 @@ class AccessServer:
         held = connected and self.held
         reason = self.motion_reason()
         return dict(mode_change=self.mode_status(), servo=self.servo_status(), motion_token=self.motion_token, can_move=reason is None, motion_reason=reason,
-                    operation_mode=self.mode, connection=self.connection, route=self.route, detail=self.detail,
+                    line_supported=self.line_supported, operation_mode=self.mode, connection=self.connection, route=self.route, detail=self.detail,
                     sdk_version=self.sdk, controller_version=self.controller, robot_state=self.state,
                     initialized=self.initialized, session_id=self.session, revision=self.revision,
                     worker_pid=self.process.pid if self.process and self.session else None,
@@ -192,6 +193,9 @@ class AccessServer:
             raise HTTPException(409, reason)
 
     async def move_pose(self, command):
+        line = isinstance(command, HostLineCommand)
+        if line and not self.line_supported:
+            raise HTTPException(409, "직선 이동을 지원하는 SDK 작업자를 시작하세요.")
         self.require_motion(command)
         await self.check_route(command.session_id)
         self.require_motion(command)
@@ -199,9 +203,13 @@ class AccessServer:
         self.state = None  # The last STANDBY sample is no longer current during a move.
         self.motion_token = uuid4().hex  # Consume the confirmation before writing to the worker.
         future = self.motion = asyncio.get_running_loop().create_future()
-        values = " ".join(format(v, ".9g") for v in (SPEED, ACCELERATION, *command.angles))
+        if line:
+            operation, parameters = "line", command.pose
+        else:
+            operation, parameters = "move", (SPEED, ACCELERATION, *command.angles)
+        values = " ".join(format(v, ".9g") for v in parameters)
         try:
-            self.process.stdin.write(f"move {self.grant_number} {values}\n".encode())
+            self.process.stdin.write(f"{operation} {self.grant_number} {values}\n".encode())
         except (OSError, RuntimeError):
             self.drop_worker("SDK 작업자 연결이 끊겼습니다.")
         try:
@@ -259,6 +267,8 @@ class AccessServer:
     def event(self, key, value):
         if key == "sdk":
             self.sdk = value
+        elif key == "feature" and value == "line":
+            self.line_supported = True
         elif key == "feature" and value == "operation_mode":
             self.mode_supported = True
         elif key == "mode_result":
@@ -425,6 +435,12 @@ def create_host_app(server=None):
     async def pose(command: HostPoseCommand, request: Request):
         if not request.headers.get("x-robot-target"):
             raise HTTPException(403, "로봇 화면의 저장된 자세를 사용하세요.")
+        return await owner.move_pose(command)
+
+    @app.post("/api/robot/host-access/line", dependencies=[Depends(same_target), Depends(local_json)])
+    async def line(command: HostLineCommand, request: Request):
+        if not request.headers.get("x-robot-target"):
+            raise HTTPException(403, "탐지 카메라에서 이동할 대상을 승인하세요.")
         return await owner.move_pose(command)
 
     return app

@@ -1,0 +1,103 @@
+"""Project detector pixels onto a taught planar quadrilateral in robot BASE."""
+import math
+
+from pydantic import BaseModel, ConfigDict, Field, FiniteFloat
+
+from .store import DomainError
+
+
+class Input(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+
+class CameraFrame(Input):
+    session_id: str = Field(min_length=1, max_length=64)
+    camera_generation: int = Field(ge=1)
+    camera_id: str = Field(min_length=1, max_length=512)
+    width: int = Field(gt=0)
+    height: int = Field(gt=0)
+
+    @classmethod
+    def from_packet(cls, packet):
+        if not packet.get("camera_id"):
+            raise DomainError("카메라 장치를 식별할 수 없습니다. 입력 카메라를 선택하고 적용하세요.")
+        return cls(session_id=packet["session_id"], camera_generation=packet["camera_generation"],
+                   camera_id=packet["camera_id"], **packet["source_size"])
+
+
+class Corner(Input):
+    pixel: list[FiniteFloat] = Field(min_length=2, max_length=2)
+    pose: list[FiniteFloat] = Field(min_length=6, max_length=6)
+
+
+class Calibration(Input):
+    camera: CameraFrame
+    revision: str | None = Field(max_length=32)
+    corners: list[Corner] = Field(min_length=4, max_length=4)
+
+
+def area(a, b, c):
+    """Signed double area of a triangle."""
+    return (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])
+
+
+def convex(vertices):
+    turns = [area(vertices[i-2], vertices[i-1], vertices[i]) for i in range(4)]
+    span = max(math.dist(a, b) for a in vertices for b in vertices)
+    epsilon = max(1e-6, span * span * 1e-6)
+    if not (min(turns) > epsilon or max(turns) < -epsilon):
+        raise DomainError("네 모서리를 서로 떨어진 위치에 둘레 순서대로 등록하세요.", 422)
+
+
+def triangle_weights(vertices, point):
+    a, b, c = vertices[:3]
+    scale = area(a, b, c)
+    return (area(point, b, c) / scale, area(a, point, c) / scale, area(a, b, point) / scale)
+
+
+class PickPlane:
+    def __init__(self, calibration):
+        camera = calibration.camera
+        self.pixels = [p.pixel for p in calibration.corners]
+        if any(not (0 <= u < camera.width and 0 <= v < camera.height) for u, v in self.pixels):
+            raise DomainError("영상 안에서 네 모서리를 선택하세요.", 422)
+        convex(self.pixels)
+        self.xyz = [p.pose[:3] for p in calibration.corners]
+        if any(abs(v) > 1e6 for p in calibration.corners for v in p.pose):
+            raise DomainError("BASE 좌표와 공구 방향의 단위를 확인하세요.", 422)
+        self.abc = calibration.corners[0].pose[3:]
+        a, b, c, d = self.xyz
+        x, y, z = (v - u for v, u in zip(b, a))
+        i, j, k = (v - u for v, u in zip(c, a))
+        normal = (y*k - z*j, z*i - x*k, x*j - y*i)
+        length = math.hypot(*normal)
+        if length < 1e-6:
+            raise DomainError("교시한 TCP 좌표가 한 직선 위에 있습니다.", 422)
+        residual = abs(sum(n*(v-u) for n, v, u in zip(normal, d, a))) / length
+        if residual > 2:
+            raise DomainError("네 번째 TCP가 교시 평면에서 2 mm 넘게 벗어났습니다.", 422)
+        # Drop the most normal axis for a well-conditioned 2D basis on the BASE plane.
+        drop = max(range(3), key=lambda axis: abs(normal[axis]))
+        plane = [[v for axis, v in enumerate(p) if axis != drop] for p in self.xyz]
+        convex(plane)
+        # In homogeneous barycentric coordinates the first three vertices are the
+        # basis. The fourth correspondence fixes the three scales up to a common factor.
+        self.scales = [b/a for a, b in zip(triangle_weights(self.pixels, self.pixels[3]),
+                                            triangle_weights(plane, plane[3]))]
+
+    def contains(self, pixel):
+        turns = [area(self.pixels[i-1], self.pixels[i], pixel) for i in range(4)]
+        return min(turns) >= -1e-7 or max(turns) <= 1e-7
+
+    def project(self, pixel):
+        weights = [s*w for s, w in zip(self.scales, triangle_weights(self.pixels, pixel))]
+        total = sum(weights)
+        if abs(total) <= 1e-12:
+            return None
+        return [sum(w*p[axis] for w, p in zip(weights, self.xyz)) / total for axis in range(3)]
+
+    def target(self, pixel):
+        xyz = self.project(pixel) if self.contains(pixel) else None
+        if xyz is None:
+            raise DomainError("선택한 중심이 보정한 작업 영역 밖에 있습니다.")
+        return xyz + self.abc

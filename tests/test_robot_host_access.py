@@ -22,6 +22,7 @@ import sys, time
 print('E0509 sdk GL010117')
 print('E0509 feature servo_on')
 print('E0509 feature operation_mode')
+print('E0509 feature line')
 print('E0509 connected GF02100300')
 state = 'SAFE_OFF MANUAL REAL'
 print('E0509 ready ' + state, flush=True)
@@ -48,7 +49,7 @@ for command in sys.stdin:
             state='STANDBY MANUAL REAL'
             print('E0509 ready ' + state, flush=True)
         continue
-    if command.startswith('move '):
+    if command.startswith(('move ', 'line ')):
         if callback == 'DROP': sys.exit(0)
         print('E0509 pose completed', flush=True)
         print('E0509 ready ' + state, flush=True)
@@ -230,6 +231,21 @@ class HostAccessTests(unittest.TestCase):
         self.client.portal.call(self.owner.event, "callback", "GRANT")
         self.assertEqual(self.move(old).status_code, 409)
         self.assertEqual(self.log.read(), b"")
+
+    def test_line_consumes_same_motion_token_as_pose(self):
+        self.response_file.write_text("GRANT|STANDBY AUTO REAL")
+        self.force()
+        ready = self.until(lambda s: s["can_move"] and s["line_supported"])
+        headers = {"X-Robot-Target": f"{self.owner.cfg['ROBOT_IP']}:{self.owner.cfg['ROBOT_PORT']}"}
+        target = {"session_id": ready["session_id"], "motion_token": ready["motion_token"],
+                  "pose": [300, -25, 150, 0, 90, 0]}
+        self.assertEqual(self.client.post(BASE + "/line", json=target).status_code, 403)
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            replies = list(pool.map(lambda _: self.client.post(BASE + "/line", json=target, headers=headers), range(2)))
+        self.assertEqual(sorted(r.status_code for r in replies), [200, 409])
+        self.assertEqual(next(r.json() for r in replies if r.is_success)["state"], "completed")
+        self.assertEqual(self.move(ready).status_code, 409)
+        self.assertEqual(self.log.read(), b"force\nline 1 300 -25 150 0 90 0\n")
 
     def test_two_confirmations_send_one_move_and_disconnect_is_unknown(self):
         self.response_file.write_text("GRANT|STANDBY AUTO REAL")

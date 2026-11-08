@@ -134,6 +134,11 @@ def create_app(settings=None, pipeline_factory=Pipeline, state_root=None):
     async def stream():
         return TimedStreamingResponse(jpeg_frames(application.state.pipeline), settings.send_timeout)
 
+    @application.get("/api/detections/pick-frame")
+    def pick_frame(session_id: str | None = None, frame_id: int | None = None):
+        frame = application.state.pipeline.pick_frame(session_id, frame_id)
+        return JSONResponse(frame, headers={"Cache-Control": "no-store"})
+
     @application.websocket("/ws/detections")
     async def detections(websocket: WebSocket, preview: bool = False, display_mode: DisplayMode = "detections"):
         await websocket.accept()

@@ -12,6 +12,7 @@ from .camera_views import SensorFrame, VIDEO_MODES, render_view
 from .capture import open_camera
 from .detector import Detector
 from .render import encode_jpeg
+from .store import DomainError
 
 log = logging.getLogger(__name__)
 
@@ -55,6 +56,7 @@ class Pipeline:
         self.model_ready = False
         self.camera_online = False
         self.camera_index = settings.camera_index
+        self.camera_id = settings.camera_id
         self.generation = 0
         self.camera_size = None
         self.camera_error = None
@@ -67,6 +69,8 @@ class Pipeline:
         self.jpeg = None
         self.preview_result = None
         self.preview_packet = None
+        # Keep only metadata for frames that the dashboard can actually display.
+        self.preview_history = deque(maxlen=1024)
         self.subscribers = 0
         self.detector_metadata = {}
         self.counts = {"captured": 0, "detected": 0, "encoded": 0}
@@ -111,6 +115,8 @@ class Pipeline:
                 camera = self.camera_factory(self.settings)
                 with self.lock:
                     self.camera_index = getattr(camera, "index", self.settings.camera_index)
+                    self.camera_id = getattr(camera, "device_id", self.settings.camera_id)
+                    self.preview_history.clear()
                     self.mode_note = getattr(camera, "mode_note", None)
                     self.generation += 1
                     generation = self.generation
@@ -180,6 +186,7 @@ class Pipeline:
                     if packet.generation != self.generation or not self.camera_online:
                         continue
                     self.result, self.result_ns = result, packet.captured_ns
+                    result.update(camera_id=self.camera_id, camera_generation=packet.generation)
                     self.result_generation = packet.generation
                     self._count("detected")
                     self.latencies.append(result["timing_ms"]["capture_to_result"])
@@ -220,6 +227,8 @@ class Pipeline:
                     self.jpeg = (packet.frame_id, packet.captured_ns, data)
                     self.preview_result = result
                     self.preview_packet = packet
+                    if packet.generation == self.generation:
+                        self.preview_history.append((packet.captured_ns, result))
                     self._count("encoded")
                 next_encode = time.monotonic() + 1 / self.settings.preview_fps
         except Exception as exc:
@@ -234,6 +243,24 @@ class Pipeline:
     def latest_result(self):
         with self.lock:
             return self.result
+
+    def pick_frame(self, session_id=None, frame_id=None):
+        with self.lock:
+            now = time.monotonic_ns()
+            if (self.stop_event.is_set() or self.fatal_error or not self.camera_online or
+                    self.result_generation != self.generation or self.result_ns is None or
+                    now - self.result_ns > self.settings.stale_seconds * 1e9):
+                raise DomainError("최신 카메라 영상을 받을 수 없습니다.", 503)
+            if session_id is not None and session_id != self.session_id:
+                raise DomainError("카메라 세션이 변경되었습니다. 대상을 다시 선택하세요.")
+            if frame_id is None:
+                return self.result
+            for captured_ns, result in reversed(self.preview_history):
+                if now - captured_ns > 30e9:
+                    break
+                if result["frame_id"] == frame_id:
+                    return result
+            raise DomainError("선택한 영상이 만료되었습니다. 대상을 다시 선택하세요.")
 
     def latest_jpeg(self):
         with self.lock:

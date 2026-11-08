@@ -61,12 +61,101 @@
             <rect width="100%" height="100%" fill="#13272b" opacity=".42" mask="url(#class-spotlight)"></rect>
             <g data-camera="outlines" fill="none" stroke="#9effce" stroke-width="3"></g>
           </svg>
+          <canvas data-pick="overlay" class="pick-overlay" aria-hidden="true" hidden></canvas>
           <div class="camera-empty" data-camera="empty">
             <p data-camera="message">실시간 영상 연결 중</p>
             <a href="/training#live" data-camera="settings" hidden>카메라 설정 열기</a>
           </div>
           <figcaption class="lens-label" data-camera="caption" hidden></figcaption>
         </figure>
+        <div class="pick-controls">
+          <button type="button" data-pick="select" disabled>파지 대상 선택</button>
+          <button type="button" data-pick="teach" disabled>작업 평면 보정</button>
+          <span role="status" data-pick="status">탐지 영상 대기 중</span>
+        </div>
+        <dialog class="pick-dialog" data-pick="dialog" aria-labelledby="pick-title">
+          <header class="pick-heading">
+            <svg class="station-icon" data-pick="teachIcon" aria-hidden="true" hidden><use href="/static/station-icons.svg#scan-line"></use></svg>
+            <h3 id="pick-title" data-pick="title"></h3>
+            <span class="pick-model" data-pick="model" hidden>E0509 / BASE</span>
+            <button type="button" data-pick="close" hidden>닫기</button>
+          </header>
+          <div data-pick="selectionFrame"><canvas data-pick="photo" aria-label="선택 당시의 카메라 영상"></canvas></div>
+          <section data-pick="calibration" hidden>
+            <div class="pick-steps" data-pick="steps" role="group" aria-label="교시할 모서리"></div>
+            <div class="pick-depth-workbench">
+              <div class="gripper-panel">
+                <div class="gripper-heading"><div><h4>그리퍼 방향 <small>· 가상 작업면</small></h4><span data-pick="basisHint" class="gripper-basis"></span></div>
+                  <div class="pick-segments scene-views" role="group" aria-label="보기 방향">
+                    <button type="button" data-depth-view="oblique" aria-pressed="true">입체</button>
+                    <button type="button" data-depth-view="side" aria-pressed="false">측면</button>
+                  </div>
+                </div>
+                <svg class="gripper-scene" data-pick="scene" role="img" aria-label="그리퍼와 작업면 미리보기">
+                  <defs><marker id="pick-z-arrow" viewBox="0 0 10 8" refX="9" refY="4" orient="auto" markerUnits="userSpaceOnUse" markerWidth="10" markerHeight="8"><path d="M0 0L10 4 0 8Z" fill="#7cebd7"></path></marker></defs>
+                  <g data-pick="world"></g>
+                </svg>
+                <div class="gripper-scene-foot">
+                  <div class="gripper-legend"><span>TCP 고정</span><span>공구 +Z</span><span>대상 앞면</span></div>
+                  <div class="gripper-gap"><span data-pick="gapLabel">손끝 → 앞면</span><strong data-pick="gap">—</strong><small>시선축 기준</small></div>
+                </div>
+              </div>
+              <svg class="gripper-ruler" data-pick="ruler" role="img" aria-label="카메라 기준 깊이 눈금"></svg>
+              <div class="pick-orientation">
+                <div class="pick-angle-panel">
+                  <div class="pick-angle-heading"><h4>작업면 설정</h4><span>거리 직접 입력</span></div>
+                  <div class="pick-segments" role="group" aria-label="가상 대상">
+                    <button type="button" data-depth-kind="wall" aria-pressed="false">벽만</button>
+                    <button type="button" data-depth-kind="object" aria-pressed="true">벽 + 물체</button>
+                  </div>
+                  <div data-pick="depthFields"></div>
+                </div>
+                <div class="pick-angle-panel">
+                  <div class="pick-angle-heading"><h4>그리퍼 설정</h4><span>Z–Y–Z</span></div>
+                  <div class="pick-segments" role="group" aria-label="그리퍼 설정">
+                    <button type="button" data-depth-panel="angles" aria-pressed="true">공구 방향</button>
+                    <button type="button" data-depth-panel="jaws" aria-pressed="false">손가락 치수</button>
+                  </div>
+                  <div data-pick="anglePanel">
+                    <p data-pick="angleHint"></p>
+                    <div data-pick="angles"></div>
+                    <button type="button" data-pick="editDirection" hidden>1번에서 방향 편집</button>
+                  </div>
+                  <div data-pick="jawPanel" hidden><p>손끝 사이의 중심을 TCP로 둔 평행 그리퍼 예시입니다.</p></div>
+                </div>
+              </div>
+            </div>
+            <p class="pick-depth-note">거리는 카메라 시선 방향으로 잰 값을 입력하세요.
+              거리·치수의 초기값은 예시이며 이 브라우저에서 카메라별로 기억합니다. 실제 이동이나 벌림에는 적용되지 않습니다.
+              손끝과 앞면의 깊이 차이는 충돌 판정이 아닙니다.</p>
+            <details data-pick="position" class="pick-position">
+              <summary><strong data-pick="positionTitle">1번 모서리 위치</strong> <span data-pick="xyzSummary"></span></summary>
+              <div class="pick-position-body">
+                <div><span class="pick-subtitle" data-pick="frameSize"></span><div data-pick="planeFrame"></div><p data-pick="pixel"></p></div>
+                <div><span class="pick-subtitle">TCP 위치 · BASE 기준</span><div class="pick-fields" data-pick="fields"></div>
+                  <button type="button" data-pick="read">현재 위치 불러오기</button>
+                </div>
+              </div>
+            </details>
+          </section>
+          <section data-pick="candidates" hidden>
+            <label>파지할 객체 <select data-pick="choices"></select></label>
+          </section>
+          <section data-pick="confirmation" hidden>
+            <strong data-pick="object"></strong>
+            <dl data-pick="target" class="pick-target"></dl>
+          </section>
+          <footer class="pick-footer">
+            <p data-pick="note" role="status"></p>
+            <div class="pick-actions">
+              <button type="button" data-pick="cancel" autofocus>취소</button>
+              <button type="button" data-pick="discard" hidden>변경 취소</button>
+              <button type="button" data-pick="save" hidden>보정 저장</button>
+              <button type="button" data-pick="preview" hidden>좌표 확인</button>
+              <button type="button" data-pick="approve" hidden>승인 후 이동</button>
+            </div>
+          </footer>
+        </dialog>
         <section class="class-summary" aria-label="현재 프레임의 탐지 클래스">
           <div class="class-heading"><h3>탐지 클래스</h3><span data-camera="classCount">—</span></div>
           <div class="class-chips" data-camera="chips" role="group" aria-label="강조할 클래스 선택"></div>

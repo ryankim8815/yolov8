@@ -17,6 +17,7 @@ export function watchDetections({ image, onStatus, onDetections, onPreview, matc
   let closed = false;
   let nextFrame = null;
   let loadingFrame = null;
+  let loadingBlob = null;
   let imageUrl = null;
 
   function releaseUrl() {
@@ -27,6 +28,7 @@ export function watchDetections({ image, onStatus, onDetections, onPreview, matc
   function clearImage() {
     nextFrame = null;
     loadingFrame = null;
+    loadingBlob = null;
     image.hidden = true;
     image.removeAttribute("src");
     releaseUrl();
@@ -48,8 +50,9 @@ export function watchDetections({ image, onStatus, onDetections, onPreview, matc
     if (matchedPreview) {
       if (!loadingFrame) return;
       frameId = loadingFrame.frame_id;
-      onDetections(loadingFrame);
+      onDetections(loadingFrame, loadingBlob);
       loadingFrame = null;
+      loadingBlob = null;
       releaseUrl();
     }
     image.hidden = false;
@@ -75,6 +78,7 @@ export function watchDetections({ image, onStatus, onDetections, onPreview, matc
         // while the browser is decoding so slow clients never queue old frames.
         if (nextFrame && !loadingFrame) {
           loadingFrame = nextFrame;
+          loadingBlob = event.data;
           imageUrl = URL.createObjectURL(event.data);
           image.src = imageUrl;
         }

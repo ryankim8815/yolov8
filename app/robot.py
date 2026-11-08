@@ -21,6 +21,7 @@ from websockets.exceptions import ConnectionClosed
 from .robot_access_protocol import ModeTicket, ReclaimTicket, ServoTicket, local_json
 from .robot_access_proxy import forward_host, request_host
 from .robot_poses import PoseExecution, PoseInput, PoseTests
+from .robot_pick import PickTargets, router as pick_router
 from .robot_work_points import PointName, WorkPointInput, WorkPoints
 from .store import DomainError
 
@@ -108,6 +109,7 @@ class RobotMonitor:
         self.teach_lock = asyncio.Lock()
         self.pose_tests = PoseTests(self, state_dir) if state_dir is not None else None
         self.work_points = WorkPoints(self.pose_tests.path.with_name("work-points.json")) if self.pose_tests else None
+        self.picks = PickTargets(self, self.pose_tests.path.parent) if self.pose_tests else None
 
     def start(self):
         if self.settings.ros_pc_ip and self.task is None:
@@ -121,6 +123,8 @@ class RobotMonitor:
             self.task = None
         if self.pose_tests and self.pose_tests.task:
             await self.pose_tests.task
+        if self.picks and self.picks.task:
+            await self.picks.task
 
     async def _run(self):
         host = self.bridge_host
@@ -407,6 +411,7 @@ def require_robot_owner(request: Request):
 
 
 router = APIRouter(prefix="/api/robot", dependencies=[Depends(require_robot_owner)])
+router.include_router(pick_router)
 
 
 @router.get("/status")
@@ -480,6 +485,8 @@ async def save_work_point(name: PointName, body: WorkPointInput, request: Reques
 @router.post("/poses/{slot}/execute", status_code=202, dependencies=[Depends(same_site_json)])
 async def execute_pose(slot: int, body: PoseExecution, request: Request):
     robot = request.app.state.robot
+    if robot.picks.busy:
+        raise DomainError("파지 위치 이동이 끝난 뒤 다시 시도하세요.")
     if robot.settings.access_backend == "mac-sdk":
         local_json(request)
         if not body.session_id or not body.motion_token:
@@ -491,6 +498,8 @@ async def execute_pose(slot: int, body: PoseExecution, request: Request):
             raise HTTPException(409, "제어권이 변경되었습니다. 현재 세션에서 자세를 다시 확인하세요.")
         if not access.get("can_move"):
             raise HTTPException(409, access.get("motion_reason") or "SDK 이동 준비 상태를 확인하세요.")
+        if robot.picks.busy:
+            raise DomainError("파지 위치 이동이 끝난 뒤 다시 시도하세요.")
         return robot.pose_tests.execute(slot, body.revision, body)
     if body.session_id or body.motion_token:
         raise HTTPException(409, "제어 방식이 변경되었습니다. 자세를 다시 확인하세요.")

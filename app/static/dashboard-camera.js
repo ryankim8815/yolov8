@@ -1,4 +1,5 @@
 import { watchDetections } from "./detection-feed.js";
+import { connectCameraPick } from "./camera-pick.js";
 
 function createClassSummary(fields, getStation) {
   const buttons = new Map();
@@ -198,6 +199,7 @@ export function connectDashboardCamera(panel, getStation) {
   const fields = Object.fromEntries([...panel.querySelectorAll("[data-camera]")].map(node => [node.dataset.camera, node]));
   const classes = createClassSummary(fields, getStation);
   const source = cameraSource(fields);
+  const pick = connectCameraPick(panel);
   let stop, disposed = false;
   let displayMode = "detections";
 
@@ -238,6 +240,7 @@ export function connectDashboardCamera(panel, getStation) {
         fields.image.parentElement.style.aspectRatio = size.width + "/" + size.height;
       }
       if (reset) {
+        pick.update(null);
         classes.update(null);
         fields.empty.hidden = false;
         fields.message.textContent = status.last_error || (status.ready ? "첫 영상 프레임 수신 대기" : label);
@@ -246,8 +249,9 @@ export function connectDashboardCamera(panel, getStation) {
         fields.caption.hidden = true;
       }
     },
-    onDetections(packet) {
+    onDetections(packet, jpeg) {
       classes.update(packet);
+      pick.update(packet, jpeg);
       fields.image.parentElement.style.aspectRatio = packet.source_size.width + "/" + packet.source_size.height;
       fields.count.textContent = String(packet.objects.length);
       fields.caption.textContent = [packet.model_version || packet.model, "탐지 #" + packet.frame_id].filter(Boolean).join(" · ");
@@ -257,6 +261,7 @@ export function connectDashboardCamera(panel, getStation) {
       fields.empty.hidden = visible;
       fields.caption.hidden = !visible || !fields.caption.textContent;
       if (!visible) {
+        pick.update(null);
         fields.message.textContent = "영상 연결을 다시 시도합니다.";
         fields.count.textContent = "—";
         classes.update(null);
@@ -270,6 +275,7 @@ export function connectDashboardCamera(panel, getStation) {
     fields.mode.removeEventListener("change", modeChanged);
     source.dispose();
     stop();
+    pick.dispose();
     classes.dispose();
   };
 }

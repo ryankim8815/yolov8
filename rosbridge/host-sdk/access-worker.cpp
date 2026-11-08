@@ -1,4 +1,4 @@
-// One SDK session owns access and operator-confirmed joint moves.
+// One SDK session owns access and operator-confirmed joint and Cartesian moves.
 #include "DRFLEx.h"
 #include <atomic>
 #include <chrono>
@@ -72,6 +72,32 @@ static void set_operation_mode(DRAFramework::CDRFLEx& sdk, const char* command) 
     event("mode_result", result);
 }
 
+static bool can_move(DRAFramework::CDRFLEx& sdk, unsigned grant) {
+    return mode_verified && sdk.get_robot_state() == STATE_STANDBY &&
+           sdk.get_robot_mode() == ROBOT_MODE_AUTONOMOUS && sdk.get_robot_system() == ROBOT_SYSTEM_REAL &&
+           !in_move && !down && initialized && held && grant == grant_number.load() &&
+           last_frame.load() && now_ms() - last_frame.load() <= 2000;
+}
+
+static void move_line(DRAFramework::CDRFLEx& sdk, const char* command) {
+    unsigned grant;
+    float pos[6];
+    char extra;
+    if (std::sscanf(command, "line %u %f %f %f %f %f %f %c", &grant,
+                    &pos[0], &pos[1], &pos[2], &pos[3], &pos[4], &pos[5], &extra) != 7) {
+        event("pose", "refused"); return;
+    }
+    for (float v : pos) {
+        if (!std::isfinite(v)) { event("pose", "refused"); return; }
+    }
+    if (!can_move(sdk, grant)) { event("pose", "refused"); return; }
+    float velocity[2] = {10, 10}, acceleration[2] = {10, 10};
+    in_move = true;
+    const bool completed = sdk.movel(pos, velocity, acceleration, 0, MOVE_MODE_ABSOLUTE, MOVE_REFERENCE_BASE, 0);
+    in_move = false;
+    event("pose", completed ? "completed" : "failed");
+}
+
 static void move_pose(DRAFramework::CDRFLEx& sdk, const char* command) {
     unsigned grant;
     float speed, acceleration, joints[6];
@@ -87,9 +113,7 @@ static void move_pose(DRAFramework::CDRFLEx& sdk, const char* command) {
             event("pose", "refused"); return;
         }
     }
-    if (!mode_verified || sdk.get_robot_state() != STATE_STANDBY || sdk.get_robot_mode() != ROBOT_MODE_AUTONOMOUS ||
-        sdk.get_robot_system() != ROBOT_SYSTEM_REAL || down || !initialized || !held ||
-        grant != grant_number.load() || now_ms() - last_frame.load() > 2000) {
+    if (!can_move(sdk, grant)) {
         event("pose", "refused"); return;
     }
     in_move = true;
@@ -105,6 +129,7 @@ int main() {
     if (std::strcmp(version, "GL010117") || !ip || !port) return 1;
     event("feature", "servo_on");
     event("feature", "operation_mode");
+    event("feature", "line");
     sdk.set_on_disconnected([] { down = true; event("disconnect", "SDK disconnected"); });
     sdk.set_on_monitoring_data([](const LPMONITORING_DATA data) {
         if (!data) return;
@@ -161,6 +186,7 @@ int main() {
         if (!std::strncmp(command, "mode ", 5)) { set_operation_mode(sdk, command); continue; }
         if (!std::strncmp(command, "servo ", 6)) { servo_on(sdk, command); continue; }
         if (!std::strncmp(command, "move ", 5)) { move_pose(sdk, command); continue; }
+        if (!std::strncmp(command, "line ", 5)) { move_line(sdk, command); continue; }
         if (std::strcmp(command, "force\n")) continue;
         const auto state = sdk.get_robot_state();
         if (held) { event("already", "GRANT"); continue; }
