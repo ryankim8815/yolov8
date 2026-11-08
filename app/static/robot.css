@@ -89,6 +89,21 @@
 .arm-pose dd { margin:0; font:11px var(--mono); overflow-wrap:anywhere; }
 .gripper-panel .arm-readings .arm-read-note { margin-top:4px; color:#c2d7d6; font-size:11px; }
 .plane-editor[data-arm-active=true] .gripper-scene { display:none; }
+.plane-editor [data-manipulator-panel] { border:0; border-radius:0; }
+.arm-hand { padding:10px 12px; border-top:1px solid #355058; background:#1b333a; }
+.arm-hand-heading { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:5px 12px; font-size:12px; }
+.arm-hand-heading small { font-size:10px; font-weight:400; color:#b9d0ce; }
+.arm-hand [data-arm=handStatus] { color:#f2cd92; font-size:11px; }
+.arm-hand [data-arm=handStatus][data-known=true] { color:#85e8cf; }
+.arm-hand-values { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; margin:7px 0; }
+.arm-hand-values dt { color:#b9d0ce; font-size:11px; }
+.arm-hand-values dd { margin:2px 0 0; color:#e3efee; font:12px var(--mono); }
+.arm-hand-actions { display:flex; align-items:center; flex-wrap:wrap; gap:6px 12px; color:#b9d0ce; font-size:11px; }
+.arm-hand-actions button { padding:4px 8px; border:1px solid #526e71; border-radius:5px; background:#244039; color:#e3efee; cursor:pointer; }
+.arm-hand-actions button:disabled { opacity:.5; cursor:default; }
+.arm-hand-actions a { color:#85e8cf; }
+.gripper-panel .arm-hand [data-arm=handNote] { color:#c2d7d6; font-size:11px; margin-top:5px; }
+.arm-hand [data-arm=handNote]:empty { display:none; }
 @media(max-width:750px) {
   .arm-preview { grid-template-columns:1fr; }
   .arm-stage { height:clamp(185px,27dvh,240px); }

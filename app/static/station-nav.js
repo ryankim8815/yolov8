@@ -9,7 +9,7 @@ export const destinations = [
 ];
 
 const robotPages = [
-  {id:"manipulator", label:"메니퓰레이터", icon:"robot-arm"},
+  {id:"manipulator", label:"매니퓰레이터", icon:"robot-arm"},
   {id:"gripper", label:"그리퍼", icon:"settings"},
   {id:"work-plane", label:"작업 평면 보정", icon:"scan-line"}
 ];

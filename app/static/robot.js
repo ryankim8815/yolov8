@@ -132,7 +132,7 @@ function render(data) {
       "rosbridge 연결 완료. 관절 토픽의 발행자를 확인하고 있습니다.",
     no_publisher: `rosbridge의 ROS 그래프에서 ${joint.name} 발행자가 0개입니다. 두산 드라이버, ROS 도메인과 네임스페이스를 확인하세요.`,
     live: "ROS 2 관절 데이터를 수신하고 있습니다.",
-    monitoring: `E0509 제어기의 실제 관절각을 ${joint.name}에서 수신하고 있습니다. 자세 테스트는 메니퓰레이터에서 사용할 수 있습니다.`,
+    monitoring: `E0509 제어기의 실제 관절각을 ${joint.name}에서 수신하고 있습니다. 자세 테스트는 매니퓰레이터에서 사용할 수 있습니다.`,
     stale: "관절 데이터 갱신이 멈췄습니다. 마지막 수신값을 표시합니다.",
     robot_disconnected: "드라이버에서 로봇 연결 끊김 이벤트를 수신했습니다. LAN 케이블과 컨트롤러를 확인하세요."
   };
@@ -292,6 +292,7 @@ get("servo-confirm").addEventListener("click", async () => {
 
 function renderControl() {
   renderHand(latest, !paused && !apiUnavailable ? hostAccess : null);
+  workPlane?.gripperStatus(!paused && !apiUnavailable ? latest : null, !paused && !apiUnavailable ? hostAccess : null);
   const overview = get("robot-overview");
   if (macMode()) {
     const state = hostAccess?.robot_state;
@@ -490,9 +491,6 @@ function routeRobot() {
     workPlane.dispose(); workPlane = null;
   }
   if (page.id === "gripper") void loadHandTable();
-  if (location.hash === "#work-points-title" || location.hash === "#pose-title") {
-    requestAnimationFrame(()=>get(location.hash.slice(1))?.scrollIntoView());
-  }
 }
 window.addEventListener("hashchange", routeRobot);
 routeRobot();

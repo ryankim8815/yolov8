@@ -170,6 +170,13 @@
 .plane-tabs button[aria-selected="true"] { border-bottom-color:var(--mint); color:var(--mint); font-weight:700; }
 .plane-tabs button:focus-visible { outline:2px solid var(--mint); outline-offset:-3px; }
 .plane-editor [role="tabpanel"] { overflow:auto; scrollbar-gutter:stable; padding:12px 4px 12px 0; }
+.pick-dialog.teaching.plane-editor[data-arm-active="true"] {
+  display:block; height:auto; max-height:none; overflow:visible;
+}
+.plane-editor[data-arm-active="true"] [data-pick="calibration"] { display:block; min-height:auto; }
+.plane-editor[data-arm-active="true"] [role="tabpanel"] {
+  height:auto; max-height:none; overflow:visible; scrollbar-gutter:auto;
+}
 #plane-camera-settings { scroll-padding-top:54px; }
 #plane-camera-settings .pick-steps { position:sticky; top:0; z-index:1; }
 @media (max-height:540px) {

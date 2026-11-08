@@ -476,6 +476,7 @@ export function connectDepthPreview(el, signal) {
   return {render, setEstimate(result) { estimate = result; draw(); }, setFloor(z) { floorZ = z; draw(); },
     editExample(active) { editingExample = active; draw(); },
     robotStatus:arm.robotStatus,
+    setGripperAttached:arm.setAttached,gripperStatus:arm.gripperStatus,
     setManipulator(active) {
       manipulator = active;
       el.modelTitle.textContent = active ? "E0509 자세" : "그리퍼 방향";

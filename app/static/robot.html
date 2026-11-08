@@ -61,7 +61,7 @@ docker compose run --rm --no-deps doosan-driver timeout 15 check-e0509</pre>
           </div>
           <p class="robot-overview" id="robot-overview">제어 상태 확인 중</p>
         </section>
-        <section data-view="manipulator" class="panel" aria-label="메니퓰레이터 제어" hidden>
+        <section id="manipulator-control" data-manipulator-panel class="panel" role="tabpanel" aria-labelledby="manipulator-control-tab" tabindex="0" hidden>
           <div class="panel-head"><h2>로봇 제어</h2></div>
           <div class="robot-control">
             <div><label for="control-view" class="meta">제어권 보기</label>
@@ -125,7 +125,7 @@ docker compose run --rm --no-deps doosan-driver timeout 15 check-e0509</pre>
           <div class="panel-head"><h2>관절 위치</h2><span id="joint-age" class="meta">수신 대기 · °</span></div>
           <div class="robot-joints" id="robot-joints"></div>
         </section>
-        <section data-view="manipulator" hidden class="panel" aria-labelledby="work-points-title">
+        <section id="manipulator-work-points" data-manipulator-panel hidden class="panel" role="tabpanel" aria-labelledby="manipulator-points-tab" tabindex="0">
           <div class="panel-head"><h2 id="work-points-title">주요 좌표값 설정</h2><span class="meta">로봇 베이스 기준 · BASE</span></div>
           <div class="pose-body">
             <p class="work-point-help">공구 끝점(TCP)의 위치 X·Y·Z는 mm, 방향 A·B·C는 °(ZYZ)로 입력하세요. 이송 경로는 파지 위치 → 경유점 → 택배 박스 순서입니다. 물체를 든 상태에서 두 직선 구간이 장애물과 박스 테두리를 통과하지 않도록 경유점을 교시하세요.</p>
@@ -145,7 +145,7 @@ docker compose run --rm --no-deps doosan-driver timeout 15 check-e0509</pre>
             </form>
           </template>
         </section>
-        <section data-view="manipulator" hidden class="panel" aria-labelledby="pose-title">
+        <section id="manipulator-pose-tests" data-manipulator-panel hidden class="panel" role="tabpanel" aria-labelledby="manipulator-poses-tab" tabindex="0">
           <div class="panel-head"><h2 id="pose-title">자세 테스트</h2><span class="meta" id="pose-bridge">rosbridge 확인 중</span></div>
           <div class="pose-body">
             <div class="pose-slots" aria-label="테스트 자세 선택">
@@ -195,7 +195,7 @@ docker compose run --rm --no-deps doosan-driver timeout 15 check-e0509</pre>
             <p id="hand-result" role="status"></p>
           </div>
         </section>
-        <section id="work-plane" data-view="work-plane gripper" hidden>
+        <section id="work-plane" data-view="work-plane gripper manipulator" hidden>
           <header class="panel plane-summary">
             <dl class="robot-config plane-meta">
               <div><dt>입력 카메라</dt><dd data-plane="camera">확인 중</dd></div>
@@ -230,6 +230,12 @@ docker compose run --rm --no-deps doosan-driver timeout 15 check-e0509</pre>
                     <div class="arm-visual">
                       <div class="arm-stage"><canvas data-arm="canvas" role="img" aria-label="E0509 6축 로봇 자세"></canvas><svg data-arm="labels" aria-hidden="true"></svg><span data-arm="graphics" class="arm-graphics" hidden></span><span class="arm-orbit-hint">드래그하여 둘러보기 · 표시 전용</span></div>
                       <div class="arm-legend"><span>○ E0509 · BASE 고정</span><span>⊕ 교시 TCP</span><span data-arm="source">기본 자세 · 실측 아님</span></div>
+                      <div class="arm-hand" data-arm="hand" hidden>
+                        <div class="arm-hand-heading"><strong>장착 그리퍼 <small>· 사진 기준 외형 / RH-P12 피드백</small></strong><span data-arm="handStatus" role="status">상태 미확인</span></div>
+                        <dl class="arm-hand-values"><div><dt>명령 위치</dt><dd data-arm="handTarget">—</dd></div><div><dt>실제 위치</dt><dd data-arm="handPosition">—</dd></div><div><dt>실측 벌림</dt><dd data-arm="handOpening">—</dd></div></dl>
+                        <div class="arm-hand-actions"><span data-arm="handObserved"></span><button type="button" data-arm="handRead" disabled>그리퍼 상태 읽기</button><a href="/robot#gripper">그리퍼 관리</a></div>
+                        <p data-arm="handNote"></p>
+                      </div>
                     </div>
                     <details class="arm-readings" data-arm="readings" open>
                       <summary>관절·좌표 <span data-arm="array">[0, 0, 90, 0, 90, 0]°</span></summary>
@@ -250,6 +256,9 @@ docker compose run --rm --no-deps doosan-driver timeout 15 check-e0509</pre>
                   </div>
                 </div>
                 <div class="plane-tabs" role="tablist" aria-label="작업 평면 보정 설정">
+                  <button type="button" role="tab" id="manipulator-control-tab" data-manipulator-tab="#manipulator" aria-selected="false" aria-controls="manipulator-control" tabindex="-1" hidden>로봇 제어</button>
+                  <button type="button" role="tab" id="manipulator-points-tab" data-manipulator-tab="#work-points-title" aria-selected="false" aria-controls="manipulator-work-points" tabindex="-1" hidden>주요 좌표값 설정</button>
+                  <button type="button" role="tab" id="manipulator-poses-tab" data-manipulator-tab="#pose-title" aria-selected="false" aria-controls="manipulator-pose-tests" tabindex="-1" hidden>자세 테스트</button>
                   <button type="button" role="tab" id="plane-camera-tab" aria-selected="true" aria-controls="plane-camera-settings">카메라 좌표 설정</button>
                   <button type="button" role="tab" id="plane-surface-tab" aria-selected="false" aria-controls="plane-surface-settings" tabindex="-1">작업면 설정</button>
                   <button type="button" role="tab" id="plane-floor-tab" aria-selected="false" aria-controls="plane-floor-settings" tabindex="-1">바닥 기준</button>

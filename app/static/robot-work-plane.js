@@ -61,11 +61,15 @@ export function connectWorkPlane(root) {
   // Keep the live rows and their device-feedback bindings across mounts.
   const handTable = root.querySelector("#plane-hand-table");
   el.calibration.append(handTable);
+  // Move the live controls, retaining their global bindings and unsaved drafts.
+  const manipulatorPanels = [...document.querySelectorAll("[data-manipulator-panel]")];
+  el.calibration.append(...manipulatorPanels);
   const lifetime = new AbortController();
   const on = (node, type, handler) => node.addEventListener(type, handler, {signal:lifetime.signal});
   const tabs = [...editor.querySelectorAll('[role="tab"]')];
   let visibleTabs = tabs;
   let gripperWorkspace = false;
+  let manipulatorWorkspace = false;
   function selectTab(active, navigate = false) {
     for (const tab of tabs) {
       const selected = tab === active;
@@ -75,8 +79,10 @@ export function connectWorkPlane(root) {
     }
     const editingExample = active.id === "plane-example-tab";
     const editingTable = active.getAttribute("aria-controls") === handTable.id;
-    editor.querySelector(".pick-footer").hidden = editingExample || editingTable || active.id === "plane-floor-tab";
+    editor.querySelector(".pick-footer").hidden = manipulatorWorkspace || editingExample || editingTable || active.id === "plane-floor-tab";
     orientation.editExample(editingExample);
+    if (navigate && manipulatorWorkspace && location.hash !== active.dataset.manipulatorTab)
+      history.pushState(history.state,"",active.dataset.manipulatorTab);
     if (navigate && gripperWorkspace) {
       const hash = editingTable ? "#gripper-table" : "#gripper";
       if (location.hash !== hash) history.replaceState(history.state, "", hash);
@@ -408,12 +414,18 @@ export function connectWorkPlane(root) {
   return {
     showWorkspace(id, openHandTable = false) {
       gripperWorkspace = id === "gripper";
+      manipulatorWorkspace = id === "manipulator";
+      orientation.setGripperAttached(manipulatorWorkspace);
       orientation.setManipulator(!gripperWorkspace);
-      visibleTabs = tabs.filter(tab => gripperWorkspace ? tab.hasAttribute("data-gripper-tab") : tab.dataset.gripperTab !== "only");
+      visibleTabs = tabs.filter(tab => manipulatorWorkspace ? tab.hasAttribute("data-manipulator-tab") :
+        !tab.hasAttribute("data-manipulator-tab") && (gripperWorkspace ? tab.hasAttribute("data-gripper-tab") : tab.dataset.gripperTab !== "only"));
       for (const tab of tabs) tab.hidden = !visibleTabs.includes(tab);
-      const current = openHandTable ? editor.querySelector("#plane-hand-table-tab") :
-        visibleTabs.find(tab => tab.getAttribute("aria-selected") === "true" && tab.dataset.gripperTab !== "only");
-      selectTab(current ?? editor.querySelector(gripperWorkspace ? "#plane-gripper-tab" : "#plane-camera-tab"));
+      const current = manipulatorWorkspace ? visibleTabs.find(tab => tab.dataset.manipulatorTab === location.hash) :
+        openHandTable ? editor.querySelector("#plane-hand-table-tab") :
+          visibleTabs.find(tab => tab.getAttribute("aria-selected") === "true" && tab.dataset.gripperTab !== "only");
+      selectTab(current ?? editor.querySelector(manipulatorWorkspace ? "#manipulator-control-tab" : gripperWorkspace ? "#plane-gripper-tab" : "#plane-camera-tab"));
+      editor.querySelector('[role="tablist"]').setAttribute("aria-label",manipulatorWorkspace ? "매니퓰레이터 설정" : "작업 평면 보정 설정");
+      root.querySelector(".plane-summary").hidden = manipulatorWorkspace;
       ui.workPlaneLink.hidden = !gripperWorkspace;
       availability();
     },
@@ -426,10 +438,12 @@ export function connectWorkPlane(root) {
       if (calibration) showCorner();
       availability();
     },
+    gripperStatus:orientation.gripperStatus,
     dispose() {
       frozen = calibration = null;
       handTable.hidden = true;
       root.append(handTable);
+      for (const panel of manipulatorPanels) { panel.hidden = true; root.append(panel); }
       measurement.reset(); lifetime.abort(); stop(); ui.mount.replaceChildren();
     }
   };

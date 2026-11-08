@@ -60,5 +60,6 @@ export function connectOrientation(el, onAngle, signal) {
     });
   }
   return {render, setEstimate:depth.setEstimate, setFloor:depth.setFloor, editExample:depth.editExample,
-    setManipulator:depth.setManipulator,robotStatus:depth.robotStatus};
+    setManipulator:depth.setManipulator,robotStatus:depth.robotStatus,
+    setGripperAttached:depth.setGripperAttached,gripperStatus:depth.gripperStatus};
 }

@@ -1,5 +1,5 @@
 import { e0509Model } from "./robot-e0509-model.js";
-import { identity, multiply, transformPoint, frameAxis, armFrames, poseFrame } from "./robot-arm.js";
+import { identity, multiply, transformPoint, frameAxis, armFrames, poseFrame, mountedGripperParts, gripperMount } from "./robot-arm.js";
 
 const dot=(a,b)=>a.reduce((sum,v,i)=>sum+v*b[i],0);
 const sub=(a,b)=>a.map((v,i)=>v-b[i]),add=(a,b)=>a.map((v,i)=>v+b[i]);
@@ -72,6 +72,21 @@ export function connectArmRenderer(canvas,overlay,graphics,signal,onOrbit) {
     gl.bindBuffer(gl.ARRAY_BUFFER,dynamic.n);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array(18).fill(.001),gl.DYNAMIC_DRAW);
     dynamic.count=6;draw(dynamic,identity(),color,1);
   }
+  function handPart(part,mount){
+    const points=part.points.map(p=>transformPoint(mount,p));
+    if(part.wire){
+      const edges=part.faces.flatMap(face=>face.flatMap((index,i)=>[points[index],points[face[(i+1)%face.length]]]));
+      lines(edges,[.65,.75,.76,.65]);return;
+    }
+    for(const face of part.faces){
+      const ps=face.map(i=>points[i]),vertices=[];
+      for(let i=1;i<ps.length-1;i++)vertices.push(ps[0],ps[i],ps[i+1]);
+      const n=norm(cross(sub(ps[1],ps[0]),sub(ps[2],ps[0])));
+      gl.bindBuffer(gl.ARRAY_BUFFER,dynamic.v);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array(vertices.flat()),gl.DYNAMIC_DRAW);
+      gl.bindBuffer(gl.ARRAY_BUFFER,dynamic.n);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array(vertices.flatMap(()=>n)),gl.DYNAMIC_DRAW);
+      dynamic.count=vertices.length;draw(dynamic,identity(),part.color);
+    }
+  }
   function cube(center,size,color,axes=null) {
     const p=[];for(const z of [-1,1])for(const y of [-1,1])for(const x of [-1,1]){
       const local=[x,y,z].map((v,i)=>v*size[i]/2);
@@ -93,6 +108,8 @@ export function connectArmRenderer(canvas,overlay,graphics,signal,onOrbit) {
     if(!ready){
       const path=frames.map(m=>screen(transformPoint(m,[0,0,0])));
       for(let i=1;i<path.length;i++)nodes.push(svgNode("line",{x1:path[i-1][0],y1:path[i-1][1],x2:path[i][0],y2:path[i][1],stroke:"#9cd2c5","stroke-width":5}));
+      if(data.gripper){const mount=gripperMount(frames[6]);for(const p of mountedGripperParts(data.gripper.opening_mm))for(const face of p.faces)
+        nodes.push(svgNode("polygon",{points:face.map(i=>screen(transformPoint(mount,p.points[i])).join(",")).join(" "),fill:"none",stroke:"#b9cbcc","stroke-width":1}));}
     }
     const offsets=[[-36,27],[18,-27],[-34,-21],[32,-28],[35,19],[-40,30]];
     for(let i=1;i<=6;i++)label(transformPoint(frames[i],[0,0,0]),"J"+i,offsets[i-1],data.selected===i-1);
@@ -105,15 +122,18 @@ export function connectArmRenderer(canvas,overlay,graphics,signal,onOrbit) {
     }
     const tool=data.tcp?poseFrame(data.tcp):frames[6],origin=transformPoint(tool,[0,0,0]);
     label(origin,data.tcp?"실측 TCP":"모델 플랜지",[35,-16]);
+    if(data.gripper)label(transformPoint(gripperMount(frames[6]),[0,0,143]),data.gripper.opening_mm===null?"그리퍼 · 벌림 미확인":"그리퍼 · "+data.gripper.opening_mm.toFixed(1)+" mm",[20,25]);
     if(height>190)for(let i=0;i<3;i++)label(add(origin,frameAxis(tool,i).map(v=>v*80)),"XYZ"[i]+"t",[[8,-12],[12,10],[8,16]][i]);
     overlay.replaceChildren(...nodes);
   }
   function render() {
     if(disposed||!last||!canvas.clientWidth||!canvas.clientHeight||canvas.closest("[hidden]"))return;
     const data=last;const frames=armFrames(data.angles);width=canvas.clientWidth;height=canvas.clientHeight;
+    const hand=data.gripper?{parts:mountedGripperParts(data.gripper.opening_mm),mount:gripperMount(frames[6])}:null;
     if(!gl&&!parts.length)initialize();
     const center=[230,0,330],rad=Math.PI/180,eye=add(center,[Math.cos(view.yaw*rad)*Math.cos(view.pitch*rad)*3000,Math.sin(view.yaw*rad)*Math.cos(view.pitch*rad)*3000,Math.sin(view.pitch*rad)*3000]);
     const camera=lookAt(eye,center),bounds=parts.length?parts.flatMap(p=>p.bounds.map(b=>transformPoint(camera,transformPoint(frames[p.link],b)))):frames.map(m=>transformPoint(camera,transformPoint(m,[0,0,0])));
+    if(hand)bounds.push(...hand.parts.flatMap(p=>p.points.map(v=>transformPoint(camera,transformPoint(hand.mount,v)))));
     if(data.guides){
       const g=data.guides,p=g.wall.points;
       // Match the mockup framing: fit the arm, camera and wall context. The
@@ -139,6 +159,7 @@ export function connectArmRenderer(canvas,overlay,graphics,signal,onOrbit) {
       for(const part of parts){const gray=part.link===0||/_1_[14]$|_[2345]_2$/.test(part.name),base=gray?[.52,.58,.58,1]:[.91,.95,.94,1];
         draw(part,frames[part.link],part.link===data.selected+1?base.map((v,i)=>i<3?v*.9+[.15,.9,.73][i]*.1:v):base);
       }
+      if(hand)hand.parts.forEach(part=>handPart(part,hand.mount));
       if(g){
         if(g.objectPoints.length)faces.forEach((ids,i)=>plate(ids.map(j=>g.objectPoints[j]),[.65+i*.012,.43+i*.013,.26+i*.015,1]));
         // The mockup uses a fixed-size position marker, not camera dimensions.
@@ -152,6 +173,9 @@ export function connectArmRenderer(canvas,overlay,graphics,signal,onOrbit) {
       gl.enable(gl.DEPTH_TEST);
     }
     labels(frames,data);canvas.dataset.rendered=ready?"mesh":"skeleton";canvas.dataset.joints=data.angles.join(",");
+    canvas.dataset.gripperAttached=Boolean(hand);
+    if(hand){canvas.dataset.gripperPosition=data.gripper.position??"";canvas.dataset.gripperOpening=data.gripper.opening_mm??"";}
+    else{delete canvas.dataset.gripperPosition;delete canvas.dataset.gripperOpening;}
   }
   function schedule() {if(!queued&&!disposed){queued=true;requestAnimationFrame(()=>{queued=false;render();});}}
   const on=(node,event,fn)=>node.addEventListener(event,fn,{signal});

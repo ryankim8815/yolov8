@@ -7,6 +7,42 @@ const sample=()=>({state:'monitoring',bridge_connected:true,config:{stale_second
   message:{name:['joint_1','joint_2','joint_3','joint_4','joint_5','joint_6'],position:[0,0,Math.PI/2,0,Math.PI/2,0]}
 }]});
 
+test('mounted hand uses measured position and the saved opening table rather than the command goal',async()=>{
+  const {gripperVisualState}=await mod,now=Date.parse('2026-11-09T00:00:00Z');
+  const access={connection:'connected',initialized:true,gripper_supported:true,gripper_target:700,
+    gripper_feedback:{position:350,current_ma:14,mode:5,error:0,state:'completed',observed_at:new Date(now).toISOString()}};
+  const table={points:[{position:0,width_mm:80},{position:700,width_mm:0}]};
+  const state=gripperVisualState(access,table,{sdk:true,now});
+  assert.equal(state.position,350);assert.equal(state.target,700);assert.equal(state.opening_mm,40);
+  access.gripper_feedback.position=700;assert.equal(gripperVisualState(access,table,{sdk:true,now}).opening_mm,0);
+  access.gripper_feedback.position=0;assert.equal(gripperVisualState(access,table,{sdk:true,now}).opening_mm,80);
+  assert.equal(gripperVisualState(access,table,{sdk:true,now:now+11000}).position,null);
+  assert.equal(gripperVisualState(access,table,{sdk:true,now:now+11000}).opening_mm,null);
+  assert.equal(gripperVisualState(access,table,{sdk:true,now,busy:true}).opening_mm,null);
+  access.gripper_feedback.error=2;assert.equal(gripperVisualState(access,table,{sdk:true,now}).opening_mm,null);
+  access.connection='disconnected';assert.equal(gripperVisualState(access,table,{sdk:true,now}).opening_mm,null);
+});
+test('missing or out-of-range hand calibration keeps actual register values without inventing a width',async()=>{
+  const {gripperVisualState}=await mod,now=Date.now();
+  const a={connection:'connected',initialized:true,gripper_supported:true,gripper_feedback:{position:350,error:0,state:'completed',observed_at:new Date(now).toISOString()}};
+  for(const table of [null,{points:[]},{points:[{position:0,width_mm:80},{position:200,width_mm:30}]},{points:[{position:0,width_mm:10},{position:700,width_mm:80}]}]){
+    const state=gripperVisualState(a,table,{sdk:true,now});assert.equal(state.position,350);assert.equal(state.opening_mm,null);
+  }
+  a.gripper_feedback.position=701;assert.equal(gripperVisualState(a,null,{sdk:true,now}).position,null);
+});
+test('mounted jaws reflect the calibrated inner opening, and attach to the flange through its rotation',async()=>{
+  const {mountedGripperParts,gripperMount,armFrames,defaultArmJoints,transformPoint,frameAxis}=await mod;
+  for(const opening of [0,40,80]){
+    const fingers=mountedGripperParts(opening).filter(p=>p.kind==='finger');assert.equal(fingers.length,2);
+    const left=Math.max(...fingers[0].points.map(p=>p[0])),right=Math.min(...fingers[1].points.map(p=>p[0]));
+    near([right-left],[opening],1e-10);assert.ok(fingers.every(p=>!p.wire));
+  }
+  assert.ok(mountedGripperParts(null).filter(p=>p.kind==='finger').every(p=>p.wire));
+  const flange=armFrames(defaultArmJoints)[6],mount=gripperMount(flange);
+  near(transformPoint(mount,[0,0,0]),transformPoint(flange,[0,0,0]));
+  near(frameAxis(mount,2),frameAxis(flange,2));near(frameAxis(mount,0),frameAxis(flange,1));
+});
+
 test('E0509 fallback has the documented six angles and a downward flange at (373, 0, 405) mm',async()=>{
   const {armFrames,frameAxis,defaultArmJoints,transformPoint}=await mod;
   assert.deepEqual(defaultArmJoints,[0,0,90,0,90,0]);
