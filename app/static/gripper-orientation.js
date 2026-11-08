@@ -60,5 +60,5 @@ export function connectOrientation(el, onAngle, signal) {
     });
   }
   return {render, setEstimate:depth.setEstimate, setFloor:depth.setFloor, editExample:depth.editExample,
-    setManipulator:depth.setManipulator};
+    setManipulator:depth.setManipulator,robotStatus:depth.robotStatus};
 }

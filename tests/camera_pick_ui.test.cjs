@@ -186,39 +186,6 @@ test('without a width estimate the whole gripper still rotates, with illustrativ
   }
 });
 
-test('the work-plane arm keeps its mount in BASE and its flange at the taught TCP while the tool rotates', async () => {
-  const {depthModel,defaultScene} = await import('../app/static/gripper-depth.js');
-  const {toolAxes} = await import('../app/static/gripper-orientation.js');
-  const camera = [[0,1,0],[-1,0,0],[0,0,1]], anchor = [320,-70,280];
-  const centroid = points => [0,1,2].map(i => points.reduce((sum,p) => sum+p[i],0)/points.length);
-  const near = (actual,expected) => actual.forEach((v,i) => assert.ok(Math.abs(v-expected[i])<1e-9));
-  let previousMount;
-  for (const angles of [[0,90,0],[70,135,-40],[0,0,0]]) {
-    const axes = toolAxes(angles);
-    const arm = depthModel({...defaultScene,manipulator:true},axes,camera,measured(50),anchor);
-    assert.equal(arm.taught,true);
-    assert.deepEqual(arm.parts.filter(p=>/^J\d$/.test(p.id)).map(p=>p.id),['J1','J2','J3','J4','J5','J6']);
-    near(centroid(arm.parts.find(p=>p.id==='mount').points),camera.map(axis=>-axis.reduce((sum,v,i)=>sum+v*anchor[i],0)));
-    near(centroid(arm.parts.find(p=>p.id==='J6').points),[0,0,0]);
-    const flange = arm.parts.find(p=>p.id==='J6').points;
-    near(centroid(flange.slice(12)).map((v,i)=>(v-centroid(flange.slice(0,12))[i])/13),arm.toolZ);
-    const mount = arm.parts.find(p=>p.id==='mount');
-    if (previousMount) assert.deepEqual(mount,previousMount);
-    previousMount = mount;
-    assert.equal(arm.gap,20); // Measured from TCP instead of the gripper fingers.
-    assert.equal(arm.opening,50);
-    const gripper = depthModel(defaultScene,axes,camera,measured(50),anchor);
-    assert.equal(gripper.parts.filter(p=>p.id).length,0);
-    assert.equal(gripper.parts.length,7); // Existing six gripper pieces plus object.
-    assert.deepEqual(gripper.objectPoints,arm.objectPoints);
-  }
-  for (const anchor of [null,[null,null,null],[0,0,0],[0,0,-300],[0,0,1e6]]) {
-    const arm=depthModel({...defaultScene,manipulator:true},toolAxes([0,0,0]),camera,null,anchor);
-    assert.ok(arm.parts.every(p=>p.points.flat().every(Number.isFinite)));
-    assert.equal(arm.gap,null);
-  }
-});
-
 test('example vertices use absolute BASE center and dimensions in both taught and untaught frames', async () => {
   const {depthModel,defaultScene,defaultExample} = await import('../app/static/gripper-depth.js');
   const {toolAxes} = await import('../app/static/gripper-orientation.js');

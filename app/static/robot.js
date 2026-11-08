@@ -506,6 +506,7 @@ get("robot-pause").addEventListener("click", () => {
   get("robot-pause").textContent = paused ? "표시 재개" : "표시 일시정지";
   get("robot-pause").setAttribute("aria-pressed", String(paused));
   if (paused) { hostAccess = null; hostError = "표시 일시정지 · 제어권 미확인"; }
+  if (paused) workPlane?.robotStatus(null);
   if (paused) get("robot-notice").textContent = "표시를 일시정지했습니다. 재개하면 최신 수신값을 불러옵니다.";
   else refresh();
   if (latest) renderPoseTests(latest, {paused, apiUnavailable, teachPending, hostAccess});

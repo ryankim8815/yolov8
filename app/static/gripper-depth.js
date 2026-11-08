@@ -1,5 +1,7 @@
 import { describeGripper } from "./gripper-measurement.js";
 import { constrainExample, exampleGuide } from "./gripper-example.js";
+import { connectRobotArm } from "./robot-arm-view.js";
+import { cameraPointToBase } from "./robot-arm.js";
 
 // Preview geometry only. Lengths are millimetres; the TCP is the fixed origin
 // of the drawing. Camera range is measured by the operator, never inferred from BASE X.
@@ -41,7 +43,11 @@ const metal = ["#83979f","#e8ece6","#a2b3b5","#c3d1d0","#a5b7b9","#e0e6e1"];
 const steel = ["#344c57","#829599","#49616b","#617a81","#526b75","#8c9d9e"];
 const amber = ["#dcaa74","#91623e","#aa7048","#d38f5c","#bb8052","#ce9668"];
 const sides = [[0,2,3,1],[4,5,7,6],[0,1,5,4],[2,6,7,3],[0,4,6,2],[1,3,7,5]];
-const extentY = 225, extentZ = 150, floorDepth = 500;
+const defaultGuides = Object.freeze({halfWidth:225,wallHeight:150,floorDepth:500,spacing:50,wallRows:6});
+// Dimensions of the approved E0509 UI mockup. The floor is wider than the
+// wall and extends 110 mm behind it; teaching still determines their position.
+const armGuides = Object.freeze({halfWidth:380,floorHalfWidth:550,wallHeight:760,
+  fixedWallHeight:true,floorDepth:1260,floorBehind:110,spacing:100});
 const exampleOpeningMm = 65; // Drawing only, while the detection has no measured width.
 export const defaultScene = Object.freeze({distance:480, tcpDepth:410, protrusion:50, length:70,
   view:"oblique", panel:"angles"});
@@ -56,69 +62,25 @@ function box(center, size, transform) {
   return points;
 }
 
-// A schematic six-axis arm, not inverse kinematics or live joint telemetry.
-// Its flange follows the taught TCP and ABC; the mount is BASE (0, 0, 0)
-// after XYZ is taught. Before that, use an illustrative mount beside the TCP.
-function manipulatorParts(toolAxes, camera, anchor) {
-  const taught = anchor?.length === 3 && anchor.every(Number.isFinite);
-  const tcp = [0,1,2].map(i => anchor?.[i] ?? 0);
-  const base = taught ? [0,0,0] : [tcp[0]-260,tcp[1]+80,tcp[2]];
-  const toCamera = p => camera.map(axis => dot(sub(p,tcp),axis));
-  const offset = (p,axis,n) => p.map((v,i) => v+axis[i]*n);
-  const parts = [];
-  function cylinder(a,b,r,palette,id) {
-    const z = unit(sub(b,a)), x = unit(cross(z,Math.abs(z[2]) < .9 ? identity[2] : identity[1]));
-    const y = cross(z,x), n = 12;
-    const points = [a,b].flatMap(center => Array.from({length:n},(_,i) => toCamera(
-      center.map((v,j) => v+r*(Math.cos(i*2*Math.PI/n)*x[j]+Math.sin(i*2*Math.PI/n)*y[j])))));
-    const faces = [Array.from({length:n},(_,i) => n-1-i),Array.from({length:n},(_,i) => n+i),
-      ...Array.from({length:n},(_,i) => [i,(i+1)%n,(i+1)%n+n,i+n])];
-    parts.push({points,faces,palette,id});
-  }
-  function joint(center,axis,r,width,id) {
-    cylinder(offset(center,axis,-width/2),offset(center,axis,width/2),r,steel,id);
-  }
-  function link(a,b,width,id) {
-    const z = unit(sub(b,a)), x = unit(cross(z,Math.abs(z[2]) < .9 ? identity[2] : identity[1]));
-    const y = cross(z,x), center = a.map((v,i) => (v+b[i])/2);
-    parts.push({points:box([0,0,0],[width,width,Math.hypot(...sub(b,a))],
-      p => toCamera(center.map((v,i) => v+p[0]*x[i]+p[1]*y[i]+p[2]*z[i]))),palette:metal,id});
-  }
-  const shoulder = offset(base,identity[2],85);
-  const wrist = offset(tcp,toolAxes[2],-80), bend = offset(tcp,toolAxes[2],-36);
-  const radial = sub(wrist,shoulder); radial[2] = 0;
-  const shoulderAxis = Math.hypot(...radial) > 1e-6 ? unit(cross(identity[2],radial)) : identity[1];
-  const elbow = shoulder.map((v,i) => i === 2 ? Math.max(v,wrist[i])+160 : v+(wrist[i]-v)*.48);
-  cylinder(offset(base,identity[2],-9),offset(base,identity[2],9),43,metal,"mount");
-  cylinder(base,shoulder,22,metal,"pedestal");
-  link(shoulder,elbow,32,"upper-arm"); link(elbow,wrist,28,"forearm");
-  link(wrist,bend,24,"wrist"); link(bend,tcp,20,"flange-link");
-  const joints = [
-    [offset(base,identity[2],30),identity[2],25,22],
-    [shoulder,shoulderAxis,27,45], [elbow,shoulderAxis,23,40],
-    [wrist,toolAxes[2],19,28], [bend,toolAxes[1],19,34], [tcp,toolAxes[2],17,13]
-  ];
-  joints.forEach(([point,axis,r,width],i) => joint(point,axis,r,width,"J"+(i+1)));
-  return {parts,taught};
-}
-
-function gridFromEdge(center, across, extension, rows) {
+function gridFromEdge(center, across, extension, rows, {halfWidth:extentY,spacing}) {
   const point = (u,v) => center.map((n,i) => n + u*extentY*across[i] + v*extension[i]);
   const lines = [];
-  for (let y=Math.ceil(-extentY/50)*50; y<extentY; y+=50) lines.push([point(y/extentY,0),point(y/extentY,1)]);
+  for (let y=Math.ceil(-extentY/spacing)*spacing; y<extentY; y+=spacing) lines.push([point(y/extentY,0),point(y/extentY,1)]);
   for (let i=1; i<rows; i++) lines.push([point(-1,i/rows),point(1,i/rows)]);
   return {points:[point(-1,0),point(1,0),point(1,1),point(-1,1)], lines};
 }
 
 // The wall stays on camera X = wallX and the floor on BASE Z = floorZ.
-export function workSurfaces(camera, wallX, floorZ, tcpZ) {
+export function workSurfaces(camera, wallX, floorZ, tcpZ, guides = defaultGuides) {
+  const {wallHeight:extentZ,floorDepth,spacing} = guides;
   const vertical = camera.map(axis => axis[2]); // BASE +Z in camera coordinates
   const inWall = Math.hypot(vertical[1],vertical[2]);
   const up = inWall > 0 ? [0,vertical[1]/inWall,vertical[2]/inWall] : [0,0,1];
   const across = [0,up[2],-up[1]];
   const wallPoint = height => [wallX,up[1]*height,up[2]*height];
   function wallFrom(bottom) {
-    return gridFromEdge(wallPoint(bottom),across,scaled(up,Math.max(extentZ,extentZ-bottom)),6);
+    const height = guides.fixedWallHeight ? extentZ : Math.max(extentZ,extentZ-bottom);
+    return gridFromEdge(wallPoint(bottom),across,scaled(up,height),guides.wallRows??Math.ceil(height/spacing),guides);
   }
   if (!Number.isFinite(floorZ)) return {wall:wallFrom(-extentZ), floor:null};
 
@@ -130,13 +92,16 @@ export function workSurfaces(camera, wallX, floorZ, tcpZ) {
   const meets = inWall > 0 && Math.abs(dz) <= inWall*reach;
   const bottom = meets ? dz/inWall : -extentZ;
   const edge = meets ? wallPoint(bottom) : vertical.map((v,i) => (i === 0 ? wallX : 0) + dz*v);
-  const floor = gridFromEdge(edge,across,scaled(cross(vertical,across),floorDepth),10);
+  const towardCamera = cross(vertical,across);
+  const floorEdge = edge.map((v,i)=>v-towardCamera[i]*(guides.floorBehind??0));
+  const floor = gridFromEdge(floorEdge,across,scaled(towardCamera,floorDepth),Math.ceil(floorDepth/spacing),
+    {...guides,halfWidth:guides.floorHalfWidth??guides.halfWidth});
   floor.baseZ = floorZ;
   return {wall:wallFrom(bottom), floor};
 }
 
 export function depthModel(settings, toolAxes, camera = identity, estimate = null, anchor = null) {
-  const {distance, tcpDepth, protrusion, length, example = defaultExample, editingExample = false, manipulator = false} = settings;
+  const {distance, tcpDepth, protrusion, length, example = defaultExample, editingExample = false} = settings;
   const opening = Number.isFinite(estimate?.opening_mm) ? estimate.opening_mm : null;
   const drawnOpening = opening ?? exampleOpeningMm;
   const center = estimate?.center_base_mm;
@@ -153,15 +118,11 @@ export function depthModel(settings, toolAxes, camera = identity, estimate = nul
     parts.push({points, palette});
     if (pad) pads.push(...points);
   }
-  const arm = manipulator ? manipulatorParts(toolAxes,camera,anchor) : null;
-  if (arm) parts.push(...arm.parts);
-  else {
-    part([0,0,-length-26], [29,30,18], steel);
-    part([0,0,-length-9], [drawnOpening+30,32,24], metal);
-    for (const sign of [-1,1]) {
-      part([sign*(drawnOpening/2+9),0,(-length-5)/2], [10,15,length-5], metal);
-      part([sign*(drawnOpening/2+6),0,-5], [12,19,10], steel, true);
-    }
+  part([0,0,-length-26], [29,30,18], steel);
+  part([0,0,-length-9], [drawnOpening+30,32,24], metal);
+  for (const sign of [-1,1]) {
+    part([sign*(drawnOpening/2+9),0,(-length-5)/2], [10,15,length-5], metal);
+    part([sign*(drawnOpening/2+6),0,-5], [12,19,10], steel, true);
   }
   const footprint = estimate?.footprint_base_mm;
   const hasFootprint = Array.isArray(footprint) && footprint.length === 4 &&
@@ -181,10 +142,9 @@ export function depthModel(settings, toolAxes, camera = identity, estimate = nul
     objectPoints = [0,1,3,2].flatMap(i => [face[i], [wallX,face[i][1],face[i][2]]]);
   }
   if (objectPoints.length) parts.push({points:objectPoints, palette:amber});
-  const tip = exampleObject || editingExample ? null : manipulator ? (objectPoints.length ? [0,0,0] : null) :
-    opening === null ? null : pads.reduce((best, p) => p[0] > best[0] ? p : best);
+  const tip = exampleObject || editingExample || opening === null ? null : pads.reduce((best, p) => p[0] > best[0] ? p : best);
   return {parts, face, objectPoints, exampleObject, projectedCenter, opening, drawnOpening, frontDepth:frontX+tcpDepth, wallX, frontX, lens, tip,
-    gap:tip ? frontX-tip[0] : null, toolZ:worldTool[2], camera, manipulator, taught:arm?.taught};
+    gap:tip ? frontX-tip[0] : null, toolZ:worldTool[2], camera};
 }
 
 function svgNode(tag, attrs, value) {
@@ -239,15 +199,14 @@ function drawRuler(svg, {distance,tcpDepth}, front, hasObject) {
 function drawScene(el, settings, model, anglesText, {wall,floor}) {
   const {scene, world} = el, w = scene.clientWidth, h = scene.clientHeight;
   if (!w || !h) return;
-  const {parts, face, objectPoints, opening, drawnOpening, tip, wallX, frontX, frontDepth, gap, toolZ, camera, lens, manipulator} = model;
+  const {parts, face, objectPoints, opening, drawnOpening, tip, wallX, frontX, frontDepth, gap, toolZ, camera, lens} = model;
   const side = settings.view === "side";
   const xy = ([x,y,z]) => side ? [x,-z] : [.866*x-.5*y, -.17*x-.294*y-.94*z];
   const depth = ([x,y,z]) => side ? -y : -.47*x-.814*y+.34*z;
   const bounds = [lens, ...wall.points, ...objectPoints, ...(floor?.points ?? [])];
-  if (manipulator) bounds.push(...parts.flatMap(part => part.points));
   if (model.projectedCenter) bounds.push(model.projectedCenter);
   const projected = bounds.map(xy);
-  const radius = manipulator ? 35 : Math.hypot(settings.length + 35, drawnOpening/2+15, 16);
+  const radius = Math.hypot(settings.length + 35, drawnOpening/2+15, 16);
   const minX = Math.min(-radius, ...projected.map(([x]) => x));
   const maxX = Math.max(radius, ...projected.map(([x]) => x));
   const minY = Math.min(-radius, ...projected.map(([,y]) => y));
@@ -312,20 +271,18 @@ function drawScene(el, settings, model, anglesText, {wall,floor}) {
     if (Math.hypot(dx,dy) > .1) nodes.push(line(base,to,"#a0b3ba",1.2),label(to[0]+dx*6,to[1]+dy*5+3,name,"#c0d2d8",{"font-size":10,"text-anchor":"middle"}));
   }
   nodes.push(label(base[0]-1,h-6,"BASE","#a0b3ba",{"font-size":10,"text-anchor":"middle"}));
-  const openingHint = !manipulator && opening === null ? "손가락 간격은 예시입니다." : "";
+  const openingHint = opening === null ? "손가락 간격은 예시입니다." : "";
   if (openingHint) nodes.push(label(14,21,openingHint,"#d3e5e5"));
   world.replaceChildren(...nodes);
   const past = gap < -.05;
-  el.gapLabel.textContent = past ? "앞면을 지난 깊이" : manipulator ? "TCP → 앞면" : "손끝 → 앞면";
+  el.gapLabel.textContent = past ? "앞면을 지난 깊이" : "손끝 → 앞면";
   el.gap.textContent = gap === null ? "—" : Math.abs(gap).toFixed(1)+" mm";
-  scene.dataset.previewModel = manipulator ? "manipulator" : "gripper";
-  if (el.modelHint) el.modelHint.textContent = "관절 배치는 도식입니다. "+
-    (model.taught ? "TCP는 선택한 모서리의 교시값을 따릅니다." : "TCP 위치를 교시하면 BASE 원점에 베이스를 표시합니다.");
-  scene.setAttribute("aria-label", "고정 TCP의 "+(manipulator ? "매니퓰레이터" : "그리퍼")+" 방향: "+anglesText+". "+(objectPoints.length ? "벽과 "+objectLabel : "벽")+
+  scene.dataset.previewModel = "gripper";
+  scene.setAttribute("aria-label", "고정 TCP의 그리퍼 방향: "+anglesText+". "+(objectPoints.length ? "벽과 "+objectLabel : "벽")+
     ". 카메라에서 시선축을 따라 TCP까지 "+settings.tcpDepth+" mm, 벽까지 "+settings.distance+" mm. 대상 앞면 "+
     (+frontDepth.toFixed(2))+" mm. "+el.gapLabel.textContent+" "+el.gap.textContent+" (시선축 기준). "+
     (floor ? "바닥 BASE Z "+floor.baseZ+" mm. " : "")+el.tcpHeight.textContent+" "+el.objectHeight.textContent+" "+
-    (manipulator ? "관절 배치는 도식입니다." : openingHint));
+    openingHint);
   drawRuler(el.ruler,settings,frontDepth,Boolean(objectPoints.length));
 }
 
@@ -379,7 +336,12 @@ export function connectDepthPreview(el, signal) {
     return {name,number,slider,limits:slider.nextElementSibling};
   });
   const fields = {};
+  const arm = connectRobotArm(el,signal,() => syncView());
   const on = (node, type, fn) => node.addEventListener(type, fn, {signal});
+  function syncView() {
+    for (const button of el.calibration.querySelectorAll("[data-depth-view]"))
+      button.setAttribute("aria-pressed",String(button.dataset.depthView===(manipulator?arm.getView():settings.view)));
+  }
   function remember() {
     try { if (key) localStorage.setItem(key,JSON.stringify(settings)); } catch { /* Private browsing. */ }
   }
@@ -390,7 +352,7 @@ export function connectDepthPreview(el, signal) {
     const describe = h => h === 0 ? "바닥면 0 mm" :
       (h < 0 ? "바닥 아래 " : "바닥 위 ") + Number(h.toFixed(2)) + " mm";
     const base = pose.basis ?? identity;
-    const surfaces = workSurfaces(base,settings.distance-settings.tcpDepth,floorZ,tcpZ);
+    const surfaces = workSurfaces(base,settings.distance-settings.tcpDepth,floorZ,tcpZ,manipulator?armGuides:defaultGuides);
     fit = constrainExample(exampleGuide(base,pose.xyz,surfaces),example);
     const shown = fit?.value;
     for (const {name,number,slider,limits} of controls) {
@@ -418,12 +380,18 @@ export function connectDepthPreview(el, signal) {
       el.objectHeight.textContent = floorZ === null ? "" : "탐지 물체 중심 · "+
         (Number.isFinite(z) ? describe(z-floorZ) : estimate?.center_reason || estimate?.reason || "탐지 객체를 선택하세요.");
     }
-    const model = depthModel({...settings,example:shown ?? null,editingExample,manipulator}, pose.axes, base, estimate, pose.xyz);
+    const model = depthModel({...settings,example:shown ?? null,editingExample}, pose.axes, base, estimate, pose.xyz);
     const sizing = editingExample && shown ? "예시 크기 (X × Y × Z) · "+[shown.sizeX,shown.sizeY,shown.sizeZ].map(v=>Number(v.toFixed(2))).join(" × ")+" mm"+
       (model.opening === null ? "" : " · 탐지 기준 손가락 벌림 "+model.opening.toFixed(1)+" mm") :
       editingExample ? el.exampleError.textContent : describeGripper(estimate);
     if (el.sizing.textContent !== sizing) el.sizing.textContent = sizing;
-    drawScene(el, settings, model, pose.anglesText, surfaces);
+    if (manipulator) {
+      const convert = p => cameraPointToBase(p,base,pose.xyz);
+      const surface = s => s && {...s,points:s.points.map(convert),lines:s.lines.map(points=>points.map(convert))};
+      arm.setGuides({wall:surface(surfaces.wall),floor:surface(surfaces.floor),lens:convert(model.lens),camera:base,
+        target:pose.xyz.every(Number.isFinite)?pose.xyz:null,objectPoints:model.objectPoints.map(convert),exampleObject:model.exampleObject});
+      drawRuler(el.ruler,settings,model.frontDepth,Boolean(model.objectPoints.length));
+    } else drawScene(el, settings, model, pose.anglesText, surfaces);
   }
   function sync() {
     for (const [name,buttons] of Object.entries(groups)) {
@@ -432,6 +400,7 @@ export function connectDepthPreview(el, signal) {
     el.anglePanel.hidden = settings.panel !== "angles";
     el.jawPanel.hidden = settings.panel !== "jaws";
     for (const [name,{range,number}] of Object.entries(fields)) range.value = number.value = settings[name];
+    syncView();
     draw();
   }
   function rememberExample(typing) {
@@ -468,6 +437,7 @@ export function connectDepthPreview(el, signal) {
   for (const name of Object.keys(choices)) {
     groups[name] = el.calibration.querySelectorAll("[data-depth-"+name+"]");
     for (const button of groups[name]) on(button,"click",() => {
+      if (name==="view" && manipulator) {arm.setView(button.dataset.depthView);syncView();return;}
       settings[name] = button.getAttribute("data-depth-"+name);
       sync(); remember();
     });
@@ -505,10 +475,15 @@ export function connectDepthPreview(el, signal) {
   }
   return {render, setEstimate(result) { estimate = result; draw(); }, setFloor(z) { floorZ = z; draw(); },
     editExample(active) { editingExample = active; draw(); },
+    robotStatus:arm.robotStatus,
     setManipulator(active) {
       manipulator = active;
-      el.modelTitle.textContent = active ? "매니퓰레이터 방향" : "그리퍼 방향";
+      el.modelTitle.textContent = active ? "E0509 자세" : "그리퍼 방향";
       el.modelHint.hidden = !active;
+      el.scene.hidden = el.gripperFoot.hidden = active;
+      el.calibration.closest(".plane-editor").dataset.armActive = active;
+      for (const node of el.calibration.querySelectorAll("[data-arm-only]")) node.hidden=!active;
+      arm.active(active);syncView();
       el.surfaceNote.textContent = (active ? "TCP" : "손끝")+"과 앞면의 깊이 차이는 충돌 판정이 아닙니다.";
       draw();
     }};

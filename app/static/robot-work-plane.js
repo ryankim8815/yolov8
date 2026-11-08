@@ -418,6 +418,7 @@ export function connectWorkPlane(root) {
       availability();
     },
     robotStatus(data) {
+      orientation.robotStatus(data);
       const block = !data ? "로봇 상태를 확인해야 교시할 수 있습니다." :
         data.pick_active || data.pose_tests?.busy || data.hand_busy ? "로봇 작업이 끝나면 교시할 수 있습니다." : "";
       if (robotBlock === block) return;

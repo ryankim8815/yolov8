@@ -19,7 +19,10 @@ export function exampleGuide(camera, anchor, {floor,wall}) {
     const n = delta.map(v => v/length);
     cap(n,b); cap(n.map(v => -v),a);
   }
-  span(baseFloor[0],baseFloor[1]); // Width shared by both guides
+  span(baseFloor[0],baseFloor[1]);
+  // A wider floor does not permit the example to extend past the wall sides.
+  if (Math.abs(Math.hypot(...sub(baseFloor[1],baseFloor[0]))-Math.hypot(...sub(baseWall[1],baseWall[0])))>tolerance)
+    span(baseWall[0],baseWall[1]);
   span(baseFloor[0],baseFloor[3]); // Wall edge to front edge
   span(baseWall[0],baseWall[3]);   // Bottom to top projected onto the wall
   cap([0,0,-1],baseFloor[0]);

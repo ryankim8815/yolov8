@@ -215,9 +215,10 @@ docker compose run --rm --no-deps doosan-driver timeout 15 check-e0509</pre>
             <article class="panel pick-dialog teaching plane-editor">
               <section data-pick="calibration">
                 <div class="gripper-panel">
-                  <div class="gripper-heading"><div><h4><span data-pick="modelTitle">매니퓰레이터 방향</span> <small>· 가상 작업면</small></h4><span data-pick="basisHint" class="gripper-basis"></span><span data-pick="modelHint" class="gripper-basis">관절 배치는 도식입니다. TCP는 선택한 모서리의 교시값을 따릅니다.</span></div>
+                  <div class="gripper-heading"><div><h4><span data-pick="modelTitle">E0509 자세</span> <small>· 가상 작업면</small></h4><span data-pick="basisHint" class="gripper-basis"></span><span data-pick="modelHint" class="gripper-basis" role="status">로봇 상태 수신 대기 · 기본 자세</span></div>
                     <div class="pick-segments scene-views" role="group" aria-label="보기 방향">
                       <button type="button" data-depth-view="oblique" aria-pressed="true">입체</button>
+                      <button type="button" data-depth-view="front" data-arm-only hidden aria-pressed="false">정면</button>
                       <button type="button" data-depth-view="side" aria-pressed="false">측면</button>
                     </div>
                   </div>
@@ -225,7 +226,21 @@ docker compose run --rm --no-deps doosan-driver timeout 15 check-e0509</pre>
                     <defs><marker id="pick-z-arrow" viewBox="0 0 10 8" refX="9" refY="4" orient="auto" markerUnits="userSpaceOnUse" markerWidth="10" markerHeight="8"><path d="M0 0L10 4 0 8Z" fill="#7cebd7"></path></marker></defs>
                     <g data-pick="world"></g>
                   </svg>
-                  <div class="gripper-scene-foot">
+                  <div class="arm-preview" data-pick="armView" hidden>
+                    <div class="arm-visual">
+                      <div class="arm-stage"><canvas data-arm="canvas" role="img" aria-label="E0509 6축 로봇 자세"></canvas><svg data-arm="labels" aria-hidden="true"></svg><span data-arm="graphics" class="arm-graphics" hidden></span><span class="arm-orbit-hint">드래그하여 둘러보기 · 표시 전용</span></div>
+                      <div class="arm-legend"><span>○ E0509 · BASE 고정</span><span>⊕ 교시 TCP</span><span data-arm="source">기본 자세 · 실측 아님</span></div>
+                    </div>
+                    <details class="arm-readings" data-arm="readings" open>
+                      <summary>관절·좌표 <span data-arm="array">[0, 0, 90, 0, 90, 0]°</span></summary>
+                      <div data-arm="joints" class="arm-joints" role="group" aria-label="강조할 관절 선택"></div>
+                      <p data-arm="received" class="arm-read-note"></p>
+                      <h5>모델 플랜지 <small>· BASE 계산값</small></h5><dl data-arm="flange" class="arm-pose"></dl>
+                      <h5>실측 TCP <small data-arm="tcpState">수신 대기</small></h5><dl data-arm="tcp" class="arm-pose"></dl>
+                      <p class="arm-read-note">XYZ · mm / ABC · °</p>
+                    </details>
+                  </div>
+                  <div class="gripper-scene-foot" data-pick="gripperFoot">
                     <div class="gripper-legend"><span>TCP 고정</span><span>공구 +Z</span><span>대상 앞면</span></div>
                     <div class="gripper-gap"><span data-pick="gapLabel">손끝 → 앞면</span><strong data-pick="gap">—</strong><small>시선축 기준</small></div>
                   </div>
