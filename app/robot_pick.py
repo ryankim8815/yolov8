@@ -192,7 +192,7 @@ class PickTargets:
         if hand_error:
             sdk, reason = None, hand_error
         if missing:
-            reason = "주요 좌표값 설정에서 " + ", ".join(missing) + " 좌표를 저장하세요."
+            reason = "경유 지점 설정에서 " + ", ".join(missing) + " 좌표를 저장하세요."
             sdk = None
         current = time.monotonic()
         self.approvals = {k: v for k, v in self.approvals.items() if v["deadline"] > current}

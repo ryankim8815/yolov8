@@ -23,7 +23,7 @@ from .robot_access_proxy import forward_host, request_host
 from .robot_poses import PoseExecution, PoseInput, PoseTests
 from .robot_gripper import Gripper, router as hand_router
 from .robot_pick import PickTargets, router as pick_router
-from .robot_work_points import TRANSFER_POINTS, FloorReference, FloorReferenceInput, PointName, WorkPointInput, WorkPoints
+from .robot_work_points import TRANSFER_POINTS, FloorReference, FloorReferenceInput, ParcelBox, ParcelBoxInput, PointName, WorkPointInput, WorkPoints
 from .store import DomainError
 
 RECLAIM_SERVICE = "system/reclaim_control"
@@ -111,6 +111,7 @@ class RobotMonitor:
         self.pose_tests = PoseTests(self, state_dir) if state_dir is not None else None
         self.work_points = WorkPoints(self.pose_tests.path.with_name("work-points.json")) if self.pose_tests else None
         self.floor = FloorReference(self.pose_tests.path.with_name("floor-reference.json")) if self.pose_tests else None
+        self.parcel_box = ParcelBox(self.pose_tests.path.with_name("parcel-box.json")) if self.pose_tests else None
         self.hand = Gripper(self.pose_tests.path.parent) if self.pose_tests else None
         self.picks = PickTargets(self, self.pose_tests.path.parent) if self.pose_tests else None
 
@@ -405,6 +406,7 @@ class RobotMonitor:
                 "error": self.error, "topics": topics, "joint_publishers": self.joint_publishers,
                 "display_joint_topic": displayed["name"],
                 "work_points": self.work_points.points if self.work_points else None,
+                "parcel_box": self.parcel_box.value if self.parcel_box else None,
                 "pick_active": bool(self.picks and self.picks.busy),
                 "hand_busy": bool(self.hand and self.hand.busy),
                 "transfer_active": bool(self.picks and self.picks.transfer_active),
@@ -487,6 +489,16 @@ async def current_work_pose(request: Request):
 @router.get("/floor-reference")
 async def floor_reference(request: Request):
     return JSONResponse(request.app.state.robot.floor.value, headers={"Cache-Control": "no-store"})
+
+
+@router.get("/parcel-box")
+async def parcel_box(request: Request):
+    return JSONResponse(request.app.state.robot.parcel_box.value, headers={"Cache-Control": "no-store"})
+
+
+@router.put("/parcel-box", dependencies=[Depends(same_site_json)])
+async def save_parcel_box(body: ParcelBoxInput, request: Request):
+    return request.app.state.robot.parcel_box.save(body)
 
 
 @router.put("/floor-reference", dependencies=[Depends(same_site_json)])

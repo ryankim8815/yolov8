@@ -62,6 +62,11 @@
 .robot-config code { color: var(--sub); font-size: 11px; display: block; margin-top: 5px; }
 .arm-preview { display:grid; grid-template-columns:minmax(0,1fr) 220px; margin-top:6px; color:#e3efee; }
 .arm-visual { min-width:0; }
+.arm-simulation { display:grid; gap:4px; padding:10px 12px; background:#4c4025; color:#ffe1a8; font-size:12px; border-bottom:1px solid #8f794b; }
+.gripper-panel .arm-simulation small { font-size:11px; color:#ffe1a8; }
+.simulation-view-actions { display:flex; gap:6px; margin-top:4px; }
+.simulation-view-actions button { padding:5px 9px; background:#4c4025; color:#ffe1a8; border:1px solid #ab925c; border-radius:5px; font-size:12px; cursor:pointer; }
+.simulation-view-actions button:disabled { opacity:.55; cursor:default; }
 .arm-stage { position:relative; height:clamp(205px,29dvh,310px); isolation:isolate; }
 .arm-stage canvas, .arm-stage svg { display:block; width:100%; height:100%; }
 .arm-stage canvas { touch-action:none; cursor:grab; }
@@ -76,6 +81,7 @@
 .arm-legend { display:flex; gap:5px 13px; align-items:center; flex-wrap:wrap; padding:8px 12px; color:#cee0df; font-size:11px; border-top:1px solid #355058; }
 .arm-legend [data-arm=source] { margin-left:auto; color:#f2cd92; }
 .arm-legend [data-arm=source][data-live=true] { color:#85e8cf; }
+.arm-box { display:grid; gap:4px; padding:10px 12px; border-top:1px solid #355058; color:#e7c38c; font-size:11px; line-height:1.5; overflow-wrap:anywhere; }
 .arm-readings { min-width:0; padding:8px 10px; background:#1b333a; border-left:1px solid #355058; }
 .arm-readings summary { cursor:pointer; font-size:12px; }
 .arm-readings [data-arm=array] { display:block; margin-top:3px; color:#b9d0ce; font:10px var(--mono); overflow-wrap:anywhere; }
@@ -157,6 +163,26 @@
 .work-point-heading h3 { font-size: 15px; }
 .work-point-feedback { font-size: 13px; margin-top: 8px; }
 .work-point-feedback:empty { display: none; }
+.point-simulation { margin-top:16px; padding:16px; border:1px solid var(--line); border-radius:8px; background:var(--soft); }
+.point-simulation h3 { font-size:15px; }
+.point-simulation p { margin:10px 0; }
+.simulation-route { color:var(--ink); font-size:13px; line-height:1.7; }
+.simulation-tool { margin:12px 0; font-size:13px; }
+.simulation-tool summary { cursor:pointer; }
+.simulation-actions { flex-wrap:wrap; }
+.simulation-actions label,.route-toggle { display:flex; gap:6px; align-items:center; font-size:12px; }
+.simulation-actions select { color:var(--ink); background:var(--surface); border:1px solid var(--line); border-radius:5px; padding:6px; }
+.simulation-progress { display:flex; align-items:center; gap:10px; margin-top:14px; font-size:12px; }
+.simulation-progress input { flex:1; min-width:0; accent-color:var(--mint); }
+.simulation-progress output { width:3.5em; text-align:right; }
+#simulation-status { font-size:13px; line-height:1.6; }
+#simulation-status[data-state=error] { color:#a0491d; }
+.work-point input[type=checkbox] { width:18px; height:18px; accent-color:var(--mint); }
+.parcel-box-fields { border:0; padding:0; margin:18px 0; min-width:0; }
+.parcel-box-fields legend { color:var(--ink); font-size:14px; margin-bottom:10px; }
+.parcel-box-fields .pose-fields { grid-template-columns:repeat(3,minmax(0,1fr)); }
+#parcel-box-save:enabled { background:var(--mint); border-color:var(--mint); color:var(--surface); }
+#parcel-box-feedback[data-error="true"] { color:var(--amber); }
 .work-point button[type="submit"]:enabled { background: var(--mint); border-color: var(--mint); color: var(--surface); }
 
 #control-view { margin: 0 8px 4px 4px; font: inherit; color: inherit; background: var(--surface); border: 1px solid var(--line); border-radius: 4px; }

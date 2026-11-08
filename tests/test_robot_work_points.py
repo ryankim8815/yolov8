@@ -86,6 +86,62 @@ class WorkPointTests(unittest.TestCase):
         self.assertEqual(RobotMonitor(self.robot.settings, self.root).floor.value, {"revision": None, "z_mm": 0})
         self.assertEqual(json.loads(path.read_text()), old)
 
+    def test_parcel_box_geometry_is_persistent_and_independent_of_tcp_and_motion(self):
+        url = "/api/robot/parcel-box"
+        self.robot.call_service = AsyncMock()
+        tcp = self.client.put(self.url + "box", json={"pose": self.pose, "revision": None}).json()
+        with patch("app.robot_pick.read_camera") as camera, patch("app.robot_pick.request_host") as arm, \
+                patch("app.robot_gripper.request_host") as hand:
+            initial = self.client.get(url)
+            self.assertEqual(initial.headers["Cache-Control"], "no-store")
+            self.assertEqual(initial.json(), dict(size_mm=[400,300,250], center_base_mm=[500,0,0], revision=None, updated_at=None))
+            self.assertFalse(self.robot.parcel_box.path.exists())
+            body = dict(size_mm=[400,300,250], center_base_mm=[500,0,-120], revision=None)
+            response = self.client.put(url, json=body)
+            self.assertEqual(response.status_code, 200, response.text)
+            saved = response.json()
+            self.assertEqual(saved["center_base_mm"], [500,0,-120])
+            self.assertTrue(saved["revision"])
+            self.assertEqual(self.client.get("/api/robot/status").json()["parcel_box"], saved)
+            self.assertEqual(RobotMonitor(self.robot.settings, self.root).parcel_box.value, saved)
+            self.assertEqual(RobotMonitor(RobotSettings(namespace="other"), self.root).parcel_box.value["size_mm"], [400,300,250])
+            self.assertEqual(self.client.put(url, json=body).status_code, 409)
+            changed = self.client.put(url, json={**body,"revision":saved["revision"],"size_mm":[450,350,300]}).json()
+            self.assertNotEqual(changed["revision"], saved["revision"])
+            self.assertEqual(self.robot.work_points.points["box"], tcp)
+            self.assertEqual(self.robot.picks.approvals, {})
+            camera.assert_not_called()
+            arm.assert_not_called()
+            hand.assert_not_called()
+            self.robot.call_service.assert_not_awaited()
+
+    def test_parcel_box_defaults_can_be_saved_and_legacy_nulls_use_defaults(self):
+        url = "/api/robot/parcel-box"
+        old = dict(size_mm=None, center_base_mm=None, revision=None, updated_at=None)
+        self.robot.parcel_box.path.parent.mkdir(parents=True, exist_ok=True)
+        self.robot.parcel_box.path.write_text(json.dumps(old))
+        restored = RobotMonitor(self.robot.settings, self.root).parcel_box.value
+        self.assertEqual(restored["size_mm"], [400,300,250])
+        self.assertEqual(restored["center_base_mm"], [500,0,0])
+        self.assertEqual(json.loads(self.robot.parcel_box.path.read_text()), old)
+        response = self.client.put(url,json={k:restored[k] for k in ("size_mm","center_base_mm","revision")})
+        self.assertEqual(response.status_code,200,response.text)
+        self.assertTrue(response.json()["revision"])
+        self.assertEqual(RobotMonitor(self.robot.settings, self.root).parcel_box.value,response.json())
+
+    def test_parcel_box_rejects_invalid_dimensions_and_cross_site_writes(self):
+        url = "/api/robot/parcel-box"
+        body = dict(size_mm=[400,300,250], center_base_mm=[0,0,0], revision=None)
+        for field, values in [("size_mm",[0,300,250]),("size_mm",[-1,300,250]),
+                              ("size_mm",[400,300]),("size_mm",[True,300,250]),
+                              ("size_mm",["400",300,250]),("size_mm",[1e7,300,250]),
+                              ("center_base_mm",[0,None,0]),("center_base_mm",[False,0,0]),
+                              ("center_base_mm",[0,0,1e7])]:
+            self.assertEqual(self.client.put(url,json={**body,field:values}).status_code,422)
+        self.assertEqual(self.client.put(url,json={**body,"pose":[0]*6}).status_code,422)
+        self.assertEqual(self.client.put(url,json=body,headers={"Sec-Fetch-Site":"cross-site"}).status_code,403)
+        self.assertFalse(self.robot.parcel_box.path.exists())
+
     def test_rejects_invalid_input_and_cross_site_writes(self):
         for pose in ([0]*3, [0]*7, [0, 0, 0, 0, 0, False], ["1"]*6):
             response = self.client.put(self.url + "box", json={"pose": pose, "revision": None})

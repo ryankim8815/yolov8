@@ -1,6 +1,16 @@
 const assert=require('node:assert/strict');
 const test=require('node:test');
 const mod=import('../app/static/robot-arm.js');
+test('parcel box uses a BASE bottom-face center with independent XYZ dimensions',async()=>{
+  const {parcelBoxGeometry}=await mod;
+  const box=parcelBoxGeometry({size_mm:[400,300,250],center_base_mm:[500,-20,-120],draft:true});
+  assert.deepEqual(box.bottom,[500,-20,-120]);assert.deepEqual(box.top,[500,-20,130]);assert.equal(box.draft,true);
+  assert.deepEqual(box.points,[[300,-170,-120],[700,-170,-120],[300,130,-120],[700,130,-120],
+    [300,-170,130],[700,-170,130],[300,130,130],[700,130,130]]);
+  assert.deepEqual(parcelBoxGeometry({size_mm:[1,2,3],center_base_mm:[0,0,0]}).bottom,[0,0,0]);
+  for(const box of [null,{}, {size_mm:[0,2,3],center_base_mm:[0,0,0]}, {size_mm:[1,2,3],center_base_mm:[0,NaN,0]},
+    {size_mm:[1,2,3],center_base_mm:[0,0]}, {size_mm:[1,'2',3],center_base_mm:[0,0,0]}])assert.equal(parcelBoxGeometry(box),null);
+});
 const near=(a,b,epsilon=1e-3)=>a.forEach((v,i)=>assert.ok(Math.abs(v-b[i])<epsilon,`${a} != ${b}`));
 const sample=()=>({state:'monitoring',bridge_connected:true,config:{stale_seconds:3},display_joint_topic:'/dsr01/monitor/joint_states',topics:[{
   name:'/dsr01/monitor/joint_states',state:'live',age_seconds:.1,received_at:'2026-11-09T00:00:00Z',

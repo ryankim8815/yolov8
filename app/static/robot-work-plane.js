@@ -2,6 +2,7 @@ import { watchDetections } from "./detection-feed.js";
 import { connectOrientation } from "./gripper-orientation.js";
 import { trackGripperEstimate } from "./gripper-measurement.js";
 import { imagePixel, api, center, marker, sameInput, readCalibration } from "./robot-camera-frame.js";
+import { subscribeParcelBox, connectWaypointSimulation } from "./robot-work-points.js";
 
 const axes = ["X", "Y", "Z"];
 const blankCorners = () => Array.from({length:4}, () => ({pixel:null, pose:Array(6).fill(null)}));
@@ -71,6 +72,7 @@ export function connectWorkPlane(root) {
   let gripperWorkspace = false;
   let manipulatorWorkspace = false;
   function selectTab(active, navigate = false) {
+    if(active.id!=="manipulator-points-tab")orientation.simulationAction("stop");
     for (const tab of tabs) {
       const selected = tab === active;
       tab.setAttribute("aria-selected", String(selected));
@@ -120,6 +122,13 @@ export function connectWorkPlane(root) {
     showOrientation(input);
     updateSave();
   }, lifetime.signal);
+  let parcelBox = null;
+  const unsubscribeBox = subscribeParcelBox(value => {
+    parcelBox = value;
+    orientation.setParcelBox(manipulatorWorkspace ? value : null);
+  });
+  lifetime.signal.addEventListener("abort",unsubscribeBox,{once:true});
+  connectWaypointSimulation(editor.querySelector("#manipulator-work-points"),orientation,lifetime.signal);
   const measurement = trackGripperEstimate(
     (body, signal) => api("pick/gripper-preview", "POST", body, signal),
     orientation.setEstimate);
@@ -415,6 +424,7 @@ export function connectWorkPlane(root) {
     showWorkspace(id, openHandTable = false) {
       gripperWorkspace = id === "gripper";
       manipulatorWorkspace = id === "manipulator";
+      orientation.setParcelBox(manipulatorWorkspace ? parcelBox : null);
       orientation.setGripperAttached(manipulatorWorkspace);
       orientation.setManipulator(!gripperWorkspace);
       visibleTabs = tabs.filter(tab => manipulatorWorkspace ? tab.hasAttribute("data-manipulator-tab") :

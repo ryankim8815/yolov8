@@ -1,6 +1,6 @@
 """Named packing locations in the E0509 BASE frame (XYZ mm, ABC degrees)."""
 import json
-from typing import Literal
+from typing import Annotated, Literal
 from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, FiniteFloat
@@ -21,6 +21,34 @@ class FloorReferenceInput(BaseModel):
     model_config = ConfigDict(strict=True, extra="forbid")
     z_mm: FiniteFloat
     revision: str | None = Field(max_length=32)
+
+
+class ParcelBoxInput(BaseModel):
+    model_config = ConfigDict(strict=True, extra="forbid")
+    size_mm: list[Annotated[FiniteFloat, Field(ge=0.001, le=1_000_000)]] = Field(min_length=3, max_length=3)
+    center_base_mm: list[Annotated[FiniteFloat, Field(ge=-1_000_000, le=1_000_000)]] = Field(min_length=3, max_length=3)
+    revision: str | None = Field(max_length=32)
+
+
+class ParcelBox:
+    """Display geometry; center is the bottom face in BASE, not a robot TCP goal."""
+    def __init__(self, path):
+        self.path = path
+        self.value = json.loads(path.read_text()) if path.exists() else dict(
+            revision=None, updated_at=None)
+        if self.value.get("size_mm") is None:
+            self.value["size_mm"] = [400, 300, 250]
+        if self.value.get("center_base_mm") is None:
+            self.value["center_base_mm"] = [500, 0, 0]
+
+    def save(self, body):
+        if body.revision != self.value["revision"]:
+            raise DomainError("다른 화면에서 택배 박스 설정을 변경했습니다. 최신 설정을 불러오세요.")
+        value = dict(size_mm=body.size_mm, center_base_mm=body.center_base_mm,
+                     revision=uuid4().hex, updated_at=now())
+        atomic_json(self.path, value)
+        self.value = value
+        return value
 
 
 class FloorReference:

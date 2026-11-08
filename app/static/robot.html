@@ -126,9 +126,27 @@ docker compose run --rm --no-deps doosan-driver timeout 15 check-e0509</pre>
           <div class="robot-joints" id="robot-joints"></div>
         </section>
         <section id="manipulator-work-points" data-manipulator-panel hidden class="panel" role="tabpanel" aria-labelledby="manipulator-points-tab" tabindex="0">
-          <div class="panel-head"><h2 id="work-points-title">주요 좌표값 설정</h2><span class="meta">로봇 베이스 기준 · BASE</span></div>
+          <div class="panel-head"><h2 id="work-points-title">경유 지점 설정</h2><span class="meta">로봇 베이스 기준 · BASE</span></div>
           <div class="pose-body">
             <p class="work-point-help">공구 끝점(TCP)의 위치 X·Y·Z는 mm, 방향 A·B·C는 °(ZYZ)로 입력하세요. 이송 경로는 파지 위치 → 경유점 → 택배 박스 순서입니다. 물체를 든 상태에서 두 직선 구간이 장애물과 박스 테두리를 통과하지 않도록 경유점을 교시하세요.</p>
+            <div id="work-point-simulation" class="point-simulation" aria-labelledby="point-simulation-title">
+              <h3 id="point-simulation-title">경로 시뮬레이션</h3>
+              <p class="work-point-help">현재 자세(미연결 시 기본 자세)에서 ‘경로에 포함’한 지점을 위에서 아래 순서로 방문합니다. 저장 전 편집값도 사용할 수 있습니다. 브라우저의 3D 모형만 움직이며 실제 로봇·그리퍼에 명령을 보내지 않습니다.</p>
+              <p id="simulation-route" class="simulation-route"></p>
+              <details class="simulation-tool"><summary>시뮬레이션 TCP · 플랜지 기준 오프셋</summary>
+                <p class="work-point-help">기본값은 표시 모형의 손끝 X 0, Y 0, Z 143 mm, A 90°, B 0°, C 0°입니다. 실제 공구 설정과 맞추려면 아래 값을 입력하세요. 시뮬레이션에만 적용합니다.</p>
+                <div id="simulation-tool-fields" class="pose-fields"></div>
+              </details>
+              <div class="pose-actions simulation-actions">
+                <button type="button" id="simulation-start">선택 경로 시뮬레이션</button>
+                <button type="button" id="simulation-pause" disabled>일시정지</button>
+                <button type="button" id="simulation-stop" disabled>시뮬레이션 종료</button>
+                <label>재생 배속 <select id="simulation-rate"><option value="0.5">0.5×</option><option value="1" selected>1×</option><option value="2">2×</option></select></label>
+              </div>
+              <label class="simulation-progress">경로 진행 <input id="simulation-progress" type="range" min="0" max="1000" step="1" value="0" disabled><output id="simulation-percent">0%</output></label>
+              <p id="simulation-status" role="status">각 지점을 입력한 뒤 시뮬레이션을 시작하세요.</p>
+              <p class="work-point-help">기구학으로 계산한 직선 경로를 100 mm/s 기준으로 재생합니다. 실제 제어기의 경로, 충돌·특이점 검증을 대신하지 않습니다.</p>
+            </div>
             <div id="work-points"></div>
             <p id="work-point-source" class="meta">현재 위치 수신 상태 확인 중</p>
           </div>
@@ -140,10 +158,36 @@ docker compose run --rm --no-deps doosan-driver timeout 15 check-e0509</pre>
                 <button type="button" data-read disabled>현재 위치 불러오기</button>
                 <button type="button" data-reset hidden>저장값 불러오기</button>
                 <button type="submit" disabled>좌표 저장</button>
+                <button type="button" data-simulate-point disabled>이 지점 시뮬레이션</button>
+                <label class="route-toggle"><input type="checkbox" data-route-point>경로에 포함</label>
               </div>
               <p class="work-point-feedback" role="status"></p>
             </form>
           </template>
+        </section>
+        <section id="manipulator-parcel-box" data-manipulator-panel hidden class="panel" role="tabpanel" aria-labelledby="manipulator-box-tab" tabindex="0">
+          <div class="panel-head"><h2 id="parcel-box-title">택배 박스 위치 설정</h2><span id="parcel-box-state" class="meta">조회 중</span></div>
+          <form id="parcel-box-form" class="pose-body">
+            <p class="work-point-help">박스의 크기와 바닥면 중심을 로봇 BASE 기준으로 입력하세요. 가로는 X축, 세로는 Y축, 높이는 +Z축 방향입니다. 값을 바꾸면 위 3D 화면에 즉시 반영됩니다.</p>
+            <fieldset class="parcel-box-fields"><legend>박스 크기 (mm)</legend><div class="pose-fields">
+              <label>가로 · X<input name="width" type="number" step="any" min="0.001" max="1000000" placeholder="예: 400" required></label>
+              <label>세로 · Y<input name="depth" type="number" step="any" min="0.001" max="1000000" placeholder="예: 300" required></label>
+              <label>높이 · Z<input name="height" type="number" step="any" min="0.001" max="1000000" placeholder="예: 250" required></label>
+            </div></fieldset>
+            <fieldset class="parcel-box-fields"><legend>바닥면 중심 · BASE (mm)</legend><div class="pose-fields">
+              <label>X<input name="x" type="number" step="any" min="-1000000" max="1000000" placeholder="예: 500" required></label>
+              <label>Y<input name="y" type="number" step="any" min="-1000000" max="1000000" placeholder="예: 0" required></label>
+              <label>Z · 바닥 높이<input name="z" type="number" step="any" min="-1000000" max="1000000" placeholder="예: 0" required></label>
+            </div></fieldset>
+            <p id="parcel-box-preview" class="work-point-help" aria-live="polite">크기와 위치를 모두 입력하면 박스가 표시됩니다.</p>
+            <p class="work-point-help">이 설정은 박스 외형과 설치 위치를 표시합니다. 내려놓는 공구 끝점(TCP)은 <a href="#work-points-title">경유 지점 설정 → 택배 박스 위치</a>에서 교시하세요.</p>
+            <div class="pose-actions">
+              <button type="button" id="parcel-box-cancel" disabled>변경 취소</button>
+              <button type="button" id="parcel-box-reload" hidden>최신 설정 불러오기</button>
+              <button type="submit" id="parcel-box-save" disabled>박스 설정 저장</button>
+            </div>
+            <p id="parcel-box-feedback" class="work-point-feedback" role="status"></p>
+          </form>
         </section>
         <section id="manipulator-pose-tests" data-manipulator-panel hidden class="panel" role="tabpanel" aria-labelledby="manipulator-poses-tab" tabindex="0">
           <div class="panel-head"><h2 id="pose-title">자세 테스트</h2><span class="meta" id="pose-bridge">rosbridge 확인 중</span></div>
@@ -228,8 +272,13 @@ docker compose run --rm --no-deps doosan-driver timeout 15 check-e0509</pre>
                   </svg>
                   <div class="arm-preview" data-pick="armView" hidden>
                     <div class="arm-visual">
+                      <div class="arm-simulation" data-arm="simulation" hidden><strong>시뮬레이션 모드</strong><span data-arm="simulationStage"></span><small>브라우저 미리보기 · 실제 로봇·그리퍼 명령 없음</small><div class="simulation-view-actions"><button type="button" data-arm="simulationPause">일시정지</button><button type="button" data-arm="simulationStop">시뮬레이션 종료</button></div></div>
                       <div class="arm-stage"><canvas data-arm="canvas" role="img" aria-label="E0509 6축 로봇 자세"></canvas><svg data-arm="labels" aria-hidden="true"></svg><span data-arm="graphics" class="arm-graphics" hidden></span><span class="arm-orbit-hint">드래그하여 둘러보기 · 표시 전용</span></div>
                       <div class="arm-legend"><span>○ E0509 · BASE 고정</span><span>⊕ 교시 TCP</span><span data-arm="source">기본 자세 · 실측 아님</span></div>
+                      <div class="arm-box" data-arm="parcelBox" hidden>
+                        <strong data-arm="boxTitle">택배 박스</strong>
+                        <span data-arm="boxSize"></span><span data-arm="boxCenter"></span>
+                      </div>
                       <div class="arm-hand" data-arm="hand" hidden>
                         <div class="arm-hand-heading"><strong>장착 그리퍼 <small>· 사진 기준 외형 / RH-P12 피드백</small></strong><span data-arm="handStatus" role="status">상태 미확인</span></div>
                         <dl class="arm-hand-values"><div><dt>명령 위치</dt><dd data-arm="handTarget">—</dd></div><div><dt>실제 위치</dt><dd data-arm="handPosition">—</dd></div><div><dt>실측 벌림</dt><dd data-arm="handOpening">—</dd></div></dl>
@@ -242,7 +291,7 @@ docker compose run --rm --no-deps doosan-driver timeout 15 check-e0509</pre>
                       <div data-arm="joints" class="arm-joints" role="group" aria-label="강조할 관절 선택"></div>
                       <p data-arm="received" class="arm-read-note"></p>
                       <h5>모델 플랜지 <small>· BASE 계산값</small></h5><dl data-arm="flange" class="arm-pose"></dl>
-                      <h5>실측 TCP <small data-arm="tcpState">수신 대기</small></h5><dl data-arm="tcp" class="arm-pose"></dl>
+                      <h5><span data-arm="tcpTitle">실측 TCP</span> <small data-arm="tcpState">수신 대기</small></h5><dl data-arm="tcp" class="arm-pose"></dl>
                       <p class="arm-read-note">XYZ · mm / ABC · °</p>
                     </details>
                   </div>
@@ -257,7 +306,8 @@ docker compose run --rm --no-deps doosan-driver timeout 15 check-e0509</pre>
                 </div>
                 <div class="plane-tabs" role="tablist" aria-label="작업 평면 보정 설정">
                   <button type="button" role="tab" id="manipulator-control-tab" data-manipulator-tab="#manipulator" aria-selected="false" aria-controls="manipulator-control" tabindex="-1" hidden>로봇 제어</button>
-                  <button type="button" role="tab" id="manipulator-points-tab" data-manipulator-tab="#work-points-title" aria-selected="false" aria-controls="manipulator-work-points" tabindex="-1" hidden>주요 좌표값 설정</button>
+                  <button type="button" role="tab" id="manipulator-points-tab" data-manipulator-tab="#work-points-title" aria-selected="false" aria-controls="manipulator-work-points" tabindex="-1" hidden>경유 지점 설정</button>
+                  <button type="button" role="tab" id="manipulator-box-tab" data-manipulator-tab="#parcel-box-title" aria-selected="false" aria-controls="manipulator-parcel-box" tabindex="-1" hidden>택배 박스 위치 설정</button>
                   <button type="button" role="tab" id="manipulator-poses-tab" data-manipulator-tab="#pose-title" aria-selected="false" aria-controls="manipulator-pose-tests" tabindex="-1" hidden>자세 테스트</button>
                   <button type="button" role="tab" id="plane-camera-tab" aria-selected="true" aria-controls="plane-camera-settings">카메라 좌표 설정</button>
                   <button type="button" role="tab" id="plane-surface-tab" aria-selected="false" aria-controls="plane-surface-settings" tabindex="-1">작업면 설정</button>
