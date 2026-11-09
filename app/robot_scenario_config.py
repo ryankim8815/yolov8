@@ -143,6 +143,16 @@ class ScenarioConfig:
         return value
 
 
+def example_scenario():
+    """A complete, repeatable browser-only recipe; never persisted as robot teaching."""
+    config=ScenarioInput().model_dump()
+    config.update(waypoint1_joints=[-180,0,60,0,120,0],standby_opening_mm=80,box_clearance_mm=200)
+    config["virtual"]["shelf"]["center_base_mm"][2]=450
+    config["stages"]["8"]["via_pose"]=[-421.975537,.000449,290.654122,44.999991,179.999802,0]
+    return dict(config=config,box_pose=[450,0,120,0,180,0],
+                box=dict(size_mm=[400,300,250],center_base_mm=[450,0,0]),floor_z_mm=0)
+
+
 def speed_for(config,number,kind):
     setting=config["stages"][str(number)]
     motion=motion_for(config,number)

@@ -166,6 +166,7 @@
 .point-simulation { margin-top:16px; padding:16px; border:1px solid var(--line); border-radius:8px; background:var(--soft); }
 .scenario-head { display:flex; justify-content:space-between; gap:16px; align-items:start; margin:20px 0 16px; }
 .scenario-head h3 { font-size:21px; letter-spacing:-.6px; }.scenario-eyebrow { color:var(--mint); font:600 10px var(--mono); letter-spacing:1.8px; margin-bottom:6px; }
+.scenario-source { display:flex; align-items:center; gap:12px 24px; flex-wrap:wrap; padding:14px 16px; background:var(--mint-bg); border:1px solid var(--line); border-radius:9px; margin:14px 0; }.scenario-source label { min-width:240px; }.scenario-source p { flex:1; min-width:200px; }.scenario-example-box { margin:16px 0; }.scenario-example-box h5 { font-size:12px; color:var(--mint); }
 #scenario-editor .scenario-caption { font-size:12px; color:var(--sub); line-height:1.7; margin:7px 0; }
 .scenario-badge { display:inline-block; flex-shrink:0; border:1px solid var(--line); background:var(--soft); border-radius:20px; padding:5px 10px; color:var(--sub); font-size:11px; line-height:1.4; }
 .scenario-badge[data-state=warning],.scenario-badge[data-state=awaiting_grip],.scenario-badge[data-state=awaiting_open] { color:#805619; background:#fff5df; border-color:#d7bc7b; }

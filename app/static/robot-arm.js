@@ -1,6 +1,16 @@
 // E0509 forward kinematics from DoosanRobotics/doosan-robot2,
 // dsr_description2/urdf/e0509.white.urdf (Apache-2.0). All lengths are mm.
 export const defaultArmJoints = Object.freeze([0,0,90,0,90,0]);
+export function exampleScenarioGuides(){
+  const floor={points:[[-900,-650,0],[900,-650,0],[900,650,0],[-900,650,0]],lines:[],baseZ:0};
+  const wall={points:[[-600,-650,0],[-600,650,0],[-600,650,850],[-600,-650,850]],lines:[]};
+  for(let x=-900;x<=900;x+=100)floor.lines.push([[x,-650,0],[x,650,0]]);
+  for(let y=-650;y<=650;y+=100){floor.lines.push([[-900,y,0],[900,y,0]]);wall.lines.push([[-600,y,0],[-600,y,850]]);}
+  for(let z=0;z<=850;z+=100)wall.lines.push([[-600,-650,z],[-600,650,z]]);
+  const x=[-700,400,-75],length=Math.hypot(...x),forward=x.map(v=>v/length),side=[-forward[1],forward[0],0],s=Math.hypot(...side);for(let i=0;i<3;i++)side[i]/=s;
+  const up=[forward[1]*side[2]-forward[2]*side[1],forward[2]*side[0]-forward[0]*side[2],forward[0]*side[1]-forward[1]*side[0]];
+  return {floor,wall,lens:[100,-400,500],camera:[forward,side,up],objectPoints:[],target:null};
+}
 const jointOrigins = [
   [[0,0,204.5],[0,0,0]], [[0,0,0],[0,-1.5708,-1.5708]],
   [[373,0,0],[0,0,1.5708]], [[0,-373,0],[1.5708,0,0]],

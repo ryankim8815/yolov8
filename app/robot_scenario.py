@@ -13,7 +13,7 @@ from .pick_plane import CameraFrame, Input, PickPlane
 from .robot_access_protocol import local_json
 from .robot_access_proxy import request_host
 from .robot_scenario_config import (ScenarioConfig, ScenarioInput, ScenarioCommand, OperationStop,
-                                    KinematicsRequest, Six, STAGES, speed_for, motion_for, MOTION_KINDS)
+                                    KinematicsRequest, Six, STAGES, speed_for, motion_for, MOTION_KINDS, example_scenario)
 from .robot_arc import validate_arc
 from .store import DomainError
 
@@ -22,6 +22,7 @@ class SimulationPreview(Input):
     region: Literal["floor","shelf"] = "floor"
     config: ScenarioInput | None = None
     box_pose: Six | None = None
+    example: bool = False
 
 
 class Identifier(Input):
@@ -115,21 +116,23 @@ class Scenario:
         return width
 
     def virtual_preview(self,body):
-        config=body.config.model_dump() if body.config else copy.deepcopy(self.config.value)
+        demo=example_scenario() if body.example else None
+        config=body.config.model_dump() if body.config else copy.deepcopy(demo["config"] if demo else self.config.value)
         product=config["virtual"][body.region];pose=[*product["center_base_mm"],*( [0,180,0] if body.region=="floor" else [180,90,90])]
         a,b,c=map(math.radians,pose[3:]);tool_x=[math.cos(a)*math.cos(b)*math.cos(c)-math.sin(a)*math.sin(c),
             math.sin(a)*math.cos(b)*math.cos(c)+math.cos(a)*math.sin(c),-math.sin(b)*math.cos(c)]
         width=sum(abs(x)*s for x,s in zip(tool_x,product["size_mm"]))
         opening=width+10
         approach=approach_pose(config,body.region,pose)
-        box=body.box_pose or self.robot.work_points.points["box"]["pose"]
+        box=body.box_pose or (demo["box_pose"] if demo else self.robot.work_points.points["box"]["pose"])
         errors=[]
         if config["waypoint1_joints"] is None:errors.append("1차 경유점의 관절각을 설정하세요.")
         if box is None:errors.append("택배 박스 놓기 TCP를 설정하세요.")
         for n,_,_ in STAGES:
             if motion_for(config,n)=="movec" and config["stages"][str(n)].get("via_pose") is None:
                 errors.append(f"{n}단계 movec의 원호 경유 TCP를 설정하세요.")
-        return dict(simulation_only=True,region=body.region,product=product,pose=pose,approach=approach,config=config,box=self.robot.parcel_box.value,
+        return dict(simulation_only=True,example=body.example,region=body.region,product=product,pose=pose,approach=approach,config=config,
+                    box=demo["box"] if demo else self.robot.parcel_box.value,box_pose=box,floor_z_mm=0 if demo else self.robot.floor.value["z_mm"],
                     opening_mm=opening,width_mm=width,clearance_per_side_mm=5,
                     idle_opening_mm=self.idle_width(config,True),errors=errors,
                     steps=compile_steps(config,pose,approach,box,opening,self.idle_width(config,True)))
