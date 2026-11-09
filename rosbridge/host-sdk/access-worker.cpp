@@ -40,14 +40,19 @@ static const char* state_name(ROBOT_STATE s) {
 static void servo_on(DRAFramework::CDRFLEx& sdk, const char* command) {
     unsigned grant;
     char token[33], extra;
-    if (std::sscanf(command, "servo %u %32[0123456789abcdef] %c", &grant, token, &extra) != 2 ||
+    const bool recovery = !std::strncmp(command, "recover ", 8);
+    if (std::sscanf(command, recovery ? "recover %u %32[0123456789abcdef] %c" : "servo %u %32[0123456789abcdef] %c", &grant, token, &extra) != 2 ||
         std::strlen(token) != 32) return;
     const auto mode = sdk.get_robot_mode();
     const bool ready = (mode == ROBOT_MODE_MANUAL || mode == ROBOT_MODE_AUTONOMOUS) &&
-                       sdk.get_robot_system() == ROBOT_SYSTEM_REAL && sdk.get_robot_state() == STATE_SAFE_OFF &&
+                       sdk.get_robot_system() == ROBOT_SYSTEM_REAL &&
+                       sdk.get_robot_state() == (recovery ? STATE_SAFE_STOP : STATE_SAFE_OFF) &&
                        initialized && !down && held && grant == grant_number.load() && !in_move &&
                        last_frame.load() && now_ms() - last_frame.load() <= 2000;
-    const bool accepted = ready && sdk.set_robot_control(CONTROL_SERVO_ON);
+    // Reset to standby without resuming the interrupted controller program.
+    const bool accepted = ready && (recovery
+        ? sdk.set_safe_stop_reset_type(SAFE_STOP_RESET_TYPE_DEFAULT) && sdk.set_robot_control(CONTROL_RESET_SAFET_STOP)
+        : sdk.set_robot_control(CONTROL_SERVO_ON));
     char result[48];
     std::snprintf(result, sizeof(result), "%s %s", token, accepted ? "accepted" : "refused");
     event("servo", result);
@@ -191,6 +196,7 @@ int main() {
     event("sdk", version);
     if (std::strcmp(version, "GL010117") || !ip || !port) return 1;
     event("feature", "servo_on");
+    event("feature", "safe_stop_reset");
     event("feature", "operation_mode");
     event("feature", "line");
     event("feature", "rh_p12");
@@ -260,6 +266,7 @@ int main() {
         if (!std::strncmp(command,"segment ",8)){scenario_run.begin(sdk,command);continue;}
         if (!std::strncmp(command, "mode ", 5)) { set_operation_mode(sdk, command); continue; }
         if (!std::strncmp(command, "servo ", 6)) { servo_on(sdk, command); continue; }
+        if (!std::strncmp(command, "recover ", 8)) { servo_on(sdk, command); continue; }
         if (!std::strncmp(command, "move ", 5)) { move_pose(sdk, command); continue; }
         if (!std::strncmp(command, "hand ", 5)) { gripper(sdk, command); continue; }
         if (!std::strncmp(command, "line ", 5)) { move_line(sdk, command); continue; }
@@ -267,7 +274,7 @@ int main() {
         const auto state = sdk.get_robot_state();
         if (held) { event("already", "GRANT"); continue; }
         if (down || !initialized || !frame || now_ms() - frame > 2000 ||
-            (state != STATE_STANDBY && state != STATE_SAFE_OFF)) {
+            (state != STATE_STANDBY && state != STATE_SAFE_OFF && state != STATE_SAFE_STOP)) {
             event("refused", "SDK not ready or robot not stopped"); continue;
         }
         if (!sdk.manage_access_control(MANAGE_ACCESS_CONTROL_FORCE_REQUEST))

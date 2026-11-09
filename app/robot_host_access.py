@@ -62,6 +62,7 @@ class AccessServer:
         self.mode_deadline = 0
         self.mode_verified = True
         self.servo_supported = False
+        self.safe_stop_reset_supported = False
         self.servo_token = self.servo_request = None
         self.servo_result = "idle"
         self.servo_deadline = 0
@@ -94,7 +95,8 @@ class AccessServer:
                     worker_pid=self.process.pid if self.process and self.session else None,
                     held=held, held_seconds=int(time.monotonic() - self.held_since) if held else None,
                     last_callback=self.callback, callback_at=self.callback_at, result=self.result,
-                    can_reclaim=connected and self.initialized and self.state in {"SAFE_OFF", "STANDBY"}
+                    can_reclaim=connected and self.initialized and (self.state in {"SAFE_OFF", "STANDBY"}
+                    or self.state == "SAFE_STOP" and self.safe_stop_reset_supported)
                     and not held and self.result not in {"pending", "unknown"})
 
     def mode_status(self):
@@ -139,22 +141,25 @@ class AccessServer:
         elif not self.servo_supported:
             reason = "SDK 작업자를 업데이트해야 합니다."
         elif not self.held:
-            reason = "Mac SDK 세션의 제어권이 필요합니다."
+            reason = "Mac SDK 세션의 제어권이 필요합니다. 매니퓰레이터의 제어권 보기에서 회수하세요."
         elif self.servo_request:
             reason = ("결과 미확인 · 제어기 상태와 알람을 확인하세요." if self.servo_result == "unknown"
-                      else "서보 ON 요청 중 · STANDBY 응답 대기")
+                      else "STANDBY 전환 요청 중 · 제어기 응답 대기")
         elif self.state == "STANDBY":
             reason = "서보 켜짐 · STANDBY"
-        elif self.state != "SAFE_OFF" or self.mode_request or self.motion or self.system != "REAL" or self.mode not in {"AUTO", "MANUAL"}:
-            reason = "실물 로봇의 SAFE_OFF 상태에서 요청할 수 있습니다."
+        elif self.state == "SAFE_STOP" and not self.safe_stop_reset_supported:
+            reason = "SAFE_STOP 복구를 지원하는 SDK 작업자로 업데이트해야 합니다."
+        elif self.state not in {"SAFE_OFF", "SAFE_STOP"} or self.mode_request or self.motion or self.active_operation or self.inspection or self.system != "REAL" or self.mode not in {"AUTO", "MANUAL"}:
+            reason = "진행 중인 작업이 없는 실물 로봇의 SAFE_STOP·SAFE_OFF 상태에서 요청할 수 있습니다."
         else:
             reason = None
         if reason:
             self.servo_token = None
         elif not self.servo_token:
             self.servo_token = uuid4().hex
-        message = reason or ("SDK가 서보 ON 요청을 거절했습니다. 제어기 알람을 확인하세요."
-                             if self.servo_result == "failed" else "서보 꺼짐 · SAFE_OFF")
+        message = reason or ("SDK가 STANDBY 전환을 거절했습니다. 제어기 알람과 정지 원인을 확인하세요."
+                             if self.servo_result == "failed" else
+                             "SAFE_STOP · 정지 원인을 해소한 후 STANDBY로 복구하세요." if self.state == "SAFE_STOP" else "서보 꺼짐 · SAFE_OFF")
         return dict(token=self.servo_token, result=self.servo_result, message=message)
 
     def require_servo(self, ticket):
@@ -172,7 +177,8 @@ class AccessServer:
         # Invalidate any pose confirmation opened before servo activation.
         self.motion_token = uuid4().hex
         try:
-            self.process.stdin.write(f"servo {self.grant_number} {self.servo_request}\n".encode())
+            action = "recover" if self.state == "SAFE_STOP" else "servo"
+            self.process.stdin.write(f"{action} {self.grant_number} {self.servo_request}\n".encode())
         except (OSError, RuntimeError):
             self.drop_worker("SDK 작업자 연결이 끊겼습니다.")
             raise HTTPException(503, self.detail) from None
@@ -191,6 +197,8 @@ class AccessServer:
             return "SAFE_OFF · 서보가 꺼져 있습니다. STANDBY·자동 모드에서 이동할 수 있습니다."
         if not self.state:
             return "제어기 대기 상태를 확인하고 있습니다."
+        if self.state == "SAFE_STOP":
+            return "현재 SAFE_STOP · 정지 원인을 해소한 후 좌측 하단의 STANDBY 복구를 요청하세요."
         if self.state != "STANDBY":
             return f"현재 {self.state} · 제어기에서 STANDBY 상태를 확인하세요."
         if self.mode_request or not self.mode_verified:
@@ -327,7 +335,7 @@ class AccessServer:
         if ticket.revision != self.revision or self.held or self.result in {"pending", "unknown"}:
             return False
         if not status["can_reclaim"]:
-            raise HTTPException(409, "초기화 완료 및 로봇 정지 상태(SAFE_OFF/STANDBY)를 확인하세요.")
+            raise HTTPException(409, "초기화 완료 및 로봇 정지 상태(SAFE_OFF/SAFE_STOP/STANDBY)를 확인하세요.")
         return True
 
     async def reclaim(self, ticket):
@@ -436,6 +444,8 @@ class AccessServer:
                     self.mode = observed
         elif key == "feature" and value == "servo_on":
             self.servo_supported = True
+        elif key == "feature" and value == "safe_stop_reset":
+            self.safe_stop_reset_supported = True
         elif key == "servo":
             token, _, result = value.partition(" ")
             if token == self.servo_request:
@@ -448,6 +458,7 @@ class AccessServer:
             LOG.info("SDK connected: %s · %s · DRCF %s", self.route, self.session, value)
         elif key in {"ready", "initializing"}:
             parts = value.split()
+            previous_state = self.state
             self.initialized, self.state = key == "ready", parts[0]
             previous_mode = self.mode
             self.mode, self.system = parts[1:] if len(parts) == 3 else (None, None)
@@ -457,7 +468,7 @@ class AccessServer:
                 self.motion_token = uuid4().hex
             if self.servo_request and self.servo_accepted and self.initialized and self.state == "STANDBY":
                 self.servo_request, self.servo_result = None, "confirmed"
-            if self.state != "SAFE_OFF" or not self.initialized or self.system != "REAL" or self.mode not in {"AUTO", "MANUAL"}:
+            if self.state != previous_state or self.state not in {"SAFE_OFF", "SAFE_STOP"} or not self.initialized or self.system != "REAL" or self.mode not in {"AUTO", "MANUAL"}:
                 self.servo_token = None
             if self.servo_result == "confirmed" and self.state != "STANDBY":
                 self.servo_result = "idle"

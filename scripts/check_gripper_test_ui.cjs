@@ -10,6 +10,7 @@ process.chdir(path.resolve(__dirname,'..'));
   const host={session_id:'fake',motion_token:'a'.repeat(32),can_move:true,gripper_supported:true,gripper_target:262,
    gripper_feedback:{state:'completed',position:262,observed_at:new Date().toISOString()}};
   let table={revision:'saved',points:[{position:0,width_mm:80},{position:700,width_mm:0}]};
+  let contact={revision:null,threshold_ma:null};const contactWrites=[];
   page.on('pageerror',e=>errors.push(e.message));
   await page.routeWebSocket('**/ws/detections*',socket=>socket.send(JSON.stringify({event:'status',ready:false,state:'camera_off'})));
   await page.route('**/*',async route=>{
@@ -21,7 +22,10 @@ process.chdir(path.resolve(__dirname,'..'));
    else if(resource==='/api/robot/host-access/status')value=host;
    else if(resource.endsWith('/parcel-box'))value={revision:null};
    else if(resource.endsWith('/floor-reference'))value={revision:null,z_mm:0};
-   else if(resource.endsWith('/contact'))value={revision:null,threshold_ma:null};
+   else if(resource.endsWith('/contact')){
+    if(req.method()==='PUT'){contactWrites.push(body);contact={revision:'contact-saved',threshold_ma:body.threshold_ma};}
+    value=contact;
+   }
    else if(resource.endsWith('/table')){
     if(req.method()==='PUT')table={revision:'updated',points:body.points};
     value=table;
@@ -88,6 +92,41 @@ process.chdir(path.resolve(__dirname,'..'));
    await tab.click();
    assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
   }
+  status.pick_active=false;table={revision:null,points:[]};
+  await page.goto('http://gripper.test/robot#gripper-table');
+  await page.reload();
+  await page.locator('#hand-samples input').first().waitFor();
+  assert.equal(await page.locator('.hand-sample').count(),2);
+  assert.equal(await page.locator('#hand-save').isDisabled(),true);
+  assert.match(await page.locator('#hand-table-validation').textContent(),/1번.*실제 위치/);
+  await page.waitForFunction(()=>!document.querySelector('#hand-capture').disabled);
+  await page.locator('#hand-capture').click();
+  assert.equal(await page.locator('.hand-sample').count(),2);
+  assert.equal(await page.locator('.hand-sample [data-field=position]').first().inputValue(),'262');
+  const sample=number=>page.locator('.hand-sample').nth(number);
+  await sample(0).locator('[data-field=position]').fill('0');
+  await sample(0).locator('[data-field=width_mm]').fill('80');
+  assert.equal(await page.locator('#hand-save').isDisabled(),true);
+  await sample(1).locator('[data-field=position]').fill('700');
+  await sample(1).locator('[data-field=width_mm]').fill('0');
+  assert.equal(await page.locator('#hand-save').isEnabled(),true);
+  await sample(1).locator('[data-field=position]').fill('0');
+  assert.match(await page.locator('#hand-table-validation').textContent(),/중복/);
+  await sample(1).locator('[data-field=position]').fill('700');
+  await sample(1).locator('[data-field=width_mm]').fill('90');
+  assert.match(await page.locator('#hand-table-validation').textContent(),/작아져야/);
+  await sample(1).locator('[data-field=width_mm]').fill('0');
+  await page.locator('#hand-save').click();
+  await page.waitForFunction(()=>document.querySelector('#hand-table-note').textContent.includes('저장했습니다'));
+  assert.deepEqual(table.points,[{position:0,width_mm:80},{position:700,width_mm:0}]);
+  assert.equal(await page.locator('#hand-contact-current').inputValue(),'30');
+  assert.equal(contactWrites.length,0);
+  await page.locator('#hand-contact-save').click();
+  await page.waitForFunction(()=>document.querySelector('#hand-contact-result').textContent.includes('저장 완료'));
+  assert.equal(contactWrites[0].threshold_ma,30);
+  contact={revision:'existing-contact',threshold_ma:45};
+  await page.locator('#hand-contact-reload').click();
+  await page.waitForFunction(()=>document.querySelector('#hand-contact-current').value==='45');
   assert.equal(commands.length,1);assert.deepEqual(errors,[]);
   console.log('PASS: preview/cancel 0 commands; approved double click 1; bounds, dirty table, lock, feedback and mobile checks');
  }finally {await browser.close();}

@@ -45,6 +45,17 @@
 .rail-stop:focus-visible { outline:2px solid #ffb1ac; outline-offset:2px; }
 .rail-stop:disabled { opacity:.65; }
 .rail-stop-state { margin:0; color:#f4c9c6; font-size:12px; overflow-wrap:anywhere; }
+.rail-standby { width:100%; min-height:44px; padding:10px; border:1px solid #62bba8; border-radius:7px; background:#21483f; color:#e1fff7; font:inherit; font-size:14px; font-weight:600; cursor:pointer; }
+.rail-standby:hover { background:#2c6154; }
+.rail-standby:focus-visible { outline:2px solid #85dec6; outline-offset:2px; }
+.rail-standby:disabled { opacity:.65; cursor:wait; }
+.rail-standby-state { margin:0; color:#bde4da; font-size:12px; overflow-wrap:anywhere; }
+.rail-recovery-dialog { box-sizing:border-box; max-width:min(480px,calc(100vw - 32px)); border:1px solid #62bba8; border-radius:12px; padding:24px; background:#182830; color:#e1ecef; }
+.rail-recovery-dialog::backdrop { background:#0009; }
+.rail-recovery-dialog h2 { margin-top:0; font-size:20px; }
+.rail-recovery-dialog p { line-height:1.6; }
+.rail-recovery-dialog form { display:flex; justify-content:flex-end; gap:12px; }
+.rail-recovery-dialog button { padding:10px 14px; border:1px solid #62bba8; border-radius:6px; background:#21483f; color:#e1fff7; cursor:pointer; }
 @media (max-width: 960px) {
   .station-shell { grid-template-columns: 152px minmax(0,1fr); }
   .station-rail { padding-inline: 8px; }

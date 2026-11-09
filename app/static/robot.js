@@ -245,7 +245,10 @@ function renderServo() {
   const available = visible && !paused && !apiUnavailable && !servoSubmitting && !!servo?.token;
   get("servo-panel").hidden = !visible;
   get("servo-on").disabled = !available;
-  get("pose-servo-on").hidden = !visible || hostAccess?.robot_state !== "SAFE_OFF";
+  const recovery = hostAccess?.robot_state === "SAFE_STOP";
+  get("servo-on").textContent = recovery ? "STANDBY 복구" : "서보 켜기";
+  get("pose-servo-on").textContent = recovery ? "STANDBY 복구" : "서보 켜기";
+  get("pose-servo-on").hidden = !visible || !["SAFE_OFF", "SAFE_STOP"].includes(hostAccess?.robot_state);
   get("pose-servo-on").disabled = !available;
   get("servo-confirm").disabled = !available || servoTicket?.servo_token !== servo?.token ||
     servoTicket?.session_id !== hostAccess?.session_id;
@@ -257,7 +260,10 @@ function confirmServo() {
   servoTicket = {session_id: hostAccess.session_id, servo_token: hostAccess.servo.token};
   if (get("pose-dialog").open) get("pose-dialog").close();
   get("servo-error").hidden = true;
-  get("servo-description").textContent = `E0509 (${hostAccess.route.ip}:${hostAccess.route.port}) · Mac 세션 ${hostAccess.session_id.slice(0, 8)}`;
+  const recovery = hostAccess.robot_state === "SAFE_STOP";
+  get("servo-title").textContent = recovery ? "STANDBY로 복구할까요?" : "서보를 켤까요?";
+  get("servo-confirm").textContent = recovery ? "STANDBY 전환 요청" : "서보 ON 요청";
+  get("servo-description").textContent = `E0509 (${hostAccess.route.ip}:${hostAccess.route.port}) · Mac 세션 ${hostAccess.session_id.slice(0, 8)}` + (recovery ? " · SAFE_STOP 해제 후 중단된 작업은 자동 재개하지 않습니다." : "");
   renderServo();
   get("servo-dialog").showModal();
 }

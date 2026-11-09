@@ -40,7 +40,7 @@ for command in sys.stdin:
             print('E0509 mode_result ' + token + ' ' + target, flush=True)
             print('E0509 ready ' + state, flush=True)
         continue
-    if command.startswith('servo '):
+    if command.startswith(('servo ', 'recover ')):
         token = command.split()[2]
         if callback == 'DROP': sys.exit(0)
         if callback == 'LOSS': print('E0509 callback LOSS', flush=True)
@@ -219,6 +219,42 @@ class HostAccessTests(unittest.TestCase):
         fresh = self.until(lambda s: s["can_reclaim"] and s["session_id"] != ready["session_id"])
         self.assertIsNone(fresh["servo"]["token"])
         self.assertEqual(self.servo(refused).status_code, 409)
+
+    def test_safe_stop_recovery_is_feature_gated_state_bound_and_observed(self):
+        self.force()
+        off = self.until(lambda s: s["servo"]["token"])
+        self.client.portal.call(self.owner.event, "ready", "SAFE_STOP MANUAL REAL")
+        unsupported = self.client.get(BASE + "/status").json()
+        self.assertIsNone(unsupported["servo"]["token"])
+        self.client.portal.call(self.owner.event, "feature", "safe_stop_reset")
+        ready = self.until(lambda s: s["servo"]["token"])
+        self.assertNotEqual(ready["servo"]["token"], off["servo"]["token"])
+        self.assertEqual(self.servo(off).status_code, 409)
+        self.response_file.write_text("STANDBY")
+        self.assertEqual(self.servo(ready).status_code, 202)
+        self.assertEqual(self.servo(ready).status_code, 409)
+
+        pending = self.until(lambda s: s["servo"]["result"] == "unknown")
+        self.assertEqual(pending["robot_state"], "SAFE_STOP")
+        self.assertIsNone(pending["servo"]["token"])
+        done = self.until(lambda s: s["servo"]["result"] == "confirmed")
+        self.assertEqual(done["robot_state"], "STANDBY")
+        self.assertEqual(self.log.read().splitlines(), [b"force", f"recover 1 {ready['servo']['token']}".encode()])
+        self.client.portal.call(self.owner.event, "ready", "EMERGENCY_STOP MANUAL REAL")
+        emergency = self.client.get(BASE + "/status").json()
+        self.assertIsNone(emergency["servo"]["token"])
+        self.assertEqual(self.servo(ready).status_code, 409)
+
+    def test_safe_stop_control_reclaim_requires_updated_worker(self):
+        self.client.portal.call(self.owner.event, "ready", "SAFE_STOP AUTO REAL")
+        self.assertFalse(self.client.get(BASE + "/status").json()["can_reclaim"])
+        self.assertEqual(self.force().status_code, 409)
+        self.client.portal.call(self.owner.event, "feature", "safe_stop_reset")
+        self.until(lambda s: s["can_reclaim"])
+        self.assertEqual(self.force().status_code, 200)
+        held = self.until(lambda s: s["held"])
+        self.assertIsNotNone(held["servo"]["token"])
+        self.assertEqual(self.log.read().splitlines(), [b"force"])
 
     def move(self, status):
         return self.client.post(BASE + "/pose", json={"session_id": status["session_id"],

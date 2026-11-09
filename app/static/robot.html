@@ -421,12 +421,14 @@ docker compose run --rm --no-deps doosan-driver timeout 15 check-e0509</pre>
               <p>정지한 손가락의 실제 위치와 안쪽 간격을 두 점 이상 등록하세요. 위치값이 커질수록 측정 간격은 작아져야 합니다.</p>
               <div id="hand-samples"></div>
               <div class="hand-actions"><button id="hand-add">교시점 추가</button><button id="hand-capture" disabled>최근 실측 위치 추가</button></div>
-              <div class="pose-actions"><button id="hand-reload">저장값 불러오기</button><button id="hand-save" disabled>벌림표 저장</button></div>
+              <div class="pose-actions"><button id="hand-reload">저장값 불러오기</button><button id="hand-save" aria-describedby="hand-table-validation" disabled>벌림표 저장</button></div>
+              <p id="hand-table-validation" role="status"></p>
               <p id="hand-table-note" role="status"></p>
               <div class="hand-contact">
                 <h3>접촉 전류</h3>
                 <p>빈 그리퍼와 시험 물체에서 전류를 측정해 접촉 임계값을 정하세요. 전류가 임계값 이상이고 300 ms 동안 실제 위치 변화가 1 pulse 이내이면 접촉으로 판정합니다.</p>
                 <label>접촉 전류 임계값 (mA) <input id="hand-contact-current" type="number" min="1" max="1984" step="1" placeholder="미설정"></label>
+                <p class="work-point-help">미등록 시 초기 제안값 30 mA를 채웁니다. 시험 물체에서 접촉을 확인해 조정한 뒤 저장하세요.</p>
                 <div class="pose-actions"><button type="button" id="hand-contact-save">접촉 설정 저장</button><button type="button" id="hand-contact-reload">최신 접촉 설정 불러오기</button></div>
                 <p id="hand-contact-result" role="status"></p>
               </div>

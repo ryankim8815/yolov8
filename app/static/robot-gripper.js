@@ -1,7 +1,8 @@
 const get = id => document.getElementById(id);
 const samples = get("hand-samples");
+const initialContactCurrent=30;
 let contact=null,contactPending=false;
-async function loadContact(){try{contact=await api('contact');get('hand-contact-current').value=contact.threshold_ma??'';get('hand-contact-result').textContent=contact.threshold_ma==null?'접촉 전류 미설정':'저장된 임계값 · '+contact.threshold_ma+' mA';}catch(error){get('hand-contact-result').textContent=error.message;}}
+async function loadContact(){try{contact=await api('contact');get('hand-contact-current').value=contact.threshold_ma??initialContactCurrent;get('hand-contact-result').textContent=contact.threshold_ma==null?'초기 제안값 · '+initialContactCurrent+' mA · 접촉 설정 저장 후 적용됩니다.':'저장된 임계값 · '+contact.threshold_ma+' mA';}catch(error){get('hand-contact-result').textContent=error.message;}finally{controls();}}
 get('hand-contact-reload').onclick=()=>void loadContact();
 get('hand-contact-save').onclick=async()=>{if(contactPending||!contact||locked)return;const value=get('hand-contact-current').valueAsNumber;if(!Number.isInteger(value)||value<1||value>1984){get('hand-contact-result').textContent='1~1984 mA의 정수 임계값을 입력하세요.';return;}contactPending=true;controls();try{contact=await api('contact','PUT',{revision:contact.revision,threshold_ma:value});get('hand-contact-result').textContent='접촉 설정 저장 완료.';}catch(error){get('hand-contact-result').textContent=error.message;}finally{contactPending=false;controls();}};
 void loadContact();
@@ -19,11 +20,21 @@ const rows = () => [...samples.children].map(row => ({
   position:row.querySelector('[data-field="position"]').valueAsNumber,
   width_mm:row.querySelector('[data-field="width_mm"]').valueAsNumber
 }));
-function valid(points) {
+function calibrationError(points) {
+  if(points.length<2)return "실제 위치와 안쪽 간격을 두 점 이상 입력하세요.";
+  if(points.length>701)return "교시점은 최대 701개까지 등록할 수 있습니다.";
+  for(const [index,point] of points.entries()){
+    if(!Number.isInteger(point.position)||point.position<0||point.position>700)return (index+1)+"번 교시점의 실제 위치를 0~700 정수로 입력하세요.";
+    if(!Number.isFinite(point.width_mm)||point.width_mm<0)return (index+1)+"번 교시점의 안쪽 간격을 0 이상 mm로 입력하세요.";
+  }
   const sorted = [...points].sort((a,b)=>a.position-b.position);
-  return sorted.length >= 2 && sorted.every((p,i) => Number.isInteger(p.position) && p.position>=0 && p.position<=700 &&
-    Number.isFinite(p.width_mm) && p.width_mm>=0 && (!i || (sorted[i-1].position<p.position && sorted[i-1].width_mm>p.width_mm)));
+  for(let i=1;i<sorted.length;i++){
+    if(sorted[i-1].position===sorted[i].position)return "실제 위치 "+sorted[i].position+"가 중복됩니다. 서로 다른 위치를 입력하세요.";
+    if(sorted[i-1].width_mm<=sorted[i].width_mm)return "실제 위치가 커질수록 안쪽 간격은 작아져야 합니다.";
+  }
+  return "";
 }
+const valid=points=>!calibrationError(points);
 function controls() {
   get('hand-contact-save').disabled=contactPending||locked||!contact;
   get('hand-contact-current').disabled=contactPending||locked;
@@ -33,7 +44,10 @@ function controls() {
     locked ? "로봇 작업 진행 중" : !host?.gripper_supported ? host?.detail || "RH-P12 지원 SDK 작업자 연결 대기" :
     host.motion_reason || (!host.gripper_feedback ? "SDK 준비 · 상태 읽기로 장치 연결을 확인하세요." :
       host.gripper_feedback.state === "completed" ? "RH-P12 최근 응답 확인 · 자동 운전" : "RH-P12 응답 또는 장치 상태를 확인하세요.");
-  get("hand-save").disabled = saving || locked || !dirty || !table || !valid(rows());
+  const reason=saving?"벌림표 저장 중입니다.":locked?"로봇 작업이 끝나면 저장할 수 있습니다.":!table?"벌림표를 불러오는 중입니다. 조회 실패 시 저장값 불러오기를 누르세요.":calibrationError(rows())||(!dirty?"저장된 값입니다. 값을 변경하면 저장할 수 있습니다.":"");
+  get("hand-save").disabled = Boolean(reason);
+  get("hand-save").title=reason||"입력한 실측 벌림표 저장";
+  get("hand-table-validation").textContent=reason||"저장할 수 있습니다. 측정값을 확인한 뒤 벌림표 저장을 누르세요.";
   get("hand-add").disabled = saving || !table;
   get("hand-capture").disabled = saving || !host?.gripper_supported || host.gripper_feedback?.state !== "completed" ||
     !Number.isInteger(host.gripper_feedback.position) || !table;
@@ -45,6 +59,7 @@ function row(position="", width="") {
   for (const [key,name,val] of [["position","실제 위치",position],["width_mm","안쪽 간격 (mm)",width]]) {
     const label=document.createElement("label"), input=document.createElement("input");
     input.type="number"; input.min=0; input.step=key==="position"?"1":"any";
+    input.placeholder=key==="position"?"0–700":"실측 mm";
     if(key==="position") input.max=700;
     input.dataset.field=key; input.value=val; label.append(name+" ",input);item.append(label);
   }
@@ -56,6 +71,7 @@ function fill(data) {
   invalidateTest();
   table=data;dirty=false;samples.replaceChildren();
   for(const p of data.points) row(p.position,p.width_mm);
+  if(!data.points.length){row();row();}
   controls();
 }
 export async function loadHandTable(force=false) {
@@ -81,11 +97,16 @@ export function renderHand(status, access) {
 }
 samples.addEventListener("input",()=>{dirty=true; controls();});
 get("hand-add").onclick=()=>{row();dirty=true;controls();};
-get("hand-capture").onclick=()=>{row(host.gripper_feedback.position);dirty=true;controls();};
+get("hand-capture").onclick=()=>{
+  const empty=[...samples.children].find(item=>[...item.querySelectorAll('input')].every(input=>input.value===""));
+  if(empty)empty.querySelector('[data-field="position"]').value=host.gripper_feedback.position;
+  else row(host.gripper_feedback.position);
+  dirty=true;controls();
+};
 get("hand-reload").onclick=()=>void loadHandTable(true);
 get("hand-save").onclick=async()=>{
   const points=rows();
-  if(!valid(points) || saving || !table) return;
+  if(get("hand-save").disabled || !valid(points) || saving || locked || !table) return;
   saving=true; samples.inert=true; controls();
   try { fill(await api("table","PUT",{revision:table.revision,points})); get("hand-table-note").textContent="벌림표를 저장했습니다."; }
   catch(error) { get("hand-table-note").textContent=error.message; }
