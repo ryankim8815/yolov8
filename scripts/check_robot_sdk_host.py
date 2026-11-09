@@ -15,13 +15,14 @@ CACHE = ROOT / ".cache/e0509-host-sdk"
 def lan_settings():
     keys = ("ROBOT_IP", "ROBOT_PORT", "ROBOT_LAN_INTERFACE")
     cfg = {}
-    # Load only the three LAN settings. Do not source or forward the rest of .env.
-    for f in (ROOT / ".env.example", ROOT / ".env"):
-        if f.is_file():
-            for line in f.read_text().splitlines():
-                k, _, v = line.partition("=")
-                if k in keys:
-                    cfg[k] = v.strip().strip("\"'")
+    # .env.example is an installation template, never a runtime setting source.
+    # Load only the three LAN settings; do not source or forward the rest of .env.
+    f = ROOT / ".env"
+    if f.is_file():
+        for line in f.read_text().splitlines():
+            k, _, v = line.partition("=")
+            if k in keys:
+                cfg[k] = v.strip().strip("\"'")
     cfg.update({k: os.environ[k] for k in keys if k in os.environ})
     return cfg
 

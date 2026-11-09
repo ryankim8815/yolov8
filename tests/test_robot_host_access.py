@@ -78,8 +78,9 @@ class HostAccessTests(unittest.TestCase):
         responses = self.enterContext(tempfile.NamedTemporaryFile())
         self.response_file = Path(responses.name)
         self.response_file.write_text("GRANT")
-        self.owner = AccessServer(route_lookup=lambda _: ROUTE, spawn=self.spawn,
-                                  retry_delay=.05, callback_timeout=.08)
+        with patch('app.robot_host_access.lan_settings',return_value={'ROBOT_IP':ROUTE['ip'],'ROBOT_PORT':str(ROUTE['port']),'ROBOT_LAN_INTERFACE':ROUTE['interface']}):
+            self.owner = AccessServer(route_lookup=lambda _: ROUTE, spawn=self.spawn,
+                                      retry_delay=.05, callback_timeout=.08)
         self.client = self.enterContext(TestClient(create_host_app(self.owner), base_url="http://127.0.0.1"))
         self.first = self.until(lambda s: s["can_reclaim"])
         self.ticket = {key: self.first[key] for key in ("session_id", "revision")}

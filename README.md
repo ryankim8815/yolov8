@@ -286,6 +286,42 @@ python3 scripts/check_robot_sdk_host.py --force-request-access
 
 `Ctrl+C`로 Mac 서버를 종료하면 화면의 보유 표시가 해제됩니다. 연결 단절 후에는 유선 경로를 다시 확인하고 새 세션으로 연결하며 이전 승인을 재사용하거나 자동 요청하지 않습니다. ROS 제어로 돌아갈 때는 Mac 서버를 먼저 종료하고 `.env`를 `ROBOT_ACCESS_BACKEND=ros`로 바꾼 뒤 `docker compose up -d robot-web`을 실행하세요. [두산 SDK의 제어권 콜백 예제](https://doosanrobotics.github.io/doosan-robotics-api-manual/GL013301/tutorials/scenarios/1_minimal_motion_sample.html)
 
+**웹 제어기와 Mac SDK 제어기의 주소가 다를 때**
+
+다음 오류는 웹과 Mac SDK 서버가 서로 다른 대상 주소를 사용한다는 뜻입니다.
+
+```text
+웹 제어기 110.120.1.56:12345와 Mac SDK 제어기 110.120.1.63:12345가 다릅니다. 설정을 맞추고 서버를 다시 시작하세요.
+```
+
+Mac SDK 서버는 시작할 때 `scripts/check_robot_sdk_host.py`의 `lan_settings()`로 아래 순서에 따라 설정을 읽습니다. 뒤에서 읽은 값이 앞의 값을 덮어씁니다. 읽는 키는 `ROBOT_IP`, `ROBOT_PORT`, `ROBOT_LAN_INTERFACE` 세 개이며, `# ROBOT_IP=…`처럼 주석 처리한 줄은 사용하지 않습니다.
+
+| 우선순위 | 설정 출처 |
+| --- | --- |
+| 1 | 저장소 루트 `.env`의 값 |
+| 2 · 최우선 | SDK 서버를 실행한 프로세스의 환경변수(`export ROBOT_IP=…` 등) |
+
+`.env.example`은 처음 `.env`를 만들 때 사용하는 템플릿이며 실행 시에는 읽지 않습니다. `.env`가 없거나 일부 키가 빠져 있어도 템플릿 값으로 보충하지 않습니다. SDK 실행 전에 위 세 키를 `.env` 또는 프로세스 환경변수에 설정하세요.
+
+읽은 값은 `app/robot_host_access.py`의 `AccessServer.__init__()`에서 `self.cfg`에 보관합니다. 오류 메시지의 **Mac SDK 제어기 주소**는 이 시작 시점의 설정값입니다. `.env`를 수정한 뒤에도 이미 실행 중인 SDK 서버는 이전 값을 계속 사용합니다. Mac SDK 서버는 Docker 밖의 별도 프로세스이므로 웹 컨테이너를 재시작하거나 브라우저를 새로고침해도 SDK 서버의 설정은 갱신되지 않습니다.
+
+저장소 루트에서 다음 명령으로 현재 설정과 실행 중인 SDK 서버를 비교할 수 있습니다. 이 명령들은 로봇 이동이나 제어권 요청을 보내지 않습니다. 주소 예시는 현재 장비의 주소로 바꿔 사용하세요.
+
+```bash
+# 현재 파일과 현재 셸 환경으로 새로 계산한 SDK 설정
+bash scripts/python.sh coreml -c 'from scripts.check_robot_sdk_host import lan_settings; print(lan_settings())'
+# 실행 중인 웹 컨테이너가 사용하는 주소
+docker compose exec -T robot-web python -c 'import os; print({k: os.getenv(k) for k in ("ROBOT_IP", "ROBOT_PORT")})'
+# Mac SDK 서버의 PID 확인
+lsof -nP -iTCP:8011 -sTCP:LISTEN
+# SDK 서버가 아래 대상 주소를 사용하는지 읽기 전용으로 확인
+curl -i -H 'X-Robot-Target: 110.120.1.56:12345' http://127.0.0.1:8011/api/robot/host-access/status
+```
+
+현재 설정 계산 결과와 웹은 `.56`인데 마지막 요청이 HTTP 409와 함께 SDK 주소 `.63`을 반환하면, SDK 서버에 남은 이전 설정을 갱신해야 합니다. 진행 중인 작업을 종료한 뒤 SDK 서버를 실행한 터미널에서 `Ctrl+C`로 종료하고, 저장소 루트에서 `bash scripts/robot-access.sh`로 다시 실행하세요. 백그라운드 실행 중이라면 위 `lsof`의 PID를 `ps -p PID -o pid,command`로 확인하고, 해당 SDK 서버만 `kill -TERM PID`로 종료합니다(`PID`는 확인한 숫자로 교체). `.env`를 기준으로 실행하려면 해당 셸에 남은 `ROBOT_IP` 등의 export 값도 확인하세요. 웹 컨테이너까지 이전 주소를 사용한다면 `docker compose up -d robot-web joint-monitor`로 웹과 읽기 전용 모니터의 환경변수도 갱신합니다.
+
+재시작 후 같은 상태 요청이 HTTP 200이면 대상 주소가 일치한 것입니다. 실제 연결·초기화·제어권은 응답의 `connection`, `initialized`, `held`로 별도 확인합니다. SDK 재시작으로 생성된 새 세션에서는 이전 이동 승인을 재사용하지 않습니다.
+
 실장비 작업 공간이 준비되었을 때 아래 명령을 실행하세요. Docker의 `hardware` 프로필은 ROS 2 드라이버를 `--force-request-access`로 시작합니다. 드라이버는 자신의 SDK 세션에서 강제 인계를 한 번 요청하며, 승인되면 기존 보유자가 제어권을 잃을 수 있습니다. 로그의 `Forced access request sent`는 전송, `Access control granted`는 승인입니다. 드라이버는 승인 시 `SAFE_OFF`이면 서보 ON을 요청하고 `STANDBY`를 확인합니다. 시작할 때 제어기의 수동·자동 운전 모드를 유지합니다. Compose는 6축 관절 토픽과 상태·이동 서비스가 발견될 때까지 기다립니다.
 
 ```bash

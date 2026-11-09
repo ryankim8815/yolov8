@@ -2,7 +2,7 @@ import asyncio
 import json
 import time
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock,patch
 
 import pytest
 from fastapi import HTTPException
@@ -12,7 +12,8 @@ from app.robot_scenario_config import ScenarioCommand,KinematicsRequest,Operatio
 
 
 def owner():
-    s=AccessServer();s.connection='connected';s.initialized=s.held=s.scenario_supported=True
+    with patch('app.robot_host_access.lan_settings',return_value={'ROBOT_IP':'127.0.0.1','ROBOT_PORT':'12345','ROBOT_LAN_INTERFACE':'test'}):s=AccessServer()
+    s.connection='connected';s.initialized=s.held=s.scenario_supported=True
     s.mode='AUTO';s.system='REAL';s.state='STANDBY';s.session='test';s.motion_token='1'*32;s.grant_number=2
     s.held_since=time.monotonic()
     writes=[];s.process=SimpleNamespace(stdin=SimpleNamespace(write=writes.append),pid=1)
