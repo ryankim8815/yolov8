@@ -484,9 +484,8 @@ function routeRobot() {
       workPlane = connectWorkPlane(plane);
       void refresh();
     }
-    const openHandTable = location.hash === "#gripper-table";
-    workPlane.showWorkspace(page.id, openHandTable);
-    if (openHandTable) requestAnimationFrame(() => plane.querySelector(".plane-editor")?.scrollIntoView({block:"start"}));
+    workPlane.showWorkspace(page.id);
+    if (location.hash === "#gripper-table") requestAnimationFrame(() => get("gripper-table")?.scrollIntoView({block:"start"}));
   } else if (workPlane) {
     workPlane.dispose(); workPlane = null;
   }

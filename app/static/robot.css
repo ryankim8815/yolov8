@@ -246,3 +246,13 @@
   .hand-sample label { display:grid; gap:3px; }
   .hand-sample input { width:100%; }
 }
+
+/* Per-stage target columns: title / J1–J6 / motion. */
+.scenario-motion-row .scenario-target-columns { display:grid; grid-template-columns:minmax(130px, .8fr) minmax(360px, 2fr) minmax(150px, 1fr); gap:14px; }
+.scenario-target-joints { gap:6px; min-width:0; }
+.scenario-target-joints input { padding:7px 4px; font-size:12px; }
+.scenario-target-joints input[readonly] { color:var(--sub); background:var(--soft); }
+.scenario-joint-options { display:flex; align-items:end; flex-wrap:wrap; gap:14px; margin-top:14px; }
+.scenario-joint-options .pose-fields { grid-template-columns:minmax(180px, 1fr); }
+@media(max-width:1100px){.scenario-motion-row .scenario-target-columns { grid-template-columns:minmax(0,1fr) 180px; }.scenario-target-columns > strong { grid-column:1/-1; }}
+@media(max-width:620px){.scenario-motion-row .scenario-target-columns { grid-template-columns:minmax(0,1fr); }.scenario-target-joints { grid-template-columns:repeat(3,minmax(0,1fr)); width:100%; }}

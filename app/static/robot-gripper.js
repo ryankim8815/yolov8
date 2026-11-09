@@ -1,7 +1,7 @@
 const get = id => document.getElementById(id);
 const samples = get("hand-samples");
 let contact=null,contactPending=false;
-async function loadContact(){try{contact=await api('contact');get('hand-contact-current').value=contact.threshold_ma??'';get('hand-contact-result').textContent=contact.threshold_ma==null?'접촉 전류 미설정 · 17단계 실제 이송이 차단됩니다.':'저장된 임계값 · '+contact.threshold_ma+' mA';}catch(error){get('hand-contact-result').textContent=error.message;}}
+async function loadContact(){try{contact=await api('contact');get('hand-contact-current').value=contact.threshold_ma??'';get('hand-contact-result').textContent=contact.threshold_ma==null?'접촉 전류 미설정':'저장된 임계값 · '+contact.threshold_ma+' mA';}catch(error){get('hand-contact-result').textContent=error.message;}}
 get('hand-contact-reload').onclick=()=>void loadContact();
 get('hand-contact-save').onclick=async()=>{if(contactPending||!contact||locked)return;const value=get('hand-contact-current').valueAsNumber;if(!Number.isInteger(value)||value<1||value>1984){get('hand-contact-result').textContent='1~1984 mA의 정수 임계값을 입력하세요.';return;}contactPending=true;controls();try{contact=await api('contact','PUT',{revision:contact.revision,threshold_ma:value});get('hand-contact-result').textContent='접촉 설정 저장 완료.';}catch(error){get('hand-contact-result').textContent=error.message;}finally{contactPending=false;controls();}};
 void loadContact();
@@ -148,7 +148,7 @@ get("hand-test-preview").onclick=async()=>{
   testPending=true;controls();get("hand-test-result").textContent="벌림 계산 중";
   try {
     const target=await api("test/preview","POST",body);
-    if(version!==testVersion || dirty)return;
+    if(version!==testVersion || dirty || get("plane-hand-test").hidden)return;
     testTarget={...body,session_id:host?.session_id,motion_token:host?.motion_token,expires:Date.now()+30000};
     get("hand-test-target").textContent=`요청 벌림 ${target.width_mm} mm → 명령 위치 ${target.position} · 예상 벌림 ${target.estimated_width_mm.toFixed(1)} mm (더 열린 쪽으로 반올림)`;
     get("hand-test-result").textContent=get("hand-test-target").textContent;

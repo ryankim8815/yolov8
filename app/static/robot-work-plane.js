@@ -60,12 +60,9 @@ export function connectWorkPlane(root) {
   const editor = ui.template.content.firstElementChild.cloneNode(true);
   ui.mount.replaceChildren(editor);
   const el = Object.fromEntries([...editor.querySelectorAll("[data-pick]")].map(node => [node.dataset.pick,node]));
-  // Keep the live rows and their device-feedback bindings across mounts.
-  const handTable = root.querySelector("#plane-hand-table");
-  el.calibration.append(handTable);
   // Move the live controls, retaining their global bindings and unsaved drafts.
-  const manipulatorPanels = [...document.querySelectorAll("[data-manipulator-panel]")];
-  el.calibration.append(...manipulatorPanels);
+  const livePanels = [...document.querySelectorAll("[data-hand-panel], [data-manipulator-panel]")];
+  el.calibration.append(...livePanels);
   const lifetime = new AbortController();
   const on = (node, type, handler) => node.addEventListener(type, handler, {signal:lifetime.signal});
   const tabs = [...editor.querySelectorAll('.plane-tabs > [role="tab"]')];
@@ -73,6 +70,7 @@ export function connectWorkPlane(root) {
   let gripperWorkspace = false;
   let manipulatorWorkspace = false;
   function selectTab(active, navigate = false) {
+    orientation.setManipulator(!gripperWorkspace && active.id !== "plane-gripper-tab");
     orientation.setScenarioVisible(active.id==='manipulator-points-tab'&&manipulatorWorkspace);
     if(active.id!=="manipulator-points-tab")orientation.simulationAction("stop");
     for (const tab of tabs) {
@@ -82,15 +80,10 @@ export function connectWorkPlane(root) {
       editor.querySelector("#" + tab.getAttribute("aria-controls")).hidden = !selected;
     }
     const editingExample = active.id === "plane-example-tab";
-    const editingTable = active.getAttribute("aria-controls") === handTable.id;
-    editor.querySelector(".pick-footer").hidden = manipulatorWorkspace || editingExample || editingTable || active.id === "plane-floor-tab";
+    editor.querySelector(".pick-footer").hidden = gripperWorkspace || manipulatorWorkspace || editingExample || active.id === "plane-floor-tab";
     orientation.editExample(editingExample);
-    if (navigate && manipulatorWorkspace && location.hash !== active.dataset.manipulatorTab)
-      history.pushState(history.state,"",active.dataset.manipulatorTab);
-    if (navigate && gripperWorkspace) {
-      const hash = editingTable ? "#gripper-table" : "#gripper";
-      if (location.hash !== hash) history.replaceState(history.state, "", hash);
-    }
+    const hash = active.dataset.manipulatorTab || active.dataset.gripperTab;
+    if (navigate && hash && location.hash !== hash) history.pushState(history.state, "", hash);
   }
   tabs.forEach(tab => {
     on(tab, "click", () => selectTab(tab,true));
@@ -133,8 +126,7 @@ export function connectWorkPlane(root) {
     orientation.setParcelBox(manipulatorWorkspace ? value : null);
   });
   lifetime.signal.addEventListener("abort",unsubscribeBox,{once:true});
-  connectWaypointSimulation(editor.querySelector("#manipulator-work-points"),orientation,lifetime.signal);
-  connectScenario(editor.querySelector('#scenario-editor'),orientation,lifetime.signal);
+  let manipulatorConnected = false;
   const regionAngles=['A','B','C'].map((axis,i)=>{
     const label=document.createElement('label'),input=document.createElement('input');label.textContent=axis+' (°)';input.type='number';input.step='any';label.append(input);el.regionAngles.append(label);
     on(input,'input',()=>{corners[0].pose[3+i]=Number.isFinite(input.valueAsNumber)?input.valueAsNumber:null;showOrientation(input);updateSave();});return input;
@@ -160,7 +152,7 @@ export function connectWorkPlane(root) {
     let reason = null;
     if (!calibration) reason = "카메라 영상과 작업면 보정이 필요합니다.";
     else if (!objects.length) reason = "고정된 영상에 탐지된 객체가 없습니다.";
-    else if (!object) reason = "로봇 관리 → 그리퍼 → 그리퍼 설정 → 손가락 치수에서 측정할 객체를 선택하세요.";
+    else if (!object) reason = "작업 평면 보정 → 그리퍼 설정 → 손가락 치수에서 측정할 객체를 선택하세요.";
     else if (!draft) reason = "네 모서리의 영상·BASE 좌표를 입력하세요.";
     measurement.update(draft, object, measureIndex, reason);
   }
@@ -330,13 +322,9 @@ export function connectWorkPlane(root) {
     editor.querySelector("#plane-gripper-settings").inert = cameraLocked;
     el.surfaceGeometry.inert = cameraLocked;
     if (calibration) {
-      const hint = gripperWorkspace ? (calibration.revision ? "공구 방향과 한쪽 여유는 현재 카메라의 작업면 보정에 저장됩니다." :
-        "작업 평면 보정에서 네 모서리를 교시하면 공구 방향과 한쪽 여유를 저장할 수 있습니다.") :
-        "고정한 탐지 영상에서 네 모서리를 둘레 순서로 교시하세요.";
-      ui.message.textContent = robotBlock || hint;
+      ui.message.textContent = robotBlock || "고정한 탐지 영상에서 네 모서리를 둘레 순서로 교시하세요.";
     } else if (!pending) {
-      el.note.textContent = gripperWorkspace ? "카메라 없이도 예시 객체 설정을 사용할 수 있습니다." :
-        "카메라 없이도 바닥 기준 탭에서 바닥 Z를 교시할 수 있습니다.";
+      el.note.textContent = "카메라 없이도 바닥 기준 탭에서 바닥 Z를 교시할 수 있습니다.";
     }
   }
 
@@ -435,22 +423,23 @@ export function connectWorkPlane(root) {
     onPreview(visible) { if (!visible) unavailable("탐지 영상 연결을 다시 시도합니다.", "영상 대기"); }
   });
   return {
-    showWorkspace(id, openHandTable = false) {
+    showWorkspace(id) {
       gripperWorkspace = id === "gripper";
       manipulatorWorkspace = id === "manipulator";
+      if (manipulatorWorkspace && !manipulatorConnected) {
+        connectWaypointSimulation(editor.querySelector("#manipulator-work-points"),orientation,lifetime.signal);
+        connectScenario(editor.querySelector("#scenario-editor"),orientation,lifetime.signal);
+        manipulatorConnected = true;
+      }
       orientation.setParcelBox(manipulatorWorkspace ? parcelBox : null);
       orientation.setGripperAttached(manipulatorWorkspace);
-      orientation.setManipulator(!gripperWorkspace);
       visibleTabs = tabs.filter(tab => manipulatorWorkspace ? tab.hasAttribute("data-manipulator-tab") :
-        !tab.hasAttribute("data-manipulator-tab") && (gripperWorkspace ? tab.hasAttribute("data-gripper-tab") : tab.dataset.gripperTab !== "only"));
+        gripperWorkspace ? tab.hasAttribute("data-gripper-tab") : !tab.hasAttribute("data-manipulator-tab") && !tab.hasAttribute("data-gripper-tab"));
       for (const tab of tabs) tab.hidden = !visibleTabs.includes(tab);
-      const current = manipulatorWorkspace ? visibleTabs.find(tab => tab.dataset.manipulatorTab === location.hash) :
-        openHandTable ? editor.querySelector("#plane-hand-table-tab") :
-          visibleTabs.find(tab => tab.getAttribute("aria-selected") === "true" && tab.dataset.gripperTab !== "only");
-      selectTab(current ?? editor.querySelector(manipulatorWorkspace ? "#manipulator-control-tab" : gripperWorkspace ? "#plane-gripper-tab" : "#plane-camera-tab"));
-      editor.querySelector('[role="tablist"]').setAttribute("aria-label",manipulatorWorkspace ? "매니퓰레이터 설정" : "작업 평면 보정 설정");
-      root.querySelector(".plane-summary").hidden = manipulatorWorkspace;
-      ui.workPlaneLink.hidden = !gripperWorkspace;
+      const current = visibleTabs.find(tab => (tab.dataset.manipulatorTab || tab.dataset.gripperTab) === location.hash);
+      selectTab(current ?? visibleTabs[0]);
+      editor.querySelector('[role="tablist"]').setAttribute("aria-label", gripperWorkspace ? "그리퍼" : manipulatorWorkspace ? "매니퓰레이터 설정" : "작업 평면 보정 설정");
+      root.querySelector(".plane-summary").hidden = id !== "work-plane";
       availability();
     },
     robotStatus(data) {
@@ -465,9 +454,7 @@ export function connectWorkPlane(root) {
     gripperStatus:orientation.gripperStatus,
     dispose() {
       frozen = calibration = null;
-      handTable.hidden = true;
-      root.append(handTable);
-      for (const panel of manipulatorPanels) { panel.hidden = true; root.append(panel); }
+      for (const panel of livePanels) { panel.hidden = true; root.append(panel); }
       measurement.reset(); lifetime.abort(); stop(); ui.mount.replaceChildren();
     }
   };

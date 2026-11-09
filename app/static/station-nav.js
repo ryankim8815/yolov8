@@ -24,7 +24,7 @@ export function currentDestination() {
   if (document.body.dataset.workspace === "robot") {
     const id = location.hash.slice(1);
     if (["work-points-title","parcel-box-title","pose-title"].includes(id)) return robotPages[0];
-    if (id === "gripper-table") return robotPages.find(page => page.id === "gripper");
+    if (["gripper-table","gripper-test"].includes(id)) return robotPages.find(page => page.id === "gripper");
     return robotPages.find(page => page.id === id) || destinations.find(page => page.id === "robot");
   }
   if (training) return destinations.find(item => item.id === "model-management");

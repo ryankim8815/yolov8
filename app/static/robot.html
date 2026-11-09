@@ -222,27 +222,6 @@ docker compose run --rm --no-deps doosan-driver timeout 15 check-e0509</pre>
             <button id="pose-cancel" type="button" autofocus>취소</button>
             <button id="pose-confirm" type="button">이 자세로 이동</button></div>
         </dialog>
-        <section id="gripper" data-view="gripper" hidden class="panel">
-          <div class="panel-head"><h2>RH-P12-RN-A</h2><span class="meta">플랜지 RS-485 · 장치 1</span></div>
-          <div class="pose-body">
-            <p id="hand-ready" class="meta">SDK 상태 확인 중</p>
-            <dl class="robot-config">
-              <div><dt>마지막 명령 위치</dt><dd id="hand-target">—</dd></div>
-              <div><dt>실제 위치 · 최근 응답</dt><dd id="hand-actual">—</dd></div>
-              <div><dt>실측 전류 / 목표 / 한계</dt><dd id="hand-current">—</dd></div>
-              <div><dt>장치 모드 · 오류</dt><dd id="hand-mode">—</dd></div>
-            </dl>
-            <div class="hand-actions">
-              <button type="button" data-hand="read" disabled>상태 읽기</button>
-              <button type="button" data-hand="open" disabled>열기 (0)</button>
-              <button type="button" data-hand="close" disabled>닫기 (700)</button>
-            </div>
-            <div class="hand-actions"><label>지정 위치 <input type="number" id="hand-position" min="0" max="700" step="1" placeholder="0–700"></label>
-              <button type="button" data-hand="position" disabled>지정 위치로 이동</button></div>
-            <p id="hand-result" role="status"></p>
-            <div class="hand-contact"><h3>17단계 파지 · 접촉 전류</h3><p class="work-point-help">전류 임계값 이상이며 실제 위치 변화가 300 ms 동안 1 pulse 이내일 때 접촉을 확인합니다. 실제 이송 전에 빈 그리퍼와 시험 상품으로 설정하세요. 700까지 닫히는 빈 파지는 성공으로 처리하지 않습니다.</p><label>접촉 전류 임계값 (mA) <input id="hand-contact-current" type="number" min="1" max="1984" step="1" placeholder="미설정"></label><div class="pose-actions"><button type="button" id="hand-contact-save">접촉 설정 저장</button><button type="button" id="hand-contact-reload">최신 접촉 설정 불러오기</button></div><p id="hand-contact-result" role="status"></p></div>
-          </div>
-        </section>
         <dialog id="hand-test-dialog" aria-labelledby="hand-test-confirm-title">
           <h2 id="hand-test-confirm-title">그리퍼 벌림 테스트 승인</h2>
           <p id="hand-test-target"></p>
@@ -265,7 +244,6 @@ docker compose run --rm --no-deps doosan-driver timeout 15 check-e0509</pre>
               <button type="button" data-plane="refresh" disabled>새 영상 고정</button>
               <button type="button" data-plane="reload" hidden>저장값 다시 불러오기</button>
               <a href="/#dashboard">탐지 대시보드 열기</a>
-              <a href="#work-plane" data-plane="workPlaneLink" hidden>작업 평면 보정 열기</a>
             </div>
           </header>
           <div data-plane="mount"></div>
@@ -326,9 +304,10 @@ docker compose run --rm --no-deps doosan-driver timeout 15 check-e0509</pre>
                   <button type="button" role="tab" id="plane-camera-tab" aria-selected="true" aria-controls="plane-camera-settings">카메라 좌표 설정</button>
                   <button type="button" role="tab" id="plane-surface-tab" aria-selected="false" aria-controls="plane-surface-settings" tabindex="-1">작업면 설정</button>
                   <button type="button" role="tab" id="plane-floor-tab" aria-selected="false" aria-controls="plane-floor-settings" tabindex="-1">바닥 기준</button>
-                  <button type="button" role="tab" id="plane-example-tab" data-gripper-tab aria-selected="false" aria-controls="plane-example-settings" tabindex="-1">예시 객체 설정</button>
-                  <button type="button" role="tab" id="plane-gripper-tab" data-gripper-tab="only" aria-selected="false" aria-controls="plane-gripper-settings" tabindex="-1" hidden>그리퍼 설정</button>
-                  <button type="button" role="tab" id="plane-hand-table-tab" data-gripper-tab="only" aria-selected="false" aria-controls="plane-hand-table" tabindex="-1" hidden>실측 벌림표</button>
+                  <button type="button" role="tab" id="plane-example-tab" aria-selected="false" aria-controls="plane-example-settings" tabindex="-1">예시 객체 설정</button>
+                  <button type="button" role="tab" id="plane-gripper-tab" aria-selected="false" aria-controls="plane-gripper-settings" tabindex="-1" hidden>그리퍼 설정</button>
+                  <button type="button" role="tab" id="plane-hand-table-tab" data-gripper-tab="#gripper" aria-selected="false" aria-controls="plane-hand-table" tabindex="-1" hidden>캘리브레이션</button>
+                  <button type="button" role="tab" id="plane-hand-test-tab" data-gripper-tab="#gripper-test" aria-selected="false" aria-controls="plane-hand-test" tabindex="-1" hidden>벌림 테스트</button>
                 </div>
                 <section id="plane-camera-settings" role="tabpanel" aria-labelledby="plane-camera-tab" tabindex="0">
                   <div class="pick-steps" data-pick="steps" role="group" aria-label="교시할 모서리"></div>
@@ -419,24 +398,49 @@ docker compose run --rm --no-deps doosan-driver timeout 15 check-e0509</pre>
               </footer>
             </article>
           </template>
-          <section id="plane-hand-table" role="tabpanel" aria-labelledby="plane-hand-table-tab" tabindex="0" hidden>
+          <section id="plane-hand-table" data-hand-panel role="tabpanel" aria-labelledby="plane-hand-table-tab" tabindex="0" hidden>
             <div class="pose-body">
+              <h3>RH-P12-RN-A <small class="meta">플랜지 RS-485 · 장치 1</small></h3>
+              <p id="hand-ready" class="meta">SDK 상태 확인 중</p>
+              <dl class="robot-config">
+                <div><dt>마지막 명령 위치</dt><dd id="hand-target">—</dd></div>
+                <div><dt>실제 위치 · 최근 응답</dt><dd id="hand-actual">—</dd></div>
+                <div><dt>실측 전류 / 목표 / 한계</dt><dd id="hand-current">—</dd></div>
+                <div><dt>장치 모드 · 오류</dt><dd id="hand-mode">—</dd></div>
+              </dl>
+              <div class="hand-actions">
+                <button type="button" data-hand="read" disabled>상태 읽기</button>
+                <button type="button" data-hand="open" disabled>열기 (0)</button>
+                <button type="button" data-hand="close" disabled>닫기 (700)</button>
+              </div>
+              <div class="hand-actions"><label>지정 위치 <input type="number" id="hand-position" min="0" max="700" step="1" placeholder="0–700"></label>
+                <button type="button" data-hand="position" disabled>지정 위치로 이동</button></div>
+              <p id="hand-result" role="status"></p>
+              <h3 id="gripper-table">실측 벌림표</h3>
               <p>정지한 손가락의 실제 위치와 안쪽 간격을 두 점 이상 등록하세요. 위치값이 커질수록 측정 간격은 작아져야 합니다.</p>
               <div id="hand-samples"></div>
               <div class="hand-actions"><button id="hand-add">교시점 추가</button><button id="hand-capture" disabled>최근 실측 위치 추가</button></div>
               <div class="pose-actions"><button id="hand-reload">저장값 불러오기</button><button id="hand-save" disabled>벌림표 저장</button></div>
               <p id="hand-table-note" role="status"></p>
-              <section aria-labelledby="hand-test-title">
-                <h3 id="hand-test-title">벌림 테스트</h3>
-                <p>저장된 실측 벌림표로 목표를 계산합니다. 미리보기 후 승인하면 실제 그리퍼가 움직입니다.</p>
-                <div class="hand-actions"><label>테스트 벌림 (mm) <input id="hand-test-width" type="number" min="0" step="any" placeholder="예: 50"></label>
-                  <button type="button" id="hand-test-preview" disabled>벌림 미리보기</button>
-                  <button type="button" id="hand-test-read" disabled>실제 상태 읽기</button></div>
-                <p id="hand-test-range"></p>
-                <p id="hand-test-state" role="status"></p>
-                <p id="hand-test-result" role="status"></p>
-                <p id="hand-test-feedback" class="mono"></p>
-              </section>
+              <div class="hand-contact">
+                <h3>접촉 전류</h3>
+                <p>빈 그리퍼와 시험 물체에서 전류를 측정해 접촉 임계값을 정하세요. 전류가 임계값 이상이고 300 ms 동안 실제 위치 변화가 1 pulse 이내이면 접촉으로 판정합니다.</p>
+                <label>접촉 전류 임계값 (mA) <input id="hand-contact-current" type="number" min="1" max="1984" step="1" placeholder="미설정"></label>
+                <div class="pose-actions"><button type="button" id="hand-contact-save">접촉 설정 저장</button><button type="button" id="hand-contact-reload">최신 접촉 설정 불러오기</button></div>
+                <p id="hand-contact-result" role="status"></p>
+              </div>
+            </div>
+          </section>
+          <section id="plane-hand-test" data-hand-panel role="tabpanel" aria-labelledby="plane-hand-test-tab" tabindex="0" hidden>
+            <div class="pose-body">
+              <p>저장된 실측 벌림표로 목표를 계산합니다. 미리보기 후 승인하면 실제 그리퍼가 움직입니다.</p>
+              <div class="hand-actions"><label>테스트 벌림 (mm) <input id="hand-test-width" type="number" min="0" step="any" placeholder="예: 50"></label>
+                <button type="button" id="hand-test-preview" disabled>벌림 미리보기</button>
+                <button type="button" id="hand-test-read" disabled>실제 상태 읽기</button></div>
+              <p id="hand-test-range"></p>
+              <p id="hand-test-state" role="status"></p>
+              <p id="hand-test-result" role="status"></p>
+              <p id="hand-test-feedback" class="mono"></p>
             </div>
           </section>
         </section>

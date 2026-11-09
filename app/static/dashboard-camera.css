@@ -156,11 +156,10 @@
 .example-fields input[aria-invalid="true"] { border-color:var(--red); }
 #plane-example-settings [data-pick="exampleError"]:not(:empty) { color:var(--red); margin:8px 0; }
 .pick-dialog.teaching.plane-editor {
-  display:grid; grid-template-rows:minmax(0,1fr) auto;
-  width:100%; height:min(850px,calc(100dvh - 16px)); max-height:none; margin:14px 0 0; overflow:hidden;
+  width:100%; max-height:none; margin:14px 0 0; overflow:visible;
 }
 .plane-editor [data-pick="calibration"] {
-  display:grid; grid-template-rows:auto auto minmax(0,1fr); min-height:0; padding-bottom:0;
+  padding-bottom:0;
 }
 .plane-tabs { display:grid; grid-auto-flow:column; grid-auto-columns:minmax(0,1fr); margin-top:6px; border-bottom:1px solid var(--line); }
 .plane-tabs button {
@@ -169,14 +168,8 @@
 }
 .plane-tabs button[aria-selected="true"] { border-bottom-color:var(--mint); color:var(--mint); font-weight:700; }
 .plane-tabs button:focus-visible { outline:2px solid var(--mint); outline-offset:-3px; }
-.plane-editor [role="tabpanel"] { overflow:auto; scrollbar-gutter:stable; padding:12px 4px 12px 0; }
-.pick-dialog.teaching.plane-editor[data-arm-active="true"] {
-  display:block; height:auto; max-height:none; overflow:visible;
-}
-.plane-editor[data-arm-active="true"] [data-pick="calibration"] { display:block; min-height:auto; }
-.plane-editor[data-arm-active="true"] [role="tabpanel"] {
-  height:auto; max-height:none; overflow:visible; scrollbar-gutter:auto;
-}
+.plane-editor [role="tabpanel"] { padding:12px 4px 12px 0; }
+.plane-editor [data-hand-panel] .pose-body { display:grid; gap:12px; padding:4px 0; }
 #plane-camera-settings { scroll-padding-top:54px; }
 #plane-camera-settings .pick-steps { position:sticky; top:0; z-index:1; }
 @media (max-height:540px) {

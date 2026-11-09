@@ -86,6 +86,8 @@ process.chdir(path.resolve(__dirname,'..'));
   await sc.locator('[data-sc=confirm]').click();await p.waitForFunction(()=>document.querySelector('[data-arm=canvas]')?.dataset.simulation==='complete',null,{timeout:30000});
   assert.equal(await canvas.getAttribute('data-joints'),'0,0,90,0,90,0');assert.equal(Number(await canvas.getAttribute('data-simulated-opening')),80);
   await p.setViewportSize({width:390,height:844});await sc.screenshot({path:'/tmp/scenario-mobile-ui-review.png'});
+  await tab('이동 방식').click();await sc.screenshot({path:'/tmp/scenario-inline-joints-mobile.png'});assert.equal(await sc.locator('[data-motion-step="1"] .scenario-section-head input').count(),6);
+  await tab('시뮬레이션').click();
   assert.equal(await p.locator('.plane-editor').evaluate(n=>n.scrollWidth>n.clientWidth+1),false);
   await sc.locator('[data-sc=stop]').click();await sc.locator('[data-sc=cancel]').click();
   await p.getByRole('tab',{name:'택배 박스 위치 설정',exact:true}).click();await p.waitForFunction(()=>document.querySelector('[data-arm=canvas]')?.dataset.virtualProduct==='');
