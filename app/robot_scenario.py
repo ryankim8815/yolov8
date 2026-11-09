@@ -62,9 +62,12 @@ def compile_steps(config,pose,approach,box,opening,idle):
             step["profile"]=config["stages"][str(number)]["profile"]
         if number in targets:
             step["target"]=copy.deepcopy(targets[number]);step["space"]="joint" if number in {1,8,9,14,15,16} else "task"
+            override=config["stages"][str(number)].get("target_joints")
+            if override is not None:
+                step.update(target=copy.deepcopy(override),space="joint",joint_override=True)
         if number in {4,12,17}:step["opening_mm"]=idle if number==17 else opening
         if number==6:step["contact"]=True
-        if number in {9,15}:step["j1_only"]=True
+        if number in {9,15} and not step.get("joint_override") and not config["stages"][str(8 if number==9 else 14)].get("target_joints"):step["j1_only"]=True
         if number in {6,11}:step["gate"]="confirm-grip" if number==6 else "open-at-box"
         result.append(step)
     return result
@@ -73,6 +76,8 @@ def compile_steps(config,pose,approach,box,opening,idle):
 def resolve_controller_steps(steps,kin):
     """Resolve stored joint poses with this active TCP; never guess a BASE pose."""
     fk_index={1:0,8:1,9:2,14:2,15:1,16:0}
+    for index,step in enumerate(s for s in steps if s.get("joint_override")):
+        fk_index[step["number"]]=3+index
     previous=kin["forward"][0]
     for step in steps:
         number=step["number"]
@@ -205,7 +210,15 @@ class Scenario:
             if estimate.get("reason"):raise DomainError(estimate["reason"])
             position=self.robot.hand.position_for(opening);idle=self.idle_width(config);idle_position=self.robot.hand.position_for(idle)
             steps=compile_steps(config,pose,approach,box["pose"],opening,idle)
-            status,kin=await self.inspect(poses=[approach,steps[9]["target"]],joints=[config["standby_joints"],steps[7]["target"],steps[8]["target"]])
+            waypoint=config["waypoint1_joints"]
+            above=[box["pose"][0],box["pose"][1],box["pose"][2]+config["box_clearance_mm"],*box["pose"][3:]]
+            status,kin=await self.inspect(poses=[approach,above],joints=[config["standby_joints"],waypoint,[waypoint[0]+config["turn_degrees"],*waypoint[1:]]])
+            overrides=[s["target"] for s in steps if s.get("joint_override")]
+            for start in range(0,len(overrides),5):
+                _,extra=await self.inspect(joints=overrides[start:start+5])
+                if any(extra.get(key)!=kin.get(key) for key in ("session_id","tcp_name","reference_tcp")):
+                    raise DomainError("SDK 세션 또는 TCP가 변경되었습니다. 다시 미리보기하세요.")
+                kin["forward"].extend(extra["forward"])
             if any(s["motion"]=="movec" for s in steps) and not status.get("circle_supported"):
                 raise DomainError("movec 지원 SDK 작업자로 갱신하세요.")
             if any(s.get("space")=="joint" and s["motion"]!="movej" for s in steps) and not status.get("circle_supported"):

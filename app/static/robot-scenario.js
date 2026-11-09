@@ -36,7 +36,7 @@ function build(root){
     <div class="scenario-tabs" role="tablist" aria-label="이송 시나리오 설정"></div>
     <section data-sc-panel="products" role="tabpanel"><div class="scenario-section-head"><div><h4>어디에 놓인 상품을 집나요?</h4><p class="scenario-caption">가상 상품은 시뮬레이션 전용입니다. 실제 위치는 카메라의 파지 영역으로 계산합니다.</p></div><label>가상 상품 선택<select data-sc="region"><option value="floor">바닥 · 수직 파지</option><option value="shelf">선반 · 수평 파지</option></select></label></div><div data-sc="virtual-fields"></div><div class="scenario-regions"></div></section>
     <section data-sc-panel="points" role="tabpanel"><p class="scenario-caption">직접 정할 위치는 대기 자세·1차 경유점·박스 놓기 TCP입니다. 2차 경유점과 박스 위 위치는 자동 계산합니다.</p><div data-sc="joint-fields"></div><section class="scenario-card scenario-auto"><div class="scenario-card-top"><h4>2차 경유점</h4><span class="scenario-badge">자동 계산 · 9·14단계</span></div><label>J1 왕복 방향<select data-config="turn_degrees"><option value="180">갈 때 +180° / 돌아올 때 −180°</option><option value="-180">갈 때 −180° / 돌아올 때 +180°</option></select></label><p data-sc="waypoint2" class="scenario-coordinate"></p><p class="scenario-caption">1차 경유점의 J2~J6는 그대로 유지합니다.</p></section><section class="scenario-card"><div class="scenario-card-top"><h4>박스 놓기 위치와 상부 간격</h4><span class="scenario-badge">10–13단계</span></div><div data-sc="box-mount"></div><div class="pose-fields"><label>박스 위까지의 간격 (mm)<input data-config="box_clearance_mm" type="number" step="any" min="0.001"></label></div><p data-sc="above-box" class="scenario-coordinate"></p><p class="scenario-caption">박스 TCP는 아래 좌표 저장으로, 상부 간격은 시나리오 저장으로 저장합니다. 박스 외형은 택배 박스 위치 설정 탭에서 변경합니다.</p></section></section>
-    <section data-sc-panel="motions" role="tabpanel"><h4>각 지점까지 어떻게 이동하나요?</h4><div class="scenario-motion-guide"><p><strong>movej · 관절</strong><span>관절각을 보간합니다. TCP 경로는 곡선일 수 있습니다.</span></p><p><strong>movel · 직선</strong><span>TCP가 목표까지 직선으로 이동합니다. move(선형 이동)에 해당합니다.</span></p><p><strong>movec · 원호</strong><span>시작점 → 원호 경유 TCP → 목표점으로 원호를 그립니다.</span></p></div><p class="scenario-caption">대기·경유 관절각은 단계의 J1~J6 입력란에서 설정합니다. 반복 방문하는 단계는 같은 값을 공유합니다. 상품 목표는 YOLO 좌표, 박스 목표는 11단계의 TCP 설정을 사용합니다. 관절로 교시한 목표를 movel·movec로 이동할 때는 현재 공구 TCP로 변환합니다. 방식을 바꾸면 개별 속도는 해제하고 프로파일의 해당 단위를 적용합니다.</p><div data-sc="stage-motions"></div></section>
+    <section data-sc-panel="motions" role="tabpanel"><h4>각 지점까지 어떻게 이동하나요?</h4><div class="scenario-motion-guide"><p><strong>movej · 관절</strong><span>관절각을 보간합니다. TCP 경로는 곡선일 수 있습니다.</span></p><p><strong>movel · 직선</strong><span>TCP가 목표까지 직선으로 이동합니다. move(선형 이동)에 해당합니다.</span></p><p><strong>movec · 원호</strong><span>시작점 → 원호 경유 TCP → 목표점으로 원호를 그립니다.</span></p></div><p class="scenario-caption">각 팔 이동 단계의 J1~J6를 직접 입력할 수 있습니다. 자동 계산을 선택하면 상품·경유점·박스 설정에서 목표를 구합니다. 직접 입력은 해당 단계의 자동 목표를 대체합니다. 상품 목표는 YOLO 좌표, 박스 목표는 11단계의 TCP 설정을 사용합니다. 관절로 교시한 목표를 movel·movec로 이동할 때는 현재 공구 TCP로 변환합니다. 방식을 바꾸면 개별 속도는 해제하고 프로파일의 해당 단위를 적용합니다.</p><div data-sc="stage-motions"></div></section>
     <section data-sc-panel="speeds" role="tabpanel"><h4>자주 쓰는 속도 3개를 먼저 정하세요</h4><p class="scenario-caption">카드를 펼쳐 속도와 가속도를 조절합니다. 단계별로 상·중·하를 선택하고 필요한 단계만 개별 설정하세요.</p><div data-sc="presets" class="scenario-presets"></div><div data-sc="stage-speeds" class="scenario-speed-groups"></div></section>
     <section data-sc-panel="simulation" role="tabpanel"><div class="scenario-section-head"><div><h4>가상 경로를 순서대로 확인하세요</h4><p class="scenario-caption">실제 장치 명령 없음 · 가상 접촉 표시 · 충돌 검증 아님</p></div><span data-sc="simulation-badge" class="scenario-badge">대기</span></div><div class="scenario-player"><div class="pose-actions"><button type="button" data-sc="play">시뮬레이션 시작</button><button type="button" data-sc="pause" disabled>일시정지</button><button type="button" data-sc="stop" disabled>종료</button><label>재생 배속<select data-sc="rate"><option value="1">1×</option><option value="2">2×</option><option value="5">5×</option><option value="10" selected>10×</option><option value="20">20×</option></select></label></div><label class="simulation-progress">전체 진행<input data-sc="progress" type="range" min="0" max="1000" value="0" disabled><output data-sc="percent">0%</output></label><p data-sc="simulation-state" role="status">시뮬레이션 대기</p><div class="scenario-confirm" data-sc="confirm-box" hidden><strong data-sc="confirm-title"></strong><p data-sc="confirm-help"></p><button type="button" data-sc="confirm">가상 파지 확인 후 이송</button></div><p data-sc="preview-warning" class="scenario-caption"></p></div><div class="scenario-inspector"><div data-sc="stages" class="scenario-stages" aria-label="17단계 경로"></div><aside class="scenario-step-detail" aria-label="선택한 단계 정보"><div class="scenario-card-top"><span data-sc="step-number" class="scenario-badge"></span><span data-sc="step-kind" class="scenario-kind"></span></div><h4 data-sc="step-title"></h4><p data-sc="step-help"></p><dl data-sc="step-values"></dl><div class="pose-actions"><button type="button" data-sc="jump" disabled>3D에서 이 단계 보기</button><button type="button" data-sc="previous" disabled>이전 단계</button><button type="button" data-sc="next" disabled>다음 단계</button></div><p class="scenario-caption">단계 보기와 진행 막대는 가상 위치를 확인하며 일시정지합니다. 실제 작업 승인과는 별개입니다.</p></aside></div></section>
     <div class="pose-actions scenario-save"><button type="button" data-sc="save" disabled>시나리오 저장</button><button type="button" data-sc="cancel" disabled>변경 취소</button><button type="button" data-sc="reload">최신 설정 불러오기</button></div><p data-sc="message" role="status"></p>
@@ -59,7 +59,7 @@ function build(root){
       const motionRow=node('section',null,'scenario-motion-row');motionRow.dataset.motionStep=number;const motionHead=node('div',null,'scenario-section-head');motionHead.append(node('strong',number+' · '+text));motionRow.append(motionHead);
       if(armSteps.has(number)){
         const label=node('label','이동 방식'),select=node('select');select.dataset.config=`stages.${number}.motion`;select.setAttribute('aria-label',number+'단계 이동 방식');for(const [value,title]of Object.entries(motionNames)){const option=node('option',title);option.value=value;select.append(option);}select.disabled=Boolean(fixedMotions[number]);label.append(select);motionHead.append(label);
-        if(fixedMotions[number])motionRow.append(node('p',[9,15].includes(number)?'J1만 ±180° 회전하기 위해 movej로 고정합니다.':'파지 방향 또는 박스 Z축을 따라 직선 접근·후퇴해야 하므로 movel로 고정합니다.','scenario-caption'));
+        if(fixedMotions[number])motionRow.append(node('p',[9,15].includes(number)?'자동 계산은 J1만 ±180° 회전합니다. 직접 입력은 여섯 관절의 목표를 사용합니다.':'파지 방향 또는 박스 Z축을 따라 직선 접근·후퇴해야 하므로 movel로 고정합니다.','scenario-caption'));
         else{
           const via=node('div',null,'scenario-via');via.dataset.viaStep=number;via.hidden=true;via.append(node('h5','원호 경유 TCP · BASE'),node('p','이 원호 구간에서만 통과할 점입니다. 시작·경유·목표는 서로 달라야 하며 일직선에 놓일 수 없습니다.','scenario-caption'));
           fields(via,['X (mm)','Y (mm)','Z (mm)','A (°)','B (°)','C (°)'],[0,1,2,3,4,5].map(i=>`stages.${number}.via_pose.${i}`));const capture=node('button','현재 TCP를 원호 경유점으로 불러오기');capture.type='button';capture.dataset.captureVia=number;via.append(capture);motionRow.append(via);
@@ -101,9 +101,9 @@ function build(root){
       label.append(input);joints.append(label);
     }
     head.insertBefore(joints,head.querySelector('label'));
-    const help=node('p',[1,16].includes(n)?'1·16단계가 같은 대기 자세를 공유합니다.':
-      [8,15].includes(n)?'8·15단계가 같은 1차 경유점을 공유합니다.':
-      [9,14].includes(n)?'1차 경유점과 J1 왕복 방향으로 계산합니다.':
+    const help=node('p',[1,16].includes(n)?'자동 계산 시 1·16단계가 같은 대기 자세를 사용합니다.':
+      [8,15].includes(n)?'자동 계산 시 8·15단계가 같은 1차 경유점을 사용합니다.':
+      [9,14].includes(n)?'자동 계산 시 1차 경유점과 J1 왕복 방향으로 계산합니다.':
       '상품·접근·박스 TCP로 계산한 참고 관절각입니다. 목표 TCP를 수정하면 갱신되며 실제 관절 해는 SDK에서 확정합니다.','scenario-caption');rowAt(n).append(help);
     if([1,8].includes(n)){
       const key=n===1?'standby_joints':'waypoint1_joints';
@@ -117,6 +117,45 @@ function build(root){
   rowAt(9).append(pointPanel.querySelector('.scenario-auto'));
   rowAt(11).append(pointPanel.querySelector('.scenario-card'));
   pointPanel.remove();
+  for(const number of armSteps){
+    if([1,8].includes(number))continue;
+    const group=rowAt(number).querySelector('[data-joint-step]');
+    const label=node('label','관절 목표 '),select=node('select');
+    select.dataset.jointMode=number;
+    select.setAttribute('aria-label',number+'단계 관절 목표 입력 방식');
+    for(const [value,title]of [['auto','자동 계산'],['manual','직접 입력']]){
+      const option=node('option',title);option.value=value;select.append(option);
+    }
+    label.append(select);group.before(label);
+    [...group.querySelectorAll('input')].forEach((input,i)=>{
+      input.dataset.config=`stages.${number}.target_joints.${i}`;
+      input.dataset.computedJoint=i;
+      input.min=-([2,4].includes(i)?155:360);input.max=-Number(input.min);
+    });
+  }
+  let poseStep=1;
+  for(let number=1;number<=stages.length;number++){
+    if(armSteps.has(number))poseStep=number;
+    const item=root.querySelector(`[data-stage="${number}"]`).closest('li');
+    const source=rowAt(poseStep).querySelector('[data-joint-step]');
+    const joints=source.cloneNode(true);
+    joints.classList.add('scenario-stage-joints');
+    for(const input of joints.querySelectorAll('input')){
+      input.setAttribute('aria-label',`${number}단계 J${[...joints.querySelectorAll('input')].indexOf(input)+1} (°)`);
+      if(!armSteps.has(number)){input.readOnly=true;delete input.dataset.config;}
+    }
+    if(!armSteps.has(number)){
+      [...joints.querySelectorAll('input')].forEach((input,i)=>{input.dataset.computedJoint=i;});
+    }
+    if(armSteps.has(number)&&![1,8].includes(number)){
+      const mode=rowAt(number).querySelector('[data-joint-mode]').parentElement.cloneNode(true);
+      item.append(mode);
+    }
+    item.append(joints);
+    item.append(node('p',!armSteps.has(number)?'팔 자세 유지 · 이전 이동 단계의 관절각':
+      number===1?'대기 자세':
+      number===8?'1차 경유점':'자동 계산 또는 직접 입력 · J1~J6 (°)','scenario-caption scenario-stage-hint'));
+  }
   for(const level of ['high','medium','low']){
     const preset=node('details',null,'scenario-preset'),summary=node('summary');summary.append(node('strong',names[level]),node('span'));preset.dataset.preset=level;preset.append(summary);
     for(const [kind,title,unit,accunit]of [['joint','관절','°/s','°/s²'],['line','직선','mm/s','mm/s²'],['gripper','그리퍼','rpm','rpm²']])fields(preset,[title+' 속도 ('+unit+')',title+' 가속도 ('+accunit+')'],[`profiles.${level}.${kind}.speed`,`profiles.${level}.${kind}.acceleration`]);root.querySelector('[data-sc="presets"]').append(preset);
@@ -146,7 +185,7 @@ export function connectScenario(root,arm,signal){
   function resolvedSpeed(number){const kind=speedKind(number),s=draft?.stages[number];return s&&(s.override||draft.profiles[s.profile][kind]);}
   function speedText(number){const kind=speedKind(number),speed=resolvedSpeed(number);if(!speed)return '속도 미설정';return `${fmt(speed.speed)} ${kind==='gripper'?'rpm':kind==='line'?'mm/s':'°/s'} · 가속도 ${fmt(speed.acceleration)} ${kind==='gripper'?'rpm²':kind==='line'?'mm/s²':'°/s²'}`;}
   function detail(){
-    const number=selectedStep,[kind,title]=stages[number-1],step=recipe?.steps[number-1];ui['step-number'].textContent=number+' / 17';ui['step-kind'].textContent=motionNames[motionFor(number)]||kinds[kind];ui['step-title'].textContent=title;ui['step-help'].textContent=guidance[number];
+    const number=selectedStep,[kind,title]=stages[number-1],step=recipe?.steps[number-1];ui['step-number'].textContent=number+' / 17';ui['step-kind'].textContent=motionNames[motionFor(number)]||kinds[kind];ui['step-title'].textContent=title;ui['step-help'].textContent=draft?.stages[number]?.target_joints?'직접 입력한 J1~J6를 이 단계의 목표로 사용합니다.':guidance[number];
     const rows=[];if(step?.target)rows.push([step.space==='joint'?'관절 목표':'TCP · BASE',step.target.map((v,i)=>step.space==='joint'?`J${i+1} ${fmt(v)}°`:`${'XYZABC'[i]} ${fmt(v)}${i<3?' mm':'°'}`).join(' · ')]);
     else if(number===1)rows.push(['대기 관절각 (°)',draft?.standby_joints.map(fmt).join(' · ')||'조회 중']);
     if([4,12,17].includes(number))rows.push(['가상 벌림',fmt(step?.opening_mm)+' mm']);
@@ -179,19 +218,24 @@ export function connectScenario(root,arm,signal){
     ui.reload.textContent=isExample()?'예시값 다시 채우기':'최신 설정 불러오기';
     for(const group of root.querySelectorAll('[data-virtual-region]'))group.hidden=group.dataset.virtualRegion!==ui.region.value;
     for(const group of root.querySelectorAll('[data-joint-step]')){
-      const n=Number(group.dataset.jointStep),w=draft?.waypoint1_joints;
-      const q=[9,14].includes(n)&&w?.every(Number.isFinite)?[w[0]+draft.turn_degrees,...w.slice(1)]:jointTargets.get(n);
+      const n=Number(group.dataset.jointStep),w=draft?.waypoint1_joints,manual=draft?.stages[n]?.target_joints;
+      const q=manual??([9,14].includes(n)&&w?.every(Number.isFinite)?[w[0]+draft.turn_degrees,...w.slice(1)]:jointTargets.get(n));
       for(const input of group.querySelectorAll('input')){
-        if(input.dataset.config){if(input!==document.activeElement)input.value=path(draft,input.dataset.config)??'';}
+        if(input.dataset.config?.includes('.target_joints.')){
+          input.readOnly=!manual;
+          input.required=Boolean(manual);
+          if(input!==document.activeElement)input.value=manual?.[Number(input.dataset.computedJoint)]??(q?.[Number(input.dataset.computedJoint)]==null?'':Number(q[Number(input.dataset.computedJoint)].toFixed(2)));
+        }else if(input.dataset.config){if(input!==document.activeElement)input.value=path(draft,input.dataset.config)??'';}
         else input.value=q?.[Number(input.dataset.computedJoint)]==null?'':Number(q[Number(input.dataset.computedJoint)].toFixed(2));
       }
     }
+    for(const select of root.querySelectorAll('[data-joint-mode]'))select.value=draft?.stages[select.dataset.jointMode]?.target_joints?'manual':'auto';
     const w=draft?.waypoint1_joints,valid=w?.length===6&&w.every(Number.isFinite),second=valid?[w[0]+draft.turn_degrees,...w.slice(1)]:null;
     ui.waypoint2.textContent=second?'J1–J6 · [ '+second.map(fmt).join(', ')+' ]°':'먼저 1차 경유점의 여섯 관절각을 입력하세요.';ui.waypoint2.dataset.error=Boolean(second?.some((v,i)=>Math.abs(v)>([2,4].includes(i)?155:360)));
     const box=boxFields().map(i=>i.valueAsNumber);boxPose=box.length===6&&box.every(Number.isFinite)?box:null;
     ui['above-box'].textContent=boxPose?`박스 위 TCP · X ${fmt(boxPose[0])} / Y ${fmt(boxPose[1])} / Z ${fmt(boxPose[2]+(draft?.box_clearance_mm||0))} mm · 방향 유지`:'박스 놓기 TCP를 교시하면 박스 위 위치가 계산됩니다.';
     const product=draft?.virtual[ui.region.value];ui['product-summary'].textContent=product?regionNames[ui.region.value]+' · '+product.size_mm.map(fmt).join(' × ')+' mm':'조회 중';ui['route-summary'].textContent=!valid?'1차 경유점 설정 필요':!boxPose?'박스 TCP 설정 필요':isExample()?'예시 경로 준비됨':'공통 지점 설정됨';ui['draft-summary'].textContent=isExample()?'시뮬레이션 전용 예시':dirty||boxDirty()?'저장 전 편집값':'저장된 설정';
-    if(draft){for(const input of inputs){const via=input.dataset.config.match(/^stages\.(\d+)\.via_pose\./);if(via)input.disabled=motionFor(Number(via[1]))!=='movec';input.required=input.type!=='checkbox'&&input.dataset.config!=='standby_opening_mm'&&(!input.dataset.config.startsWith('waypoint1_joints.')||draft.waypoint1_joints!==null);}
+    if(draft){for(const input of inputs){const via=input.dataset.config.match(/^stages\.(\d+)\.via_pose\./);if(via)input.disabled=motionFor(Number(via[1]))!=='movec';input.required=!input.readOnly&&input.type!=='checkbox'&&input.dataset.config!=='standby_opening_mm'&&(!input.dataset.config.startsWith('waypoint1_joints.')||draft.waypoint1_joints!==null);}
       for(const select of root.querySelectorAll('[data-config$=".motion"]'))select.value=motionFor(Number(select.dataset.config.split('.')[1]));
       for(const group of root.querySelectorAll('[data-via-step]'))group.hidden=motionFor(Number(group.dataset.viaStep))!=='movec';
       for(const row of root.querySelectorAll('[data-speed-stage]')){const n=Number(row.dataset.speedStage),kind=speedKind(n);row.querySelector('small').textContent=motionNames[motionFor(n)]||kinds[kind];row.querySelectorAll('[data-override-fields] label').forEach((label,i)=>label.firstChild.nodeValue=(i?'가속도':'속도')+' ('+(kind==='gripper'?(i?'rpm²':'rpm'):kind==='line'?(i?'mm/s²':'mm/s'):(i?'°/s²':'°/s'))+')');}
@@ -230,6 +274,12 @@ export function connectScenario(root,arm,signal){
     const cache={draft:structuredClone(draft),dirty,conflict,box:isExample()?boxFields().map(i=>Number.isFinite(i.valueAsNumber)?i.valueAsNumber:null):null};if(isExample())exampleCache=cache;else ownCache=cache;
     stopAndInvalidate();previewSource=value;const next=isExample()?exampleCache:ownCache;draft=structuredClone(next?.draft||(isExample()?exampleDefaults.config:saved));dirty=next?.dirty||false;conflict=next?.conflict||false;if(isExample())exampleBox=structuredClone(next?.box||exampleDefaults.box_pose);fill();await preview();message(isExample()?'예시 경로 · 실제 저장값은 유지됩니다.':'내 설정으로 돌아왔습니다.');
   }
+  on(root,'change',event=>{
+    const number=Number(event.target.dataset.jointMode);
+    if(!number||!draft)return;
+    draft.stages[number].target_joints=event.target.value==='manual'?[...(jointTargets.get(number)||Array(6).fill(null))]:null;
+    fill();changed();
+  });
   on(ui.source,'change',()=>void switchSource(ui.source.value));
   on(root,'input',event=>{const input=event.target;if(input.dataset.exampleBoxAxis===undefined||!isExample())return;exampleBox=boxFields().map(i=>Number.isFinite(i.valueAsNumber)?i.valueAsNumber:null);changed();});
   on(root,'input',event=>{const input=event.target;if(!input.dataset.config||!draft)return;const value=input.type==='checkbox'?input.checked:input.tagName==='SELECT'?(input.dataset.config==='turn_degrees'?Number(input.value):input.value):Number.isFinite(input.valueAsNumber)?input.valueAsNumber:null;if(input.dataset.config.startsWith('waypoint1_joints.')&&!draft.waypoint1_joints)draft.waypoint1_joints=Array(6).fill(null);put(draft,input.dataset.config,value);if(input.dataset.config.endsWith('.motion')){draft.stages[input.dataset.config.split('.')[1]].override=null;fill();}changed();});

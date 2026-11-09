@@ -272,3 +272,26 @@ def test_invalid_hand_configuration_blocks_preparation_before_motion(scenario,in
     else:hand['acceleration_limit']=2999
     assert client.post('/api/robot/pick/prepare/preview',json={}).status_code==409
     assert not calls
+
+
+def test_stage_joint_targets_saved_previewed_and_resolved(scenario):
+    client, calls, *_ = scenario
+    config = client.get('/api/robot/pick-scenario').json()
+    for number in [3, 5, 7, 9, 10, 11, 13, 14, 15, 16]:
+        config['stages'][str(number)]['target_joints'] = [number, 0, 60, 0, 120, 0]
+    saved = client.put('/api/robot/pick-scenario', json=config)
+    assert saved.status_code == 200, saved.text
+    result = client.post('/api/robot/pick/scenario/preview', json={'region': 'floor'}).json()
+    for step in result['steps']:
+        number = step['number']
+        if number in [3, 5, 7, 9, 10, 11, 13, 14, 15, 16]:
+            assert step['space'] == 'joint'
+            assert step['target'] == [number, 0, 60, 0, 120, 0]
+    assert not calls
+    prepare(client)
+    actual = preview(client)
+    assert actual['motion_reason'] is None, actual
+    assert client.get('/api/robot/pick-scenario').json()['stages']['5']['target_joints'] == [5, 0, 60, 0, 120, 0]
+    invalid = client.get('/api/robot/pick-scenario').json()
+    invalid['stages']['5']['target_joints'][2] = 156
+    assert client.put('/api/robot/pick-scenario', json=invalid).status_code == 422

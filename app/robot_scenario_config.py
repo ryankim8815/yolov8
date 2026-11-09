@@ -69,6 +69,7 @@ class StageSpeed(Input):
     override: HandSpeed | None = None
     motion: Literal["movej","movel","movec"] | None = None
     via_pose: Six | None = None
+    target_joints: Six | None = None
 
 
 class VirtualProduct(Input):
@@ -118,7 +119,10 @@ class ScenarioInput(Input):
         for n,k,_ in STAGES:
             if k=="target":continue
             stage=self.stages[str(n)]
-            if n not in ARM_STAGES and (stage.motion is not None or stage.via_pose is not None):
+            check_joints(stage.target_joints)
+            if n == 1 and stage.target_joints is not None:
+                raise ValueError("1단계의 관절각은 대기 자세에서 설정하세요.")
+            if n not in ARM_STAGES and (stage.motion is not None or stage.via_pose is not None or stage.target_joints is not None):
                 raise ValueError(f"{n}단계는 팔 이동이 없는 단계입니다.")
             if n in FIXED_MOTIONS and stage.motion not in {None,FIXED_MOTIONS[n]}:
                 raise ValueError(f"{n}단계는 파지 방향·Z축 이동 또는 J1 단독 회전을 유지해야 하므로 {FIXED_MOTIONS[n]}만 사용할 수 있습니다.")
