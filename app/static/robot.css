@@ -141,9 +141,9 @@
 #pose-last { border-top: 1px solid var(--line); padding-top: 12px; color: var(--sub); }
 #pose-last[data-state="completed"] { color: var(--mint); }
 #pose-last[data-state="failed"], #pose-last[data-state="unknown"] { color: var(--amber); }
-:is(#pose-dialog, #control-dialog, #servo-dialog, #operation-dialog) { width: min(440px, 92vw); padding: 20px; color: var(--ink); background: var(--surface); border: 1px solid var(--line); border-radius: 10px; }
-:is(#pose-dialog, #control-dialog, #servo-dialog, #operation-dialog)::backdrop { background: #0b1d25aa; }
-:is(#pose-dialog, #control-dialog, #servo-dialog, #operation-dialog) p { margin: 10px 0; font-size: 13px; }
+:is(#pose-dialog, #control-dialog, #servo-dialog, #operation-dialog, #hand-test-dialog) { width: min(440px, 92vw); padding: 20px; color: var(--ink); background: var(--surface); border: 1px solid var(--line); border-radius: 10px; }
+:is(#pose-dialog, #control-dialog, #servo-dialog, #operation-dialog, #hand-test-dialog)::backdrop { background: #0b1d25aa; }
+:is(#pose-dialog, #control-dialog, #servo-dialog, #operation-dialog, #hand-test-dialog) p { margin: 10px 0; font-size: 13px; }
 .robot-control { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; padding: 16px 20px; border-top: 1px solid var(--line); }
 .robot-control p { margin-top: 5px; font-size: 13px; }
 #direct-teach { appearance: none; width: 44px; height: 26px; margin: 0; border: 1px solid var(--line); border-radius: 16px; background: var(--sub); cursor: pointer; }

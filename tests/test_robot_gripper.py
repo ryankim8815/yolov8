@@ -45,3 +45,63 @@ def test_async_worker_joint_only_stop_and_control_loss(tmp_path):
     binary=tmp_path/'scenario-worker'
     subprocess.run([compiler,'-std=c++17',str(Path(__file__).with_name('scenario_worker.cpp')),'-o',binary],check=True)
     subprocess.run([binary],check=True,timeout=10)
+
+
+@pytest.fixture
+def gripper_client(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+    from fastapi import FastAPI, Request
+    from fastapi.responses import JSONResponse
+    from fastapi.testclient import TestClient
+    from app.robot_gripper import router
+    hand = Gripper(tmp_path)
+    hand.save(CalibrationInput(revision=None, points=[
+        {"position": 0, "width_mm": 80}, {"position": 700, "width_mm": 0}]))
+    robot = SimpleNamespace(hand=hand, settings=SimpleNamespace(access_backend="mac-sdk"),
+                            picks=SimpleNamespace(busy=False),
+                            pose_tests=SimpleNamespace(snapshot=lambda: {"busy": False}))
+    calls = []
+    used = set()
+    def host(op, settings, command):
+        if command.motion_token in used:
+            return 409, {"detail": "이미 사용한 토큰"}
+        used.add(command.motion_token)
+        calls.append((op, command))
+        return 200, {"state": "completed", "message": "완료", "feedback": {"position": command.position}}
+    monkeypatch.setattr("app.robot_gripper.request_host", host)
+    app = FastAPI()
+    app.state.robot = robot
+    app.include_router(router, prefix="/api/robot")
+    @app.exception_handler(DomainError)
+    async def error(request: Request, exc: DomainError):
+        return JSONResponse({"detail": str(exc)}, status_code=409)
+    with TestClient(app) as client:
+        yield client, robot, calls
+
+
+def test_width_preview_is_read_only_and_approved_test_uses_saved_table(gripper_client):
+    client, robot, calls = gripper_client
+    body = {"revision": robot.hand.table["revision"], "width_mm": 50}
+    preview = client.post('/api/robot/gripper/test/preview', json=body)
+    assert preview.status_code == 200, preview.text
+    assert preview.json()["position"] == 262
+    assert preview.json()["estimated_width_mm"] >= 50
+    assert calls == []
+    command = {**body, "session_id": "test", "motion_token": "a"*32}
+    response = client.post('/api/robot/gripper/test', json=command)
+    assert response.status_code == 200, response.text
+    assert response.json()["actual_width_mm"] >= 50
+    assert [(op, c.action, c.position) for op,c in calls] == [("gripper", "position", 262)]
+    assert client.post('/api/robot/gripper/test', json=command).status_code == 409
+    assert len(calls) == 1
+
+
+def test_width_test_rejects_stale_out_of_range_and_busy_without_command(gripper_client):
+    client, robot, calls = gripper_client
+    body = {"revision": robot.hand.table["revision"], "width_mm": 50,
+            "session_id": "test", "motion_token": "b"*32}
+    for changed in ({"revision": "old"}, {"width_mm": 81}, {"width_mm": -1}):
+        assert client.post('/api/robot/gripper/test', json={**body, **changed}).status_code in (409, 422)
+    robot.picks.busy = True
+    assert client.post('/api/robot/gripper/test', json=body).status_code == 409
+    assert calls == []

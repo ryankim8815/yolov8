@@ -49,6 +49,16 @@ class HandCommand(Input):
         return {"read":-1, "open":0, "close":700, "position":self.position}[self.action]
 
 
+class WidthPreview(Input):
+    width_mm: FiniteFloat = Field(ge=0)
+    revision: str | None = Field(max_length=32)
+
+
+class WidthTest(WidthPreview):
+    session_id: str = Field(min_length=1, max_length=36)
+    motion_token: str = Field(pattern="^[0-9a-f]{32}$")
+
+
 class ContactInput(Input):
     revision: str | None = Field(max_length=32)
     threshold_ma: int | None = Field(ge=1,le=1984)
@@ -134,3 +144,27 @@ async def manual(body: HandCommand, request: Request):
     if code != 200:
         raise DomainError(result.get("detail") or "그리퍼 상태를 확인할 수 없습니다.", code)
     return {k:v for k,v in result.items() if k != "next_motion_token"}
+
+
+def width_preview(hand, body):
+    if body.revision != hand.table["revision"]:
+        raise DomainError("벌림표가 변경되었습니다. 저장값을 다시 불러온 뒤 테스트하세요.")
+    position = hand.position_for(body.width_mm)
+    return {"revision": hand.table["revision"], "width_mm": body.width_mm,
+            "position": position, "estimated_width_mm": hand.width_at(position)}
+
+
+@router.post("/test/preview", dependencies=[Depends(local_json)])
+async def preview_test(body: WidthPreview, request: Request):
+    return width_preview(request.app.state.robot.hand, body)
+
+
+@router.post("/test", dependencies=[Depends(local_json)])
+async def test_width(body: WidthTest, request: Request):
+    target = width_preview(request.app.state.robot.hand, body)
+    result = await manual(HandCommand(session_id=body.session_id, motion_token=body.motion_token,
+                                     action="position", position=target["position"]), request)
+    feedback = result.get("feedback") or {}
+    actual = feedback.get("position")
+    return {**result, "target": target,
+            "actual_width_mm": request.app.state.robot.hand.width_at(actual) if isinstance(actual, int) else None}
