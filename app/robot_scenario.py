@@ -1,4 +1,4 @@
-"""17-step recipes. Only stored YOLO frames can create real picking tickets."""
+"""17-step recipes with versioned approvals for detected objects and configured hardware tests."""
 import asyncio
 import copy
 import math
@@ -23,6 +23,11 @@ class SimulationPreview(Input):
     config: ScenarioInput | None = None
     box_pose: Six | None = None
     example: bool = False
+
+
+class HardwareTest(Input):
+    region: Literal["floor","shelf"] = "floor"
+    revision: str | None = None
 
 
 class Identifier(Input):
@@ -192,6 +197,22 @@ class Scenario:
                     hand_position=position,speed=speed_for(config,1,"ready"),motion=motion,via_pose=via if motion=="movec" else None,
                     target=goal,gripper_speed=config["profiles"][config["stages"]["1"]["profile"]]["gripper"])
 
+    async def inspect_steps(self,config,steps,approach,box):
+        waypoint=config["waypoint1_joints"]
+        above=[box[0],box[1],box[2]+config["box_clearance_mm"],*box[3:]]
+        status,kin=await self.inspect(poses=[approach,above],joints=[config["standby_joints"],waypoint,[waypoint[0]+config["turn_degrees"],*waypoint[1:]]])
+        overrides=[s["target"] for s in steps if s.get("joint_override")]
+        for start in range(0,len(overrides),5):
+            _,extra=await self.inspect(joints=overrides[start:start+5])
+            if any(extra.get(key)!=kin.get(key) for key in ("session_id","tcp_name","reference_tcp")):
+                raise DomainError("SDK 세션 또는 TCP가 변경되었습니다. 다시 미리보기하세요.")
+            kin["forward"].extend(extra["forward"])
+        if any(s["motion"]=="movec" for s in steps) and not status.get("circle_supported"):
+            raise DomainError("movec 지원 SDK 작업자로 갱신하세요.")
+        if any(s.get("space")=="joint" and s["motion"]!="movej" for s in steps) and not status.get("circle_supported"):
+            raise DomainError("관절 교시점의 TCP 이동 결과를 확인할 수 있는 SDK 작업자로 갱신하세요.")
+        return status,kin
+
     async def preview_real(self,selection,reader):
         packet=await asyncio.to_thread(reader,selection.session_id,selection.frame_id)
         camera=CameraFrame.from_packet(packet)
@@ -210,19 +231,7 @@ class Scenario:
             if estimate.get("reason"):raise DomainError(estimate["reason"])
             position=self.robot.hand.position_for(opening);idle=self.idle_width(config);idle_position=self.robot.hand.position_for(idle)
             steps=compile_steps(config,pose,approach,box["pose"],opening,idle)
-            waypoint=config["waypoint1_joints"]
-            above=[box["pose"][0],box["pose"][1],box["pose"][2]+config["box_clearance_mm"],*box["pose"][3:]]
-            status,kin=await self.inspect(poses=[approach,above],joints=[config["standby_joints"],waypoint,[waypoint[0]+config["turn_degrees"],*waypoint[1:]]])
-            overrides=[s["target"] for s in steps if s.get("joint_override")]
-            for start in range(0,len(overrides),5):
-                _,extra=await self.inspect(joints=overrides[start:start+5])
-                if any(extra.get(key)!=kin.get(key) for key in ("session_id","tcp_name","reference_tcp")):
-                    raise DomainError("SDK 세션 또는 TCP가 변경되었습니다. 다시 미리보기하세요.")
-                kin["forward"].extend(extra["forward"])
-            if any(s["motion"]=="movec" for s in steps) and not status.get("circle_supported"):
-                raise DomainError("movec 지원 SDK 작업자로 갱신하세요.")
-            if any(s.get("space")=="joint" and s["motion"]!="movej" for s in steps) and not status.get("circle_supported"):
-                raise DomainError("관절 교시점의 TCP 이동 결과를 확인할 수 있는 SDK 작업자로 갱신하세요.")
+            status,kin=await self.inspect_steps(config,steps,approach,box["pose"])
             threshold=self.validate_hand(kin,config)
             if not self.prepared or self.prepared!={"session":status["session_id"],"versions":self.versions(),"tcp":kin["tcp_name"],"reference":kin["reference_tcp"]}:
                 raise DomainError("매니퓰레이터에서 ‘대기 상태로 준비’를 먼저 승인하세요.")
@@ -239,20 +248,52 @@ class Scenario:
                     label=obj["label"],confidence=obj["confidence"],motion_reason=reason,gripper=estimate,
                     hand_position=position,handling="rh_p12",mode="transfer",route={"box":box},steps=steps,tcp_name=(kin or {}).get("tcp_name"))
 
-    def approve(self,identifier,reader=None,prepare=False):
+    async def preview_hardware_test(self,body):
+        self.require_idle()
+        versions=self.versions()
+        config=copy.deepcopy(self.config.value)
+        if body.revision!=config["revision"]:
+            raise DomainError("시나리오가 변경되었습니다. 최신 설정을 불러오세요.",412)
+        preview=self.virtual_preview(SimulationPreview(region=body.region,config=ScenarioInput.model_validate(config)))
+        if preview["errors"]:
+            raise DomainError(" ".join(preview["errors"]))
+        steps=preview["steps"]
+        idle=self.idle_width(config)
+        position=self.robot.hand.position_for(preview["opening_mm"])
+        idle_position=self.robot.hand.position_for(idle)
+        status,kin=await self.inspect_steps(config,steps,preview["approach"],preview["box_pose"])
+        threshold=self.validate_hand(kin,config)
+        resolve_controller_steps(steps,kin)
+        motion=motion_for(config,1)
+        goal=config["standby_joints"] if motion=="movej" else kin["forward"][0]
+        if motion=="movec":
+            validate_arc(kin["current_tcp"],config["stages"]["1"].get("via_pose"),goal)
+        steps[1]["title"]="설정한 객체 좌표 확인"
+        target=dict(kind="hardware-test",config=config,status=status,kin=kin,steps=steps,
+                    region=body.region,pose=preview["pose"],opening=preview["opening_mm"],
+                    position=position,idle_position=idle_position,threshold=threshold,
+                    prepare_target=goal,label="설정 좌표 · 실제 17단계 테스트")
+        if versions!=self.versions():
+            raise DomainError("테스트 경로를 확인하는 동안 설정이 변경되었습니다. 다시 확인하세요.",412)
+        identifier=self.ticket(target)
+        return dict(approval_id=identifier,expires_in=30,region=body.region,pose=preview["pose"],
+                    opening_mm=preview["opening_mm"],idle_opening_mm=idle,steps=steps,
+                    tcp_name=kin["tcp_name"],standby_joints=config["standby_joints"])
+
+    def approve(self,identifier,reader=None,prepare=False,hardware_test=False):
         target=self.picks.approvals.pop(identifier,None)
         if target is None or target["deadline"]<=time.monotonic():raise DomainError("승인이 만료되었거나 이미 사용되었습니다.")
-        if target.get("kind")!=("prepare" if prepare else "scenario"):raise DomainError("이 승인 ID는 해당 동작에 사용할 수 없습니다.")
+        if target.get("kind")!=("hardware-test" if hardware_test else "prepare" if prepare else "scenario"):raise DomainError("이 승인 ID는 해당 동작에 사용할 수 없습니다.")
         if target["versions"]!=self.versions():raise DomainError("시나리오·박스·그리퍼 설정이 변경되었습니다. 다시 승인하세요.",412)
         if target.get("reason"):raise DomainError(target["reason"])
         self.require_idle();self.prepared=None
         target["approved"]=True;target["cancelled"]=False
         target["session_id"]=target["status"]["session_id"];target["token"]=target["status"]["motion_token"]
         target["reader"]=reader;self.runtimes[identifier]=target
-        move=self.picks.record(identifier,"scenario_running","대기 상태 준비 중" if prepare else "YOLO 대상 재확인 중",
-            mode="prepare" if prepare else "transfer",scenario=True,step=1 if prepare else 2,label=target.get("label","대기 상태 준비"),
+        move=self.picks.record(identifier,"scenario_running","대기 상태 준비 중" if prepare or hardware_test else "YOLO 대상 재확인 중",
+            mode="prepare" if prepare else "transfer",scenario=True,step=1 if prepare or hardware_test else 2,label=target.get("label","대기 상태 준비"),
             steps=target.get("steps",[]),last_reached=None,handling="rh_p12")
-        self.picks.task=asyncio.create_task(self.run(identifier,1 if prepare else 3))
+        self.picks.task=asyncio.create_task(self.run(identifier,1 if prepare or hardware_test else 3))
         return move
 
     async def check_context(self,target):
@@ -318,7 +359,7 @@ class Scenario:
     async def run(self,identifier,start):
         target=self.runtimes[identifier];config=target["config"]
         try:
-            if target["kind"]=="prepare":
+            if target["kind"]=="prepare" or (target["kind"]=="hardware-test" and start==1):
                 motion=motion_for(config,1)
                 await self.operation(identifier,MOTION_KINDS[motion],speed_for(config,1,"ready"),target["prepare_target"],
                                      via_pose=config["stages"]["1"].get("via_pose") if motion=="movec" else None,
@@ -326,18 +367,21 @@ class Scenario:
                 profile=config["profiles"][config["stages"]["1"]["profile"]]["gripper"]
                 await self.operation(identifier,"gripper",profile,position=target["idle_position"])
                 self.mark_prepared(target)
-                self.picks.record(identifier,"completed","대기 상태 준비 완료",step=1,last_reached="대기 상태")
-                return
+                self.picks.record(identifier,"completed" if target["kind"]=="prepare" else "scenario_running",
+                                  "대기 상태 준비 완료",step=1,last_reached="대기 상태")
+                if target["kind"]=="prepare":return
+                start=3
             if start==3:
                 _,current=await self.inspect()
                 if (current["session_id"]!=target["session_id"] or current["tcp_name"]!=target["kin"]["tcp_name"] or current["reference_tcp"]!=target["kin"]["reference_tcp"] or
                     any(abs(a-b)>.5 for a,b in zip(current["current_joints"],config["standby_joints"])) or abs(current["hand"]["position"]-target["idle_position"])>2):
                     raise DomainError("대기 상태 또는 활성 TCP가 변경되었습니다. 대기 준비부터 다시 진행하세요.")
-                frame=await asyncio.to_thread(target["reader"],target["camera"].session_id);self.picks.revalidate(target,frame)
+                if target["kind"]!="hardware-test":
+                    frame=await asyncio.to_thread(target["reader"],target["camera"].session_id);self.picks.revalidate(target,frame)
             for step in target["steps"][start-1:]:
                 number=step["number"]
                 self.picks.record(identifier,"scenario_running",f"{number}/17 · {step['title']}",step=number)
-                if number==5:
+                if number==5 and target["kind"]!="hardware-test":
                     frame=await asyncio.to_thread(target["reader"],target["camera"].session_id);obj=self.picks.revalidate(target,frame)
                     estimate=target["plane"].gripper_estimate(obj["xyxy"],tcp=target["pose"][:3])
                     if estimate.get("reason") or target["actual_opening"]+1e-8<estimate["opening_mm"]:raise DomainError("최신 대상에 필요한 벌림을 확인할 수 없습니다.")
@@ -409,6 +453,14 @@ async def prepare_preview(request:Request):return await request.app.state.robot.
 
 @router.post("/pick/prepare/approve",status_code=202,dependencies=[Depends(local_json)])
 async def prepare_approve(body:Identifier,request:Request):return request.app.state.robot.scenario.approve(body.approval_id,prepare=True)
+
+@router.post("/pick/scenario/hardware-test/preview",dependencies=[Depends(local_json)])
+async def hardware_test_preview(body:HardwareTest,request:Request):
+    return await request.app.state.robot.scenario.preview_hardware_test(body)
+
+@router.post("/pick/scenario/hardware-test/approve",status_code=202,dependencies=[Depends(local_json)])
+async def hardware_test_approve(body:Identifier,request:Request):
+    return request.app.state.robot.scenario.approve(body.approval_id,hardware_test=True)
 
 @router.get("/pick/scenario/status")
 async def scenario_status(request:Request):

@@ -314,3 +314,58 @@ def test_object_coordinates_drive_automatic_grasp_steps(scenario):
         assert result['steps'][number - 1]['space'] == 'task'
         assert result['config']['stages'][str(number)]['target_joints'] is None
     assert not calls
+
+
+def test_hardware_test_preview_approval_and_full_path_without_camera(scenario):
+    client, calls, frame, *_ = scenario
+    frame['objects'] = []
+    config = client.get('/api/robot/pick-scenario').json()
+    response = client.post('/api/robot/pick/scenario/hardware-test/preview',
+                           json={'region': 'floor', 'revision': config['revision']})
+    assert response.status_code == 200, response.text
+    target = response.json()
+    assert len(target['steps']) == 17
+    assert target['steps'][1]['title'] == '설정한 객체 좌표 확인'
+    assert calls == []
+    identifier = target['approval_id']
+    with ThreadPoolExecutor(2) as pool:
+        codes = list(pool.map(lambda _: client.post('/api/robot/pick/scenario/hardware-test/approve',
+                                                   json={'approval_id': identifier}).status_code, range(2)))
+    assert sorted(codes) == [202, 409]
+    assert wait_state(client, identifier, {'awaiting_grip', 'failed', 'unknown'})['state'] == 'awaiting_grip'
+    assert len(calls) == 6
+    assert client.post('/api/robot/pick/moves/'+identifier+'/confirm-grip', json={}).status_code == 200
+    assert wait_state(client, identifier, {'awaiting_open', 'failed', 'unknown'})['state'] == 'awaiting_open'
+    assert client.post('/api/robot/pick/moves/'+identifier+'/open-at-box', json={}).status_code == 200
+    assert wait_state(client, identifier, {'completed', 'failed', 'unknown'})['state'] == 'completed'
+    assert len(calls) == 17
+
+
+def test_hardware_test_rejects_changed_settings_and_wrong_approval_route(scenario):
+    client, calls, *_ = scenario
+    config = client.get('/api/robot/pick-scenario').json()
+    endpoint = '/api/robot/pick/scenario/hardware-test/'
+    assert client.post(endpoint+'preview', json={'revision': 'outdated'}).status_code == 412
+    target = client.post(endpoint+'preview', json={'revision': config['revision']}).json()
+    assert client.post('/api/robot/pick/prepare/approve', json={'approval_id': target['approval_id']}).status_code == 409
+    target = client.post(endpoint+'preview', json={'revision': config['revision']}).json()
+    assert client.put('/api/robot/pick-scenario', json=config).status_code == 200
+    assert client.post(endpoint+'approve', json={'approval_id': target['approval_id']}).status_code == 412
+    assert calls == []
+
+
+def test_hardware_test_rejects_settings_changed_during_inspection(scenario, monkeypatch):
+    client, calls, *_ = scenario
+    engine = client.app.state.robot.scenario
+    original = engine.inspect_steps
+
+    async def changed(*args):
+        result = await original(*args)
+        engine.config.save(ScenarioInput.model_validate(engine.config.value))
+        return result
+
+    monkeypatch.setattr(engine, 'inspect_steps', changed)
+    response = client.post('/api/robot/pick/scenario/hardware-test/preview',
+                           json={'revision': engine.config.value['revision']})
+    assert response.status_code == 412
+    assert calls == []

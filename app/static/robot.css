@@ -264,6 +264,9 @@
 .scenario-joint-table [data-stage][aria-pressed=true] { color:var(--mint); }
 .scenario-joint-table tr:has([data-stage][aria-pressed=true]) { background:var(--mint-bg); }
 .scenario-joint-table select { max-width:110px; font-size:12px; }
+.scenario-player [data-sc=hardware-test] { border-color:var(--amber); }
+[data-sc=hardware-dialog] { width:min(960px,calc(100vw - 32px)); max-height:85dvh; overflow:auto; }
+.scenario-hardware-path { white-space:pre-wrap; overflow-wrap:anywhere; padding:12px; background:var(--soft); font:12px/1.8 var(--mono); }
 .scenario-table-phase th { padding-top:18px; color:var(--sub); font-size:12px; background:var(--soft); }
 .scenario-stage-joints td:nth-child(n+3) { position:relative; padding:0; border-left:1px solid var(--line); }
 .scenario-stage-joints input { position:absolute; inset:0; display:block; width:100%; height:100%; min-width:0; margin:0; padding:10px 8px; box-sizing:border-box; appearance:textfield; font:13px var(--mono); border:0; border-radius:0; color:var(--ink); background:transparent; }
