@@ -465,64 +465,16 @@ def test_restart_during_operator_wait_never_resumes(transfer_station):
     lines.assert_called_once()
 
 
-@pytest.mark.parametrize("fault", [None,"preopen-timeout","too-narrow","lost-after-open","table-changed"])
-def test_rh_p12_sequence_and_fail_closed(station, fault):
+@pytest.mark.parametrize("legacy_flag", [None, False, True])
+def test_rh_p12_requires_regional_calibration_and_cannot_bypass_new_scenario(station, legacy_flag):
     client, live, calls, sdk = station
     set_route(client)
-    sdk.update(gripper_supported=True,transfer_supported=True,held=True,robot_state="STANDBY",operation_mode="AUTO")
-    points = [dict(position=0,width_mm=106),dict(position=700,width_mm=0)]
-    url = "/api/robot/gripper/table"
-    original = client.put(url,json={"revision":None,"points":points}).json()
-    request = dict(session_id="test-session",frame_id=17,object_index=1,mode="transfer",handling="rh_p12")
-    live["objects"] = [obj(37,61)]
-    preview = client.post(URL+"/preview",json=request).json()
-    assert preview["motion_reason"] is None
-    commands = []
-    def process(operation, command):
-        assert command.motion_token == sdk["motion_token"]
-        sdk["motion_token"] = f"{len(commands)+2:032x}"
-        result = dict(state="completed",message="완료",next_motion_token=sdk["motion_token"])
-        if operation=="line":
-            commands.append("line")
-        else:
-            assert operation=="gripper"
-            commands.append(command.action)
-            actual = command.target
-            if command.action=="position":
-                assert actual == preview["hand_position"]
-                if fault=="preopen-timeout":
-                    return 200,dict(state="unknown",message="timeout")
-                if fault=="too-narrow":
-                    actual=700
-                if fault=="lost-after-open":
-                    live["objects"]=[]
-            if command.action=="close":
-                actual=680  # Object stops the fingers before the end of travel.
-            result["feedback"]=dict(position=actual, error=0,state="completed")
-        return 200,result
-    calls.side_effect=process
-    ticket={"approval_id":preview["approval_id"]}
-    if fault=="table-changed":
-        assert client.put(url,json={"revision":original["revision"],"points":points}).status_code==200
-        assert client.post(URL+"/approve",json=ticket).status_code==412
-        assert commands==[]
-        return
-    assert client.post(URL+"/approve",json=ticket).status_code==202
-    if fault:
-        until_stage(client,ticket,"unknown" if fault=="preopen-timeout" else "failed")
-        assert commands==["position"]
-        return
-    job=until_stage(client,ticket,"awaiting_grip")
-    assert job["hand_feedback"]["position"]==680
-    assert commands==["position","line","close"]
-    manual = dict(session_id=sdk["session_id"],motion_token=sdk["motion_token"],action="open")
-    assert client.post("/api/robot/gripper/command",json=manual).status_code==409
-    assert action(client,ticket,"confirm-grip").status_code==200
-    until_stage(client,ticket,"awaiting_open")
-    assert commands==["position","line","close","line","line"]
-    assert action(client,ticket,"confirm-release").status_code==409
-    assert action(client,ticket,"open-at-box").status_code==200
-    assert action(client,ticket,"open-at-box").status_code==409
-    until_stage(client,ticket,"awaiting_release")
-    assert action(client,ticket,"confirm-release").json()["state"]=="completed"
-    assert commands==["position","line","close","line","line","open"]
+    sdk.update(gripper_supported=True, transfer_supported=True, held=True, robot_state="STANDBY", operation_mode="AUTO")
+    points = [dict(position=0, width_mm=106), dict(position=700, width_mm=0)]
+    assert client.put("/api/robot/gripper/table", json={"revision":None,"points":points}).status_code == 200
+    request = dict(session_id="test-session", frame_id=17, object_index=1, mode="transfer", handling="rh_p12")
+    if legacy_flag is not None:
+        request["scenario"] = legacy_flag
+    response = client.post(URL+"/preview", json=request)
+    assert response.status_code == 409 and "보정" in response.text
+    calls.assert_not_called()

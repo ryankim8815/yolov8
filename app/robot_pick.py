@@ -27,6 +27,7 @@ class Selection(Input):
     object_index: int = Field(ge=0)
     mode: Literal["pick", "transfer"] = "pick"
     handling: Literal["manual", "rh_p12"] = "manual"
+    scenario: bool = False
 
 
 class Approval(Input):
@@ -68,7 +69,7 @@ def center(obj):
 
 
 ACTIVE_STATES = {"checking", "moving", "awaiting_grip", "to_waypoint", "to_box", "awaiting_release",
-                 "preopening", "closing", "awaiting_open", "opening"}
+                 "preopening", "closing", "awaiting_open", "opening", "scenario_running", "scenario_stopping"}
 POINT_LABELS = {"pick": "파지 위치", "waypoint": "박스 이송 경유점", "box": "택배 박스 위치"}
 
 
@@ -117,10 +118,21 @@ class PickTargets:
             del self.moves[next(iter(self.moves))]
         return last
 
-    def calibration(self, camera):
-        entry = self.planes.get(camera_key(camera), {})
+    def calibration(self, camera, region="legacy"):
+        entry = self.planes.get(camera_key(camera)+(":"+region if region!="legacy" else ""), {})
         return dict(camera=camera, revision=entry.get("revision"), corners=entry.get("corners", []),
-                    clearance_per_side_mm=entry.get("clearance_per_side_mm", 5.0))
+                    clearance_per_side_mm=entry.get("clearance_per_side_mm", 5.0),region=region)
+
+    def region_for(self,camera,pixel):
+        matches=[]
+        for region in ("floor","shelf"):
+            calibration=self.calibration(camera,region)
+            if not calibration["revision"]:continue
+            plane=PickPlane(Calibration(**calibration))
+            if plane.contains(pixel):matches.append((region,calibration,plane))
+        if len(matches)!=1:
+            raise DomainError("바닥·선반 영역이 겹칩니다. 보정 영역을 조정하세요." if matches else "상품이 교시한 바닥·선반 영역 밖이거나 보정이 누락되었습니다.")
+        return matches[0]
 
     def transfer_route(self):
         return {name: self.robot.work_points.points[name] for name in TRANSFER_POINTS}
@@ -130,19 +142,26 @@ class PickTargets:
             raise DomainError("로봇 작업이 끝난 뒤 다시 보정하세요.")
         if active != body.camera:
             raise DomainError("카메라 입력이 변경되었습니다. 보정을 다시 시작하세요.")
-        current = self.calibration(active)
+        current = self.calibration(active,body.region)
         if current["revision"] != body.revision:
             raise DomainError("다른 화면에서 작업 평면을 수정했습니다. 보정을 다시 시작하세요.")
         if "clearance_per_side_mm" not in body.model_fields_set:
             body = body.model_copy(update={"clearance_per_side_mm": current["clearance_per_side_mm"]})
-        PickPlane(body)
+        plane=PickPlane(body)
+        if body.region=="floor" and abs(plane.normal[2])<math.cos(math.radians(3)):
+            raise DomainError("바닥 파지 평면은 BASE XY와 평행해야 합니다(허용 3°).",422)
+        if body.region=="shelf" and abs(plane.normal[2])>math.sin(math.radians(3)):
+            raise DomainError("선반 파지 평면은 수평 접근할 수 있는 수직 평면이어야 합니다(허용 3°).",422)
         entry = {**body.model_dump(), "revision": uuid4().hex}
-        updated = {**self.planes, camera_key(active): entry}
+        updated = {**self.planes, camera_key(active)+(":"+body.region if body.region!="legacy" else ""): entry}
         atomic_json(self.path, updated)
         self.planes = updated
-        return self.calibration(active)
+        return self.calibration(active,body.region)
 
     async def preview(self, selection, reader):
+        if selection.scenario or selection.handling=="rh_p12":
+            if selection.mode!="transfer" or selection.handling!="rh_p12":raise DomainError("17단계 시나리오는 RH-P12 박스 이송에서 사용하세요.",422)
+            return await self.robot.scenario.preview_real(selection,reader)
         packet = await asyncio.to_thread(reader, selection.session_id, selection.frame_id)
         camera = CameraFrame.from_packet(packet)
         calibration = self.calibration(camera)
@@ -210,6 +229,8 @@ class PickTargets:
                     mode=selection.mode, route=route)
 
     def approve(self, identifier, reader):
+        if self.approvals.get(identifier,{}).get("kind") in {"scenario","prepare"}:
+            return self.robot.scenario.approve(identifier,reader)
         # Single event loop, with no await between consuming and reserving the move.
         target = self.approvals.pop(identifier, None)
         if target is None or time.monotonic() >= target["deadline"]:
@@ -231,7 +252,7 @@ class PickTargets:
     def revalidate(self, target, frame):
         camera = CameraFrame.from_packet(frame)
         if (target["camera"] != camera or target["model"] != frame["model_version"] or
-                self.calibration(camera)["revision"] != target["revision"]):
+                self.calibration(camera,target.get("region","legacy"))["revision"] != target["revision"]):
             raise DomainError("카메라·모델 또는 작업 평면이 변경되었습니다. 다시 선택하세요.")
         plane = target["plane"]
         matches = []
@@ -241,6 +262,8 @@ class PickTargets:
             pixel = center(obj)
             xyz = plane.project(pixel)
             if xyz is not None and math.dist(xyz, target["pose"][:3]) <= 10.0 + 1e-8:
+                if target.get("region") and self.region_for(camera,pixel)[0]!=target["region"]:
+                    raise DomainError("상품의 파지 영역이 변경되었습니다.")
                 matches.append(obj)
         if not matches:
             raise DomainError("선택한 중심에서 10 mm 이내에 같은 클래스의 객체가 없습니다.")
@@ -248,7 +271,7 @@ class PickTargets:
             raise DomainError("10 mm 이내에 같은 클래스의 객체가 여러 개입니다. 다시 선택하세요.")
         if not plane.contains(center(matches[0])):
             raise DomainError("현재 객체가 작업 영역 밖에 있습니다.")
-        if time.monotonic() >= target["deadline"]:
+        if not target.get("approved") and time.monotonic() >= target["deadline"]:
             raise DomainError("승인이 만료되었습니다. 다시 선택하세요.")
 
         return matches[0]
@@ -385,6 +408,8 @@ class PickTargets:
             self.record(identifier, "awaiting_release", "그리퍼 열림 확인 · 물체를 놓았는지 확인하세요.")
 
     def operator_action(self, identifier, action):
+        if self.moves.get(identifier,{}).get("scenario"):
+            return self.robot.scenario.action(identifier,action)
         if self.active_id != identifier:
             raise DomainError("이 작업은 종료되었거나 현재 작업이 아닙니다.")
         state = self.moves[identifier]["state"]
@@ -408,9 +433,9 @@ router = APIRouter(prefix="/pick")
 
 
 @router.get("/calibration")
-async def calibration(request: Request):
+async def calibration(request: Request,region:Literal["legacy","floor","shelf"]="legacy"):
     packet = await asyncio.to_thread(frame_reader(request))
-    return request.app.state.robot.picks.calibration(CameraFrame.from_packet(packet))
+    return request.app.state.robot.picks.calibration(CameraFrame.from_packet(packet),region)
 
 
 @router.put("/calibration", dependencies=[Depends(local_json)])
@@ -448,7 +473,7 @@ async def active_pick(request: Request):
 
 
 @router.post("/moves/{identifier}/{action}", dependencies=[Depends(local_json)])
-async def operator_action(identifier: str, action: Literal["confirm-grip", "confirm-release", "cancel-transfer", "open-at-box"], request: Request):
+async def operator_action(identifier: str, action: Literal["confirm-grip", "confirm-release", "cancel-transfer", "open-at-box", "stop"], request: Request):
     return request.app.state.robot.picks.operator_action(identifier, action)
 
 

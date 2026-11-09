@@ -3,6 +3,7 @@ import { connectOrientation } from "./gripper-orientation.js";
 import { trackGripperEstimate } from "./gripper-measurement.js";
 import { imagePixel, api, center, marker, sameInput, readCalibration } from "./robot-camera-frame.js";
 import { subscribeParcelBox, connectWaypointSimulation } from "./robot-work-points.js";
+import {connectScenario} from './robot-scenario.js';
 
 const axes = ["X", "Y", "Z"];
 const blankCorners = () => Array.from({length:4}, () => ({pixel:null, pose:Array(6).fill(null)}));
@@ -67,11 +68,12 @@ export function connectWorkPlane(root) {
   el.calibration.append(...manipulatorPanels);
   const lifetime = new AbortController();
   const on = (node, type, handler) => node.addEventListener(type, handler, {signal:lifetime.signal});
-  const tabs = [...editor.querySelectorAll('[role="tab"]')];
+  const tabs = [...editor.querySelectorAll('.plane-tabs > [role="tab"]')];
   let visibleTabs = tabs;
   let gripperWorkspace = false;
   let manipulatorWorkspace = false;
   function selectTab(active, navigate = false) {
+    orientation.setScenarioVisible(active.id==='manipulator-points-tab'&&manipulatorWorkspace);
     if(active.id!=="manipulator-points-tab")orientation.simulationAction("stop");
     for (const tab of tabs) {
       const selected = tab === active;
@@ -103,6 +105,9 @@ export function connectWorkPlane(root) {
     });
   });
   let frozen, calibration, corners = blankCorners(), savedCorners, clearance = 5, corner = 0, measureIndex = -1;
+  let region=new URLSearchParams(location.search).get('pick_region')||'legacy';
+  if(!['legacy','floor','shelf'].includes(region))region='legacy';
+  ui.region.value=region;
   let pending = false, freezeNext = false, deviceId, cameraIndex, robotBlock = "로봇 작업 상태를 확인하고 있습니다.";
   const locked = () => pending || Boolean(robotBlock);
   const setState = value => { ui.state.textContent = value; };
@@ -129,6 +134,12 @@ export function connectWorkPlane(root) {
   });
   lifetime.signal.addEventListener("abort",unsubscribeBox,{once:true});
   connectWaypointSimulation(editor.querySelector("#manipulator-work-points"),orientation,lifetime.signal);
+  connectScenario(editor.querySelector('#scenario-editor'),orientation,lifetime.signal);
+  const regionAngles=['A','B','C'].map((axis,i)=>{
+    const label=document.createElement('label'),input=document.createElement('input');label.textContent=axis+' (°)';input.type='number';input.step='any';label.append(input);el.regionAngles.append(label);
+    on(input,'input',()=>{corners[0].pose[3+i]=Number.isFinite(input.valueAsNumber)?input.valueAsNumber:null;showOrientation(input);updateSave();});return input;
+  });
+  on(ui.region,'change',()=>{region=ui.region.value;if(frozen)void load(frozen);});
   const measurement = trackGripperEstimate(
     (body, signal) => api("pick/gripper-preview", "POST", body, signal),
     orientation.setEstimate);
@@ -158,6 +169,8 @@ export function connectWorkPlane(root) {
     const packet = frozen?.packet;
     updateMeasurement();
     orientation.render(corners, corner, locked() || !calibration, packet && {camera_id:packet.camera_id, ...packet.source_size}, editing);
+    regionAngles.forEach((input,i)=>{if(input!==editing)input.value=corners[0].pose[3+i]??'';input.disabled=locked()||!calibration;});
+    el.regionAngles.hidden=region==='legacy';
   }
 
   function draw() {
@@ -349,6 +362,7 @@ export function connectWorkPlane(root) {
   }
 
   async function load(snapshot) {
+    const requestedRegion=region;
     pending = true; ui.reload.hidden = true;
     // Clear the previous scene while preserving the frozen image and its object choices.
     calibration = null; corners = blankCorners(); corner = 0;
@@ -356,8 +370,8 @@ export function connectWorkPlane(root) {
     ui.message.textContent = "현재 입력의 보정값을 불러오고 있습니다."; setState("조회 중");
     availability();
     try {
-      const data = await readCalibration(snapshot.packet, lifetime.signal);
-      if (frozen !== snapshot) return;
+      const data = await readCalibration(snapshot.packet, lifetime.signal,requestedRegion);
+      if (frozen !== snapshot||requestedRegion!==region) return;
       calibration = data;
       savedCorners = data.corners.length ? data.corners : blankCorners();
       corners = structuredClone(savedCorners);
@@ -367,7 +381,7 @@ export function connectWorkPlane(root) {
       pending = false;
       showCorner();
     } catch (error) {
-      if (frozen !== snapshot) return;
+      if (frozen !== snapshot||requestedRegion!==region) return;
       calibration = null;
       pending = false;
       setState("조회 실패"); ui.message.textContent = error.message + " 새 영상을 고정해 다시 시도하세요.";

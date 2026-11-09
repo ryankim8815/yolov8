@@ -49,11 +49,18 @@ class HandCommand(Input):
         return {"read":-1, "open":0, "close":700, "position":self.position}[self.action]
 
 
+class ContactInput(Input):
+    revision: str | None = Field(max_length=32)
+    threshold_ma: int | None = Field(ge=1,le=1984)
+
+
 class Gripper:
     def __init__(self, directory):
         self.path = directory / "rh-p12-1.json"
         self.table = json.loads(self.path.read_text()) if self.path.exists() else {"revision":None,"points":[]}
         self.task = None
+        self.contact_path=directory/"rh-p12-contact.json"
+        self.contact=json.loads(self.contact_path.read_text()) if self.contact_path.exists() else {"revision":None,"threshold_ma":None}
 
     @property
     def busy(self):
@@ -86,6 +93,20 @@ class Gripper:
 
 
 router = APIRouter(prefix="/gripper")
+
+
+@router.get("/contact")
+async def contact(request:Request):return request.app.state.robot.hand.contact
+
+
+@router.put("/contact",dependencies=[Depends(local_json)])
+async def save_contact(body:ContactInput,request:Request):
+    robot=request.app.state.robot
+    if robot.picks.busy or robot.hand.busy or robot.pose_tests.snapshot()["busy"]:raise DomainError("로봇 작업이 끝난 뒤 접촉 설정을 저장하세요.")
+    if body.revision!=robot.hand.contact["revision"]:raise DomainError("다른 화면에서 접촉 설정을 변경했습니다. 최신 값을 불러오세요.")
+    value={**body.model_dump(),"revision":uuid4().hex};atomic_json(robot.hand.contact_path,value);robot.hand.contact=value
+    robot.scenario.prepared=None
+    return value
 
 
 @router.get("/table")

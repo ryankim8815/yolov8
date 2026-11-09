@@ -1,5 +1,6 @@
 """Project detector pixels onto a taught planar quadrilateral in robot BASE."""
 import math
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, FiniteFloat, field_validator
 
@@ -32,6 +33,7 @@ class Corner(Input):
 
 class Calibration(Input):
     camera: CameraFrame
+    region: Literal["legacy","floor","shelf"] = "legacy"
     revision: str | None = Field(max_length=32)
     corners: list[Corner] = Field(min_length=4, max_length=4)
     clearance_per_side_mm: FiniteFloat = Field(default=5.0, ge=0)

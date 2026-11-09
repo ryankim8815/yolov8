@@ -64,7 +64,8 @@ export function connectCameraPick(panel) {
       const packet = snapshot.packet;
       const result = await api("pick/preview", "POST", {session_id: packet.session_id,
         frame_id: packet.frame_id, object_index: selected, mode:el.jobMode.value,
-        handling:el.jobMode.value === "transfer" ? el.handling.value : "manual"});
+        handling:el.jobMode.value === "transfer" ? el.handling.value : "manual",
+        scenario:el.jobMode.value === 'transfer'&&el.handling.value==='rh_p12'});
       if (frozen !== snapshot) { void cancelId(result.approval_id); return; }
       approval = result.approval_id;
       changeMode("confirmation");
@@ -80,7 +81,7 @@ export function connectCameraPick(panel) {
       el.handLink.hidden = !result.hand_error;
       el.handTarget.textContent = result.handling === "rh_p12" ? "RH-P12 선행 벌림 명령 위치 · "+(result.hand_position ?? "계산 불가") : "";
       el.approve.disabled = Boolean(result.motion_reason);
-      el.note.textContent = [notice, result.motion_reason || (result.handling === "rh_p12" ? "권장 폭으로 벌린 후 대상 재확인 · 파지 위치 이동 · 닫기를 실행합니다." : "첫 이동은 파지 위치까지 10 mm/s입니다. 경로를 확인하세요.")].filter(Boolean).join(" ");
+      el.note.textContent = [notice, result.motion_reason || (result.scenario ? "17단계 경로입니다. 파지 확인과 박스에서 열기를 각각 승인해야 다음 단계로 진행합니다." : result.handling === "rh_p12" ? "권장 폭으로 벌린 후 대상 재확인 · 파지 위치 이동 · 닫기를 실행합니다." : "첫 이동은 파지 위치까지 10 mm/s입니다. 경로를 확인하세요.")].filter(Boolean).join(" ");
       expiryTimer = setTimeout(() => {
         el.approve.disabled = true; el.note.textContent = "승인이 만료되었습니다. 대상을 다시 선택하세요.";
       }, result.expires_in * 1000);

@@ -6,8 +6,12 @@ export function renderRoute(el, preview) {
   const transfer = preview.mode === "transfer";
   el.target.hidden = transfer;
   el.route.hidden = !transfer;
-  el.settingsLink.hidden = !transfer || Boolean(preview.route?.waypoint.pose && preview.route?.box.pose);
+  el.settingsLink.hidden = !transfer || Boolean(!preview.motion_reason && (preview.scenario || preview.route?.waypoint?.pose && preview.route?.box?.pose));
   if (!transfer) return;
+  if(preview.scenario){
+    el.route.replaceChildren(...preview.steps.map(step=>{const row=document.createElement('li'),values=document.createElement('small');row.append(step.number+'. '+step.title);
+      values.textContent=[step.motion||'',step.target?'목표 ['+step.target.map(v=>v.toFixed(2)).join(', ')+']':'',step.via_pose?'원호 경유 TCP ['+step.via_pose.map(v=>v.toFixed(2)).join(', ')+']':'',step.joints?'관절 목표 ['+step.joints.map(v=>v.toFixed(2)).join(', ')+']°':'',step.speed?'속도 '+step.speed.speed+(step.kind==='gripper'?' rpm':['line','circle'].includes(step.kind)||['movel','movec'].includes(step.motion)?' mm/s':'°/s')+' · 가속도 '+step.speed.acceleration:'',step.opening_mm!=null?'벌림 '+step.opening_mm+' mm':'',step.gate?'작업자 승인 대기':''].filter(Boolean).join(' · ');row.append(values);return row;}));return;
+  }
   el.route.replaceChildren(...Object.entries(labels).map(([name,label]) => {
     const pose = name === "pick" ? preview.pose : preview.route[name].pose;
     const row = document.createElement("li"), values = document.createElement("small");
@@ -34,7 +38,9 @@ export function connectPickJob(el, api, changed, signal) {
   function show(move) {
     el.status.textContent = move.message;
     el.job.hidden = move.mode !== "transfer";
-    el.grip.hidden = el.stopTransfer.hidden = move.state !== "awaiting_grip";
+    el.grip.hidden = move.state !== "awaiting_grip";
+    el.stopTransfer.hidden = move.scenario?terminal.has(move.state):move.state!=='awaiting_grip';
+    el.stopTransfer.textContent=move.scenario?'실제 작업 중단':'이송 취소';
     el.openBox.hidden = move.state !== "awaiting_open";
     el.release.hidden = move.state !== "awaiting_release";
     for (const button of [el.grip,el.stopTransfer,el.openBox,el.release]) button.disabled = false;
@@ -42,7 +48,7 @@ export function connectPickJob(el, api, changed, signal) {
       el.jobTitle.textContent = move.label + " · 택배 박스 이송";
       const feedback = move.hand_feedback;
       el.jobStage.textContent = move.message + (feedback ? " · RH-P12 명령 "+move.hand_command+" / 실제 "+feedback.position : "");
-      el.jobReached.textContent = "마지막 도착 확인 · " + (labels[move.last_reached] || "도착 전");
+      el.jobReached.textContent = "마지막 도착 확인 · " + (labels[move.last_reached] || move.last_reached || "도착 전");
     }
     if (terminal.has(move.state)) remember(null);
   }

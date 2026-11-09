@@ -40,8 +40,8 @@ export function sameInput(packet, original) {
     && packet.source_size.width === original.source_size.width && packet.source_size.height === original.source_size.height;
 }
 
-export async function readCalibration(packet, signal) {
-  const data = await api("pick/calibration", "GET", undefined, signal);
+export async function readCalibration(packet, signal,region='legacy') {
+  const data = await api("pick/calibration"+(region==='legacy'?'':'?region='+region), "GET", undefined, signal);
   const camera = data.camera;
   if (camera.camera_id !== packet.camera_id || camera.session_id !== packet.session_id ||
       camera.camera_generation !== packet.camera_generation || camera.width !== packet.source_size.width ||

@@ -478,6 +478,7 @@ export function connectDepthPreview(el, signal) {
     robotStatus:arm.robotStatus,
     setGripperAttached:arm.setAttached,gripperStatus:arm.gripperStatus,setParcelBox:arm.setParcelBox,
     simulate:arm.simulate,simulationAction:arm.simulationAction,observeSimulation:arm.observeSimulation,
+    simulateRecipe:arm.simulateRecipe,setScenarioPreview:arm.setScenarioPreview,setScenarioVisible:arm.setScenarioVisible,
     setManipulator(active) {
       manipulator = active;
       el.modelTitle.textContent = active ? "E0509 자세" : "그리퍼 방향";

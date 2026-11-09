@@ -29,3 +29,19 @@ def test_device_table_rounds_open_between_measured_points(tmp_path):
         hand.position_for(90)
     with pytest.raises(ValueError):
         CalibrationInput(revision=None,points=[points[0],points[0]])
+
+
+def test_profile_contact_hold_and_empty_grip_serial(tmp_path):
+    compiler=shutil.which("c++")
+    if not compiler:pytest.skip("C++ compiler not installed")
+    binary=tmp_path/'scenario-serial'
+    subprocess.run([compiler,'-std=c++17',str(Path(__file__).with_name('rh_p12_scenario.cpp')),'-o',binary],check=True)
+    subprocess.run([binary],check=True,timeout=10)
+
+
+def test_async_worker_joint_only_stop_and_control_loss(tmp_path):
+    compiler=shutil.which('c++')
+    if not compiler:pytest.skip('C++ compiler not installed')
+    binary=tmp_path/'scenario-worker'
+    subprocess.run([compiler,'-std=c++17',str(Path(__file__).with_name('scenario_worker.cpp')),'-o',binary],check=True)
+    subprocess.run([binary],check=True,timeout=10)

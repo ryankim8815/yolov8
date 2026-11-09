@@ -1,4 +1,4 @@
-import { armTelemetry, armFrames, framePose, gripperVisualState, planArmSimulation, sampleArmSimulation, poseFrame, multiply } from "./robot-arm.js";
+import { armTelemetry, armFrames, framePose, gripperVisualState, planArmSimulation, planScenarioSimulation, sampleArmSimulation, poseFrame, multiply, inverseRigid } from "./robot-arm.js";
 import { connectArmRenderer } from "./robot-arm-renderer.js";
 
 export function connectRobotArm(el,signal,onOrbit) {
@@ -7,8 +7,9 @@ export function connectRobotArm(el,signal,onOrbit) {
   let active=false,data=null,arrived=performance.now(),sample=armTelemetry(null),guides=null,parcelBox=null,selected=2,tcp=null,tcpAt=0;
   let pending=null,lastRead=0,source="",signature="",tcpMessage="수신 대기",compact;
   let simulation=null,simulationRate=1;
+  let scenarioPreview=null,scenarioVisible=false;
   const simulationObservers=new Set();
-  const simulationState=()=>simulation?{state:simulation.state,progress:simulation.frame?.progress||0,message:simulation.message,route:simulation.route}:
+  const simulationState=()=>simulation?{state:simulation.state,progress:simulation.frame?.progress||0,message:simulation.message,route:simulation.route,step:(simulation.frame?.segment||0)+1}:
     {state:"idle",progress:0,message:"각 지점을 입력한 뒤 시뮬레이션을 시작하세요."};
   const notifySimulation=()=>{const state=simulationState();for(const fn of simulationObservers)fn(state);};
   function stopSimulation(){
@@ -21,25 +22,30 @@ export function connectRobotArm(el,signal,onOrbit) {
     const step=now=>{
       if(simulation!==job||job.state!=="running")return;
       job.elapsed+=Math.min(.1,Math.max(0,(now-job.last)/1000))*simulationRate;job.last=now;
+      const gate=job.plan.gates?.find(g=>!job.handled.has(g.action)&&job.elapsed>=g.time);
+      if(gate){job.elapsed=gate.time;job.state=gate.action==="confirm-grip"?"awaiting_grip":"awaiting_open";}
       job.frame=sampleArmSimulation(job.plan,job.elapsed);
-      job.message=`${job.frame.segment+1}/${job.plan.route.length} · ${job.plan.route[job.frame.segment].title} ${job.frame.complete?"도착 · 시뮬레이션 완료":"이동 중"}`;
+      const current=job.recipe?.steps[job.frame.segment],verb=current?.kind==='gripper'?'그리퍼 동작 중':current?.kind==='target'?'가상 대상 확인 중':'이동 중';
+      job.message=`${job.frame.segment+1}/${job.plan.route.length} · ${job.plan.route[job.frame.segment].title} ${job.frame.complete?"도착 · 시뮬레이션 완료":verb}`;
+      if(gate)job.message=gate.action==="confirm-grip"?"6/17 · 가상 접촉 · 파지 확인 후 이송을 누르세요.":"11/17 · 박스 도착 · 박스에서 열기를 누르세요.";
       if(job.frame.complete)job.state="complete";
       publish();
-      if(now-(job.notified||0)>100||job.frame.complete){job.notified=now;notifySimulation();}
+      if(now-(job.notified||0)>100||job.frame.complete||gate){job.notified=now;notifySimulation();}
       if(job.state==="running")job.raf=requestAnimationFrame(step);
     };
     job.raf=requestAnimationFrame(step);
   }
-  async function simulate(route,toolPose) {
+  async function simulate(route,toolPose,recipe=null) {
     if(!active||!attached)return;
     stopSimulation();
     const seed=[...sample.angles],tool=poseFrame(toolPose),controller=new AbortController();
-    const job={state:"planning",controller,route,frame:{angles:seed,tcp:framePose(multiply(armFrames(seed)[6],tool)),progress:0},message:"시뮬레이션 경로와 공구 방향을 계산하고 있습니다.",elapsed:0};
+    const job={state:"planning",controller,route,recipe,handled:new Set(),frame:{angles:seed,tcp:framePose(multiply(armFrames(seed)[6],tool)),progress:0,opening_mm:recipe?.idle_opening_mm??null},message:"시뮬레이션 경로와 공구 방향을 계산하고 있습니다.",elapsed:0};
     simulation=job;cancelTcp("시뮬레이션 중");notifySimulation();publish();
     try {
-      const plan=await planArmSimulation(seed,route,{toolPose,signal:AbortSignal.any([signal,controller.signal])});
+      const options={toolPose,signal:AbortSignal.any([signal,controller.signal])};
+      const plan=recipe?await planScenarioSimulation(seed,recipe,options):await planArmSimulation(seed,route,options);
       if(simulation!==job||signal.aborted)return;
-      job.plan=plan;job.frame=sampleArmSimulation(plan,0);job.state=document.hidden?"paused":"running";
+      job.plan=plan;job.route=plan.route;job.frame=sampleArmSimulation(plan,0);job.state=document.hidden?"paused":"running";
       job.message=(document.hidden?"시뮬레이션 일시정지 · ":"시뮬레이션 재생 중 · ")+route[0].title;
       notifySimulation();publish();
       if(job.state==="running"){
@@ -52,21 +58,29 @@ export function connectRobotArm(el,signal,onOrbit) {
     }
   }
   function simulationAction(action,value) {
-    if(action==="rate"){if([.5,1,2].includes(value))simulationRate=value;return;}
+    if(action==="rate"){if([.5,1,2,5,10,20].includes(value))simulationRate=value;return;}
     if(action==="stop"){stopSimulation();return;}
     const job=simulation;if(!job?.plan)return;
-    if(action==="pause"&&job.state==="running"){
+    if((action==="confirm-grip"&&job.state==="awaiting_grip")||(action==="open-at-box"&&job.state==="awaiting_open")){
+      job.handled.add(action);job.state="running";animateSimulation(job);
+    }else if(action==="pause"&&job.state==="running"){
       cancelAnimationFrame(job.raf);job.state="paused";job.message="시뮬레이션 일시정지 · "+job.plan.route[job.frame.segment].title;
     }else if(action==="resume"&&job.state==="paused"){
       job.state="running";animateSimulation(job);
-    }else if(action==="seek"&&Number.isFinite(value)){
-      cancelAnimationFrame(job.raf);job.elapsed=Math.max(0,Math.min(1,value))*job.plan.duration;job.frame=sampleArmSimulation(job.plan,job.elapsed);
-      job.state=job.frame.complete?"complete":"paused";job.message=(job.frame.complete?"시뮬레이션 완료":"시뮬레이션 위치 확인 · ")+job.plan.route[job.frame.segment].title;
+    }else if((action==="seek"||action==="step")&&Number.isFinite(value)){
+      const endpoint=action==='step'?job.plan.samples.findLast(s=>s.segment===value-1):null;
+      if(action==='step'&&!endpoint)return;
+      cancelAnimationFrame(job.raf);job.elapsed=endpoint?.time??Math.max(0,Math.min(1,value))*job.plan.duration;job.frame=sampleArmSimulation(job.plan,job.elapsed);
+      const gate=job.plan.gates?.find(g=>Math.abs(g.time-job.elapsed)<1e-6);
+      for(const g of job.plan.gates||[])if(g.time<job.elapsed-1e-6)job.handled.add(g.action);else job.handled.delete(g.action);
+      job.state=job.frame.complete?"complete":gate?gate.action==='confirm-grip'?'awaiting_grip':'awaiting_open':"paused";
+      job.message=gate?gate.action==='confirm-grip'?'6/17 · 가상 접촉 · 파지 확인 후 이송을 누르세요.':'11/17 · 박스 도착 · 박스에서 열기를 누르세요.':(job.frame.complete?"시뮬레이션 완료":"시뮬레이션 위치 확인 · ")+job.plan.route[job.frame.segment].title;
     }
     notifySimulation();publish();
   }
   ui.simulationPause.addEventListener("click",()=>simulationAction(simulation?.state==="paused"?"resume":"pause"),{signal});
   ui.simulationStop.addEventListener("click",()=>simulationAction("stop"),{signal});
+  ui.simulationConfirm.addEventListener("click",()=>simulationAction(simulation?.state==="awaiting_grip"?"confirm-grip":"open-at-box"),{signal});
   let attached=false,handAccess=null,handStatus=null,table=null,tableRequest=null,lastTableRead=-Infinity,tableError="",handSignature="",readRequest=null,readNote="",readBaseline=null;
   const handState=()=>gripperVisualState(handAccess,table,{sdk:handStatus?.config?.access_backend==="mac-sdk",busy:Boolean(readRequest||handStatus?.hand_busy)});
   function cancelHandRequests(){tableRequest?.abort();tableRequest=null;readRequest?.abort();readRequest=null;}
@@ -112,9 +126,14 @@ export function connectRobotArm(el,signal,onOrbit) {
     const preview=simulation?.frame,display=preview?{angles:preview.angles,live:false,reason:"시뮬레이션 · 실제 기기 명령 없음"}:sample;
     const shownTcp=preview?preview.tcp:tcp;
     ui.simulation.hidden=!preview;
+    root.dataset.scenarioPlayback=Boolean(preview&&simulation.recipe);
     ui.simulationStage.textContent=preview?simulation.message:"";
+    ui.simulationMetrics.hidden=!preview||!simulation.recipe;
+    ui.simulationMetrics.textContent=preview&&simulation.recipe?`가상 벌림 ${mm(preview.opening_mm)} mm · 상품 ${preview.holding?'파지 중':preview.released?'박스에 놓임':'파지 전'}`:'';
     ui.simulationPause.disabled=!["running","paused"].includes(simulation?.state);
     ui.simulationPause.textContent=simulation?.state==="paused"?"계속 재생":"일시정지";
+    ui.simulationConfirm.hidden=!["awaiting_grip","awaiting_open"].includes(simulation?.state);
+    ui.simulationConfirm.textContent=simulation?.state==="awaiting_grip"?"가상 파지 확인 후 이송":"가상 박스에서 열기";
     ui.source.textContent=preview?"시뮬레이션":sample.live?"실제 관절 수신 중":"기본 자세 · 실측 아님";ui.source.dataset.live=display.live;
     const hint=preview?display.reason:sample.reason+(sample.live?" · BASE 원점 고정":" [0, 0, 90, 0, 90, 0]°");
     if(el.modelHint.textContent!==hint)el.modelHint.textContent=hint;
@@ -133,8 +152,10 @@ export function connectRobotArm(el,signal,onOrbit) {
       ui.boxCenter.textContent="바닥면 중심 · BASE ("+parcelBox.center_base_mm.join(", ")+") mm";
       ui.canvas.setAttribute("aria-label",ui.canvas.getAttribute("aria-label")+" "+ui.boxSize.textContent+". "+ui.boxCenter.textContent+".");
     }
-    const hand=attached?handState():null;
-    if(hand){
+    const actualHand=attached?handState():null;
+    const hand=actualHand&&preview&&simulation.recipe?{...actualHand,opening_mm:Number.isFinite(preview.opening_mm)?preview.opening_mm:null}:actualHand;
+    if(actualHand){
+      const hand=actualHand;
       if(ui.handStatus.textContent!==hand.reason)ui.handStatus.textContent=hand.reason;
       ui.handStatus.dataset.known=Number.isFinite(hand.opening_mm);
       ui.handTarget.textContent=hand.target??"—";ui.handPosition.textContent=hand.position??"—";
@@ -143,8 +164,17 @@ export function connectRobotArm(el,signal,onOrbit) {
       ui.handNote.textContent=readNote||tableError;ui.handRead.disabled=!canReadHand();
       ui.canvas.setAttribute("aria-label",ui.canvas.getAttribute("aria-label")+" 사진 기준 그리퍼 장착. "+hand.reason+". "+(hand.opening_mm===null?"벌림 미확인.":"실측 벌림 "+hand.opening_mm.toFixed(1)+" mm."));
     }
-    renderer.update({angles:display.angles,live:display.live,tcp:shownTcp,selected,guides,gripper:hand,parcelBox,
-      simulation:preview?{state:simulation.state,...(simulation.plan||{})}:null});
+    let product=null;const recipe=simulation?.recipe||(scenarioVisible?scenarioPreview:null);
+    if(recipe){
+      let frame=poseFrame([...recipe.product.center_base_mm,0,0,0]);
+      if(preview?.holding){const relative=multiply(inverseRigid(poseFrame(recipe.pose)),frame);frame=multiply(poseFrame(preview.tcp),relative);}
+      else if(preview?.released){frame=poseFrame([...(recipe.steps[10].target?.slice(0,3)||recipe.product.center_base_mm),0,0,0]);
+        const box=recipe.box;if(box?.center_base_mm&&Math.abs(frame[12]-box.center_base_mm[0])<box.size_mm[0]/2&&Math.abs(frame[13]-box.center_base_mm[1])<box.size_mm[1]/2)frame[14]=box.center_base_mm[2]+recipe.product.size_mm[2]/2;}
+      product={frame,size:recipe.product.size_mm,region:recipe.region,initial:recipe.product.center_base_mm,approach:recipe.approach,pick:recipe.pose,holding:Boolean(preview?.holding),released:Boolean(preview?.released)};
+    }
+    ui.canvas.dataset.simulatedOpening=preview&&simulation.recipe?preview.opening_mm??"":"";
+    renderer.update({angles:display.angles,live:display.live,tcp:shownTcp,selected,guides,gripper:hand,parcelBox,product,
+      simulation:preview?{state:simulation.state,segment:preview.segment,...(simulation.plan||{})}:null});
   }
   async function readTcp() {
     if(!active||simulation?.frame||!sample.live||pending||document.hidden||performance.now()-lastRead<1800)return;
@@ -183,6 +213,9 @@ export function connectRobotArm(el,signal,onOrbit) {
     active(value){active=value;root.hidden=!value;if(!value){stopSimulation();cancelHandRequests();cancelTcp("수신 대기");}else{tick();publish();}},
     setAttached(value){attached=value;ui.hand.hidden=!value;if(!value){stopSimulation();cancelHandRequests();readNote="";}else lastTableRead=-Infinity;tick();publish();},
     simulate,simulationAction,
+    simulateRecipe(recipe,toolPose){return simulate(recipe.steps.map(s=>({title:s.title})),toolPose,recipe);},
+    setScenarioPreview(value){scenarioPreview=value;publish();},
+    setScenarioVisible(value){scenarioVisible=value;if(!value&&simulation?.recipe)stopSimulation();publish();},
     observeSimulation(fn){simulationObservers.add(fn);fn(simulationState());return()=>simulationObservers.delete(fn);},
     gripperStatus(status,access){
       handStatus=status;handAccess=access;

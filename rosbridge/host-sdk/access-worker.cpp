@@ -177,6 +177,8 @@ static void gripper(DRAFramework::CDRFLEx& sdk, const char* command) {
     event("hand",result);
 }
 
+#include "scenario_worker.hpp"
+
 int main() {
     DRAFramework::CDRFLEx sdk;
     const char *version = sdk.get_library_version(), *ip = std::getenv("ROBOT_IP"), *port = std::getenv("ROBOT_PORT");
@@ -186,6 +188,8 @@ int main() {
     event("feature", "operation_mode");
     event("feature", "line");
     event("feature", "rh_p12");
+    event("feature", "scenario17");
+    event("feature", "circle");
     sdk.set_on_disconnected([] { down = true; event("disconnect", "SDK disconnected"); });
     sdk.set_on_monitoring_data([](const LPMONITORING_DATA data) {
         if (!data) return;
@@ -222,6 +226,7 @@ int main() {
     const auto opened = now_ms();
     long long heartbeat = 0;
     while (!down) {
+        scenario_run.poll(sdk);
         auto now = now_ms(), frame = last_frame.load();
         if (now - (frame ? frame : opened) > 6000) {
             event("disconnect", "No fresh SDK monitoring data"); break;
@@ -237,8 +242,15 @@ int main() {
         }
         pollfd input{STDIN_FILENO, POLLIN, 0};
         if (poll(&input, 1, 100) <= 0) continue;
-        char command[256];
+        char command[4096];
         if (!std::fgets(command, sizeof(command), stdin)) break;
+        if (!std::strncmp(command,"halt ",5)) {
+            std::istringstream input(command);std::string op,id;unsigned grant;input>>op>>grant>>id;
+            if(scenario_run.active&&id==scenario_run.id&&grant==scenario_run.grant){try{scenario_run.stop(sdk);}catch(const std::exception& e){scenario_run.finish(sdk,"unknown",e.what());}}continue;
+        }
+        if(scenario_run.active)continue;
+        if (!std::strncmp(command,"inspect ",8)){inspect_scenario(sdk,command);continue;}
+        if (!std::strncmp(command,"segment ",8)){scenario_run.begin(sdk,command);continue;}
         if (!std::strncmp(command, "mode ", 5)) { set_operation_mode(sdk, command); continue; }
         if (!std::strncmp(command, "servo ", 6)) { servo_on(sdk, command); continue; }
         if (!std::strncmp(command, "move ", 5)) { move_pose(sdk, command); continue; }
@@ -254,5 +266,6 @@ int main() {
         if (!sdk.manage_access_control(MANAGE_ACCESS_CONTROL_FORCE_REQUEST))
             event("refused", "SDK did not send the request");
     }
+    if(scenario_run.active){try{scenario_run.stop(sdk);}catch(...) {}}
     sdk.close_connection();
 }

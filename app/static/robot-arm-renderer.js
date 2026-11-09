@@ -114,21 +114,23 @@ export function connectArmRenderer(canvas,overlay,graphics,signal,onOrbit) {
       if(box)for(const face of faces.filter((_,i)=>i!==1))nodes.push(svgNode("polygon",{points:face.map(i=>screen(box.points[i]).join(",")).join(" "),fill:"none",stroke:"#e5b96f","stroke-width":1.5}));
     }
     const offsets=[[-36,27],[18,-27],[-34,-21],[32,-28],[35,19],[-40,30]];
-    for(let i=1;i<=6;i++)label(transformPoint(frames[i],[0,0,0]),"J"+i,offsets[i-1],data.selected===i-1);
+    for(let i=1;i<=6;i++)if(!data.simulation?.recipe||data.selected===i-1)label(transformPoint(frames[i],[0,0,0]),"J"+i,offsets[i-1],data.selected===i-1);
     label([0,0,0],"BASE 원점",[-20,30]);
     const box=parcelBoxGeometry(data.parcelBox);
     if(box){label(box.points[7],box.draft?"택배 박스 · 편집 중":"택배 박스",[10,-18]);label(box.bottom,"박스 바닥면 중심",[12,22]);}
-    if(data.simulation?.route)for(const [i,point]of data.simulation.route.entries())label(point.pose.slice(0,3),"지점 "+(i+1),[25+i*25,-45-i*20]);
+    if(data.simulation?.route)for(const [i,point]of data.simulation.route.entries())if(!data.simulation.recipe||(point.marker&&point.number===data.simulation.segment+1))label(point.pose.slice(0,3),data.simulation.recipe?point.number+" · "+point.title:"지점 "+(i+1),[25,-45]);
+    if(data.simulation?.route)for(const point of data.simulation.route)if(point.via_pose&&point.number===data.simulation.segment+1)label(point.via_pose.slice(0,3),'movec · 원호 경유 TCP',[25,-25]);
+    if(data.product){label(transformPoint(data.product.frame,[0,0,0]),data.product.holding?"가상 상품 · 파지":data.product.released?"가상 상품 · 놓임":"가상 상품",[12,24]);label(data.product.approach.slice(0,3),data.product.region==='floor'?'수직 접근':'수평 접근',[12,-18]);}
     if(!ready&&data.simulation?.path)nodes.push(svgNode("polyline",{points:data.simulation.path.map(p=>screen(p).join(",")).join(" "),fill:"none",stroke:"#85e8cf","stroke-width":2}));
     if(data.guides){
-      const g=data.guides;label(g.lens,"카메라 · 가이드",[-25,-22]);label(g.wall.points[2],"벽",[0,-10]);
-      if(g.target)label(g.target,"교시 TCP",[18,22]);
-      if(g.objectPoints.length)label(g.objectPoints[3],g.exampleObject?"예시 객체":"탐지 물체",[8,-17]);
+      const g=data.guides;label(g.lens,"카메라 · 가이드",[-25,-22]);if(data.product?.region==='shelf')label(data.product.initial,'가상 선반',[20,-28]);else label(g.wall.points[2],"벽",[0,-10]);
+      if(g.target&&!data.product)label(g.target,"교시 TCP",[18,22]);
+      if(g.objectPoints.length&&!data.product)label(g.objectPoints[3],g.exampleObject?"예시 객체":"탐지 물체",[8,-17]);
       if(g.floor)nodes.push(svgNode("text",{x:width-10,y:height-22,"text-anchor":"end"},"바닥 0 mm · BASE Z "+g.floor.baseZ+" mm"));
     }
     const tool=data.tcp?poseFrame(data.tcp):frames[6],origin=transformPoint(tool,[0,0,0]);
     label(origin,data.simulation?"시뮬레이션 TCP":data.tcp?"실측 TCP":"모델 플랜지",[35,-16]);
-    if(data.gripper)label(transformPoint(gripperMount(frames[6]),[0,0,143]),data.gripper.opening_mm===null?"그리퍼 · 벌림 미확인":"그리퍼 · "+data.gripper.opening_mm.toFixed(1)+" mm",[20,25]);
+    if(data.gripper)label(transformPoint(gripperMount(frames[6]),[0,0,143]),!Number.isFinite(data.gripper.opening_mm)?"그리퍼 · 벌림 미확인":"그리퍼 · "+data.gripper.opening_mm.toFixed(1)+" mm",[20,25]);
     if(height>190)for(let i=0;i<3;i++)label(add(origin,frameAxis(tool,i).map(v=>v*80)),"XYZ"[i]+"t",[[8,-12],[12,10],[8,16]][i]);
     overlay.replaceChildren(...nodes);
   }
@@ -141,6 +143,7 @@ export function connectArmRenderer(canvas,overlay,graphics,signal,onOrbit) {
     const camera=lookAt(eye,center),bounds=parts.length?parts.flatMap(p=>p.bounds.map(b=>transformPoint(camera,transformPoint(frames[p.link],b)))):frames.map(m=>transformPoint(camera,transformPoint(m,[0,0,0])));
     if(hand)bounds.push(...hand.parts.flatMap(p=>p.points.map(v=>transformPoint(camera,transformPoint(hand.mount,v)))));
     if(box)bounds.push(...box.points.map(p=>transformPoint(camera,p)));
+    if(data.product)bounds.push(transformPoint(camera,transformPoint(data.product.frame,[0,0,0])));
     if(data.simulation?.bounds)bounds.push(...data.simulation.bounds.map(p=>transformPoint(camera,p)));
     if(data.guides){
       const g=data.guides,p=g.wall.points;
@@ -160,7 +163,7 @@ export function connectArmRenderer(canvas,overlay,graphics,signal,onOrbit) {
       const g=data.guides;
       if(g){
         gl.depthMask(false);if(g.floor){plate(g.floor.points,[.15,.32,.29,.8]);lines(g.floor.lines.flat(),[.43,.62,.59,.5]);}
-        plate(g.wall.points,[.19,.32,.35,.65]);lines(g.wall.lines.flat(),[.43,.62,.59,.5]);gl.depthMask(true);
+        if(!data.product||data.product.region!=="shelf"){plate(g.wall.points,[.19,.32,.35,.65]);lines(g.wall.lines.flat(),[.43,.62,.59,.5]);}gl.depthMask(true);
         const wallCenter=[0,1,2].map(i=>g.wall.points.reduce((sum,p)=>sum+p[i],0)/4);
         lines([g.lens,wallCenter],[.6,.8,.94,.3]);
       }
@@ -168,6 +171,14 @@ export function connectArmRenderer(canvas,overlay,graphics,signal,onOrbit) {
         draw(part,frames[part.link],part.link===data.selected+1?base.map((v,i)=>i<3?v*.9+[.15,.9,.73][i]*.1:v):base);
       }
       if(hand)hand.parts.forEach(part=>handPart(part,hand.mount));
+      if(data.product){
+        const p=data.product,center=transformPoint(p.frame,[0,0,0]);cube(center,p.size,[.92,.65,.29,1],[0,1,2].map(i=>frameAxis(p.frame,i)));
+        if(p.region==="shelf"){
+          const [x,y,z]=p.initial,w=p.size[1]/2+70,front=x-p.size[0]/2;
+          plate([[front,y-w,z-100],[front,y+w,z-100],[front,y+w,z+120],[front,y-w,z+120]],[.3,.43,.5,.7]);
+          cube([x,y,z-p.size[2]/2-4],[p.size[0]+100,p.size[1]+140,8],[.43,.55,.6,1]);
+        }
+      }
       if(box){
         // An open carton: bottom and four sides, with an uncovered rim.
         faces.forEach((ids,i)=>{if(i!==1)plate(ids.map(j=>box.points[j]),[.58+i*.025,.38+i*.025,.19+i*.018,1]);});
@@ -175,13 +186,14 @@ export function connectArmRenderer(canvas,overlay,graphics,signal,onOrbit) {
         lines(edges,[.95,.76,.45,1]);
       }
       if(g){
-        if(g.objectPoints.length)faces.forEach((ids,i)=>plate(ids.map(j=>g.objectPoints[j]),[.65+i*.012,.43+i*.013,.26+i*.015,1]));
+        if(g.objectPoints.length&&!data.product)faces.forEach((ids,i)=>plate(ids.map(j=>g.objectPoints[j]),[.65+i*.012,.43+i*.013,.26+i*.015,1]));
         // The mockup uses a fixed-size position marker, not camera dimensions.
         cube(sub(g.lens,g.camera[0].map(v=>v*26)),[55,36,31],[.37,.6,.68,1],g.camera);
         cube(g.lens,[14,20,22],[.63,.77,.8,1],g.camera);
         const marks=[];if(g.target)for(let i=0;i<3;i++){const a=[...g.target],b=[...g.target];a[i]-=14;b[i]+=14;marks.push(a,b);}lines(marks,[.5,.93,.77,1]);
       }
       const tool=data.tcp?poseFrame(data.tcp):frames[6],origin=transformPoint(tool,[0,0,0]);gl.disable(gl.DEPTH_TEST);
+      if(data.product){const a=data.product.approach.slice(0,3),b=data.product.pick.slice(0,3),dir=norm(sub(b,a)),side=norm(cross(dir,Math.abs(dir[2])<.9?[0,0,1]:[0,1,0])),arrow=[a,b];for(const sign of [-1,1])arrow.push(b,b.map((v,i)=>v-dir[i]*15+side[i]*7*sign));lines(arrow,[.95,.76,.4,.95]);}
       if(data.simulation?.path){
         const path=data.simulation.path;lines(path.slice(1).flatMap((p,i)=>[path[i],p]),[.5,.93,.78,.85]);
         const marks=[];for(const point of data.simulation.route)for(let i=0;i<3;i++){
@@ -196,6 +208,7 @@ export function connectArmRenderer(canvas,overlay,graphics,signal,onOrbit) {
     canvas.dataset.gripperAttached=Boolean(hand);
     canvas.dataset.simulation=data.simulation?.state||"";
     canvas.dataset.tcp=data.tcp?JSON.stringify(data.tcp):"";
+    canvas.dataset.virtualProduct=data.product?JSON.stringify({center:transformPoint(data.product.frame,[0,0,0]),holding:data.product.holding,released:data.product.released}):"";
     canvas.dataset.parcelBox=box?JSON.stringify({size_mm:data.parcelBox.size_mm,center_base_mm:box.bottom,draft:box.draft}):"";
     if(hand){canvas.dataset.gripperPosition=data.gripper.position??"";canvas.dataset.gripperOpening=data.gripper.opening_mm??"";}
     else{delete canvas.dataset.gripperPosition;delete canvas.dataset.gripperOpening;}

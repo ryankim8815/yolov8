@@ -24,6 +24,7 @@ from .robot_poses import PoseExecution, PoseInput, PoseTests
 from .robot_gripper import Gripper, router as hand_router
 from .robot_pick import PickTargets, router as pick_router
 from .robot_work_points import TRANSFER_POINTS, FloorReference, FloorReferenceInput, ParcelBox, ParcelBoxInput, PointName, WorkPointInput, WorkPoints
+from .robot_scenario import Scenario, router as scenario_router
 from .store import DomainError
 
 RECLAIM_SERVICE = "system/reclaim_control"
@@ -114,6 +115,7 @@ class RobotMonitor:
         self.parcel_box = ParcelBox(self.pose_tests.path.with_name("parcel-box.json")) if self.pose_tests else None
         self.hand = Gripper(self.pose_tests.path.parent) if self.pose_tests else None
         self.picks = PickTargets(self, self.pose_tests.path.parent) if self.pose_tests else None
+        self.scenario = Scenario(self,self.pose_tests.path.parent) if self.pose_tests else None
 
     def start(self):
         if self.settings.ros_pc_ip and self.task is None:
@@ -221,6 +223,12 @@ class RobotMonitor:
             self.teach_mode, self.teach_message = mode, message
 
     async def current_work_pose(self):
+        if self.settings.access_backend=="mac-sdk" and self.scenario:
+            try:
+                _,snapshot=await self.scenario.inspect()
+                pose=snapshot.get("current_tcp")
+                if isinstance(pose,list) and len(pose)==6 and all(type(v) in (int,float) and math.isfinite(v) for v in pose):return {"pose":pose}
+            except (DomainError,HTTPException):pass
         socket = self.socket
         if not self.connected or socket is None or self.snapshot()["topics"][3]["state"] != "live":
             raise DomainError("현재 위치를 읽으려면 제어기와 읽기 전용 관절 모니터가 연결되어야 합니다.", 503)
@@ -420,6 +428,7 @@ def require_robot_owner(request: Request):
 
 router = APIRouter(prefix="/api/robot", dependencies=[Depends(require_robot_owner)])
 router.include_router(pick_router)
+router.include_router(scenario_router)
 router.include_router(hand_router)
 
 
@@ -503,13 +512,17 @@ async def save_parcel_box(body: ParcelBoxInput, request: Request):
 
 @router.put("/floor-reference", dependencies=[Depends(same_site_json)])
 async def save_floor_reference(body: FloorReferenceInput, request: Request):
-    return request.app.state.robot.floor.save(body)
+    robot=request.app.state.robot;value=robot.floor.save(body)
+    if robot.scenario and robot.scenario.config.value["revision"] is None:
+        robot.scenario.config.value["virtual"]["floor"]["center_base_mm"][2]=value["z_mm"]+20
+        robot.scenario.config.value["virtual"]["shelf"]["center_base_mm"][2]=value["z_mm"]+300
+    return value
 
 
 @router.put("/work-points/{name}", dependencies=[Depends(same_site_json)])
 async def save_work_point(name: PointName, body: WorkPointInput, request: Request):
     robot = request.app.state.robot
-    if name in TRANSFER_POINTS and robot.picks.transfer_active:
+    if name in TRANSFER_POINTS and (robot.picks.transfer_active or robot.picks.busy and robot.picks.moves[robot.picks.active_id].get("scenario")):
         raise DomainError("박스 이송 작업이 끝난 뒤 경유점이나 박스 좌표를 변경하세요.")
     return robot.work_points.save(name, body)
 

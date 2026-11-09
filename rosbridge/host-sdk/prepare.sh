@@ -38,6 +38,7 @@ mkdir -p "$cache/linux"
 docker run --rm --platform linux/amd64 --network none --entrypoint bash \
     -v "$repo/rosbridge/host-sdk/access-worker.cpp:/worker.cpp:ro" \
     -v "$repo/rosbridge/host-sdk/rh_p12.hpp:/rh_p12.hpp:ro" \
+    -v "$repo/rosbridge/host-sdk/scenario_worker.hpp:/scenario_worker.hpp:ro" \
     -v "$repo/rosbridge/check-controller.cpp:/probe.cpp:ro" "$img" -euc '
     cd /doosan_ws
     sha256sum -c gl010117.sha256 >&2

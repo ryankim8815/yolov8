@@ -1,5 +1,10 @@
 const get = id => document.getElementById(id);
 const samples = get("hand-samples");
+let contact=null,contactPending=false;
+async function loadContact(){try{contact=await api('contact');get('hand-contact-current').value=contact.threshold_ma??'';get('hand-contact-result').textContent=contact.threshold_ma==null?'접촉 전류 미설정 · 17단계 실제 이송이 차단됩니다.':'저장된 임계값 · '+contact.threshold_ma+' mA';}catch(error){get('hand-contact-result').textContent=error.message;}}
+get('hand-contact-reload').onclick=()=>void loadContact();
+get('hand-contact-save').onclick=async()=>{if(contactPending||!contact||locked)return;const value=get('hand-contact-current').valueAsNumber;if(!Number.isInteger(value)||value<1||value>1984){get('hand-contact-result').textContent='1~1984 mA의 정수 임계값을 입력하세요.';return;}contactPending=true;controls();try{contact=await api('contact','PUT',{revision:contact.revision,threshold_ma:value});get('hand-contact-result').textContent='접촉 설정 저장 완료.';}catch(error){get('hand-contact-result').textContent=error.message;}finally{contactPending=false;controls();}};
+void loadContact();
 let table = null, dirty = false, saving = false, busy = false, host = null, locked = false, sdkMode = false;
 let loading = 0;
 async function api(path, method = "GET", body) {
@@ -19,6 +24,8 @@ function valid(points) {
     Number.isFinite(p.width_mm) && p.width_mm>=0 && (!i || (sorted[i-1].position<p.position && sorted[i-1].width_mm>p.width_mm)));
 }
 function controls() {
+  get('hand-contact-save').disabled=contactPending||locked||!contact;
+  get('hand-contact-current').disabled=contactPending||locked;
   const ready = host?.gripper_supported && host.can_move && !locked && !busy;
   for (const button of document.querySelectorAll("[data-hand]")) button.disabled = !ready;
   get("hand-ready").textContent = !sdkMode ? "RH-P12 제어에는 Mac SDK가 필요합니다." :

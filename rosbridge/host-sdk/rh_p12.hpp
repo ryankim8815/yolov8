@@ -30,6 +30,9 @@ inline int word(const Bytes& bytes, size_t i) { return (bytes.at(i) << 8) | byte
 struct Status {
     int position = -1, current = 0, goal_current = 0, limit = 0, mode = 0, error = 0;
     bool moving = false;
+    int velocity_limit=0, acceleration_limit=0;
+    bool torque=false, contact=false;
+    int goal_position=-1;
 };
 
 template<class Port> class Hand {
@@ -76,6 +79,53 @@ template<class Port> class Hand {
 public:
     bool attempted = false;
     explicit Hand(Port& p): port(p) {}
+    void inspect(Status& s) {
+        if(word(regs(0,1),3)!=35074)throw std::runtime_error("wrong_model");
+        s.mode=word(regs(5,1),3)>>8;s.limit=word(regs(19,1),3);s.goal_current=int16_t(word(regs(275,1),3));
+        auto v=regs(22,2),a=regs(20,2);
+        s.velocity_limit=word(v,3)|(word(v,5)<<16);s.acceleration_limit=word(a,3)|(word(a,5)<<16);
+        s.torque=(word(regs(256,1),3)&1)!=0;observe(s);
+    }
+    void profile_word(int address,int value) {
+        write_ack({1,16,uint8_t(address>>8),uint8_t(address),0,2,4,uint8_t(value>>8),uint8_t(value),uint8_t(value>>24),uint8_t(value>>16)});
+        auto r=regs(address,2);
+        if((uint32_t(word(r,3))|(uint32_t(word(r,5))<<16))!=uint32_t(value))throw std::runtime_error("profile_verify");
+    }
+    int destination=0,contact_threshold=0,start_position=0,window_low=0,window_high=0;
+    bool holding=false,halted=false;
+    std::chrono::steady_clock::time_point stable_since{},expires{};
+    void start(int target,int velocity,int acceleration,int threshold,int timeout,Status& s) {
+        inspect(s);
+        if(target<0||target>700||s.mode!=5||s.error||s.moving||s.position<0||s.position>700||
+           s.goal_current<=0||s.goal_current>s.limit||velocity<=0||velocity>s.velocity_limit||
+           acceleration<=0||acceleration>s.acceleration_limit||threshold<0||threshold>s.goal_current)
+            throw std::runtime_error("current_config");
+        profile_word(278,acceleration);profile_word(280,velocity);
+        if(!s.torque){goal(s.position);write_ack({1,6,1,0,0,1});if(!(word(regs(256,1),3)&1))throw std::runtime_error("torque");}
+        destination=target;contact_threshold=threshold;start_position=s.position;holding=halted=false;
+        stable_since={};window_low=window_high=s.position;expires=std::chrono::steady_clock::now()+std::chrono::seconds(timeout);
+        goal(target);s.goal_position=target;
+    }
+    void halt(Status& s) {observe(s);goal(s.position);destination=s.position;s.goal_position=s.position;contact_threshold=0;halted=true;holding=true;stable_since={};}
+    bool tick(Status& s) {
+        observe(s);const auto now=std::chrono::steady_clock::now();
+        if(s.error||s.position<0||s.position>700)throw std::runtime_error("device_state");
+        if(now>expires)throw std::runtime_error("timeout");
+        const bool close_contact=contact_threshold>0&&!holding;
+        if(close_contact&&s.position>=698)throw std::runtime_error("empty_grip");
+        bool eligible=close_contact?s.position>start_position+2&&std::abs(s.current)>=contact_threshold:
+            std::abs(s.position-destination)<=2;
+        window_low=std::min(window_low,s.position);window_high=std::max(window_high,s.position);
+        if(!eligible||window_high-window_low>1){stable_since={};window_low=window_high=s.position;}
+        if(eligible){
+            if(stable_since==std::chrono::steady_clock::time_point{})stable_since=now;
+            if(now-stable_since>=std::chrono::milliseconds(300)){
+                if(close_contact){goal(s.position);destination=s.position;s.goal_position=s.position;holding=true;s.contact=true;stable_since={};window_low=window_high=s.position;}
+                else {s.torque=(word(regs(256,1),3)&1)!=0;if(!s.torque)throw std::runtime_error("torque");port.check();return true;}
+            }
+        }
+        return false;
+    }
     void run(int target, bool contact_allowed, Status& s) {
         if (word(regs(0,1),3) != 35074) throw std::runtime_error("wrong_model");
         s.mode = word(regs(5,1),3) >> 8;

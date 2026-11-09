@@ -128,7 +128,9 @@ docker compose run --rm --no-deps doosan-driver timeout 15 check-e0509</pre>
         <section id="manipulator-work-points" data-manipulator-panel hidden class="panel" role="tabpanel" aria-labelledby="manipulator-points-tab" tabindex="0">
           <div class="panel-head"><h2 id="work-points-title">경유 지점 설정</h2><span class="meta">로봇 베이스 기준 · BASE</span></div>
           <div class="pose-body">
-            <p class="work-point-help">공구 끝점(TCP)의 위치 X·Y·Z는 mm, 방향 A·B·C는 °(ZYZ)로 입력하세요. 이송 경로는 파지 위치 → 경유점 → 택배 박스 순서입니다. 물체를 든 상태에서 두 직선 구간이 장애물과 박스 테두리를 통과하지 않도록 경유점을 교시하세요.</p>
+            <p class="work-point-help">17단계 이송의 파지 영역·대기 자세·경유점과 속도를 설정합니다. TCP의 X·Y·Z는 mm, A·B·C는 °(ZYZ), 관절각은 °입니다. 기존 수동 이송 작업점은 하단에서 설정할 수 있습니다.</p>
+            <section id="scenario-editor" aria-label="17단계 이송 시나리오"></section>
+            <details class="legacy-points"><summary>기존 작업점 · 수동 이송 / 단일 지점 시뮬레이션</summary>
             <div id="work-point-simulation" class="point-simulation" aria-labelledby="point-simulation-title">
               <h3 id="point-simulation-title">경로 시뮬레이션</h3>
               <p class="work-point-help">현재 자세(미연결 시 기본 자세)에서 ‘경로에 포함’한 지점을 위에서 아래 순서로 방문합니다. 저장 전 편집값도 사용할 수 있습니다. 브라우저의 3D 모형만 움직이며 실제 로봇·그리퍼에 명령을 보내지 않습니다.</p>
@@ -149,6 +151,7 @@ docker compose run --rm --no-deps doosan-driver timeout 15 check-e0509</pre>
             </div>
             <div id="work-points"></div>
             <p id="work-point-source" class="meta">현재 위치 수신 상태 확인 중</p>
+            </details>
           </div>
           <template id="work-point-template">
             <form class="work-point">
@@ -237,10 +240,13 @@ docker compose run --rm --no-deps doosan-driver timeout 15 check-e0509</pre>
             <div class="hand-actions"><label>지정 위치 <input type="number" id="hand-position" min="0" max="700" step="1" placeholder="0–700"></label>
               <button type="button" data-hand="position" disabled>지정 위치로 이동</button></div>
             <p id="hand-result" role="status"></p>
+            <div class="hand-contact"><h3>17단계 파지 · 접촉 전류</h3><p class="work-point-help">전류 임계값 이상이며 실제 위치 변화가 300 ms 동안 1 pulse 이내일 때 접촉을 확인합니다. 실제 이송 전에 빈 그리퍼와 시험 상품으로 설정하세요. 700까지 닫히는 빈 파지는 성공으로 처리하지 않습니다.</p><label>접촉 전류 임계값 (mA) <input id="hand-contact-current" type="number" min="1" max="1984" step="1" placeholder="미설정"></label><div class="pose-actions"><button type="button" id="hand-contact-save">접촉 설정 저장</button><button type="button" id="hand-contact-reload">최신 접촉 설정 불러오기</button></div><p id="hand-contact-result" role="status"></p></div>
           </div>
         </section>
         <section id="work-plane" data-view="work-plane gripper manipulator" hidden>
           <header class="panel plane-summary">
+            <label class="plane-region">파지 영역 <select data-plane="region"><option value="legacy">기존 단일 보정</option><option value="floor">바닥 · 수직 파지</option><option value="shelf">선반 · 수평 파지</option></select></label>
+            <p class="work-point-help" style="padding:0 20px">바닥·선반 보정은 상품의 파지 중심이 놓이는 평면을 교시합니다. 물리적인 바닥 높이 표시는 별도 바닥 기준에서 설정하세요.</p>
             <dl class="robot-config plane-meta">
               <div><dt>입력 카메라</dt><dd data-plane="camera">확인 중</dd></div>
               <div><dt>원본 해상도</dt><dd data-plane="resolution">—</dd></div>
@@ -272,7 +278,7 @@ docker compose run --rm --no-deps doosan-driver timeout 15 check-e0509</pre>
                   </svg>
                   <div class="arm-preview" data-pick="armView" hidden>
                     <div class="arm-visual">
-                      <div class="arm-simulation" data-arm="simulation" hidden><strong>시뮬레이션 모드</strong><span data-arm="simulationStage"></span><small>브라우저 미리보기 · 실제 로봇·그리퍼 명령 없음</small><div class="simulation-view-actions"><button type="button" data-arm="simulationPause">일시정지</button><button type="button" data-arm="simulationStop">시뮬레이션 종료</button></div></div>
+                      <div class="arm-simulation" data-arm="simulation" hidden><strong>시뮬레이션 모드</strong><span data-arm="simulationStage"></span><span data-arm="simulationMetrics" hidden></span><small>브라우저 미리보기 · 실제 로봇·그리퍼 명령 없음</small><div class="simulation-view-actions"><button type="button" data-arm="simulationPause">일시정지</button><button type="button" data-arm="simulationConfirm" hidden>가상 파지 확인 후 이송</button><button type="button" data-arm="simulationStop">시뮬레이션 종료</button></div></div>
                       <div class="arm-stage"><canvas data-arm="canvas" role="img" aria-label="E0509 6축 로봇 자세"></canvas><svg data-arm="labels" aria-hidden="true"></svg><span data-arm="graphics" class="arm-graphics" hidden></span><span class="arm-orbit-hint">드래그하여 둘러보기 · 표시 전용</span></div>
                       <div class="arm-legend"><span>○ E0509 · BASE 고정</span><span>⊕ 교시 TCP</span><span data-arm="source">기본 자세 · 실측 아님</span></div>
                       <div class="arm-box" data-arm="parcelBox" hidden>
@@ -320,7 +326,7 @@ docker compose run --rm --no-deps doosan-driver timeout 15 check-e0509</pre>
                   <div class="pick-steps" data-pick="steps" role="group" aria-label="교시할 모서리"></div>
                   <h3 data-pick="positionTitle">1번 모서리 위치</h3>
                   <div class="pick-position-body">
-                    <div class="plane-pose-fields"><h4>TCP 위치 <small>· BASE 기준</small></h4><div class="pick-fields" data-pick="fields"></div>
+                    <div class="plane-pose-fields"><h4>TCP 위치 <small>· BASE 기준</small></h4><div class="pick-fields" data-pick="fields"></div><div class="pick-fields" data-pick="regionAngles" hidden></div>
                       <button type="button" data-pick="read">현재 위치 불러오기</button>
                     </div>
                     <div class="plane-corner-frame"><span class="pick-subtitle" data-pick="frameSize"></span><canvas data-pick="photo" aria-label="교시할 원본 영상"></canvas><p data-pick="pixel"></p></div>

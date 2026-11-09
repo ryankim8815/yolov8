@@ -151,7 +151,7 @@ export function parcelBoxGeometry(box) {
 // Browser-only kinematic preview. Limits come from the same E0509 URDF as the
 // displayed mesh. This is deliberately independent of every robot command API.
 export const simulationToolPose = Object.freeze([0,0,143,90,0,0]);
-export const simulationJointLimits = Object.freeze([360,360,2.7053*180/Math.PI,360,360,360]);
+export const simulationJointLimits = Object.freeze([360,360,155,360,155,360]);
 const vectorCross=([a,b,c],[x,y,z])=>[b*z-c*y,c*x-a*z,a*y-b*x];
 function quaternion(m) {
   const t=m[0]+m[5]+m[10];let q;
@@ -248,5 +248,87 @@ export function sampleArmSimulation(plan,seconds) {
   while(lo+1<hi){const mid=(lo+hi)>>1;if(plan.samples[mid].time<=time)lo=mid;else hi=mid;}
   const a=plan.samples[lo],b=plan.samples[hi],t=(time-a.time)/Math.max(1e-9,b.time-a.time);
   const angles=a.angles.map((v,i)=>v*(1-t)+b.angles[i]*t);
-  return {angles,tcp:framePose(multiply(armFrames(angles)[6],plan.tool)),segment:b.segment,progress:time/plan.duration,complete:time>=plan.duration};
+  const opening=Number.isFinite(a.opening_mm)?a.opening_mm*(1-t)+b.opening_mm*t:null;
+  return {angles,tcp:framePose(multiply(armFrames(angles)[6],plan.tool)),segment:t<=1e-9?a.segment:b.segment,progress:time/plan.duration,complete:time>=plan.duration,
+    opening_mm:opening,holding:Boolean(t>=1?b.holding:a.holding),released:Boolean(t>=1?b.released:a.released)};
+}
+
+export function inverseRigid(m){const r=identity();for(let i=0;i<3;i++)for(let j=0;j<3;j++)r[i*4+j]=m[j*4+i];for(let i=0;i<3;i++)r[12+i]=-[0,1,2].reduce((s,j)=>s+r[j*4+i]*m[12+j],0);return r;}
+export function circularFrames(start,via,end){
+  const dot=(a,b)=>a.reduce((s,v,i)=>s+v*b[i],0),cross=(a,b)=>[a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0]];
+  const p=start.slice(12,15),q=via.slice(12,15),r=end.slice(12,15),a=q.map((v,i)=>v-p[i]),b=r.map((v,i)=>v-p[i]),n=cross(a,b),n2=dot(n,n),a2=dot(a,a),b2=dot(b,b);
+  if(![...p,...q,...r].every(Number.isFinite)||Math.min(Math.sqrt(a2),Math.sqrt(b2),Math.hypot(...q.map((v,i)=>v-r[i])))<.01||n2<=1e-8*a2*b2)throw Error('movec의 시작·경유·목표 위치는 서로 다르고 일직선에 놓이지 않아야 합니다.');
+  const an=cross(a,n),bn=cross(b,n),center=p.map((v,i)=>v+(a2*bn[i]-b2*an[i])/(2*n2)),radius=Math.hypot(...p.map((v,i)=>v-center[i])),x=p.map((v,i)=>(v-center[i])/radius),y=cross(n.map(v=>v/Math.sqrt(n2)),x);
+  const angle=v=>{const d=v.map((c,i)=>c-center[i]);return (Math.atan2(dot(d,y),dot(d,x))+2*Math.PI)%(2*Math.PI);};let middle=angle(q),sweep=angle(r);if(middle>sweep){middle-=2*Math.PI;sweep-=2*Math.PI;}
+  const fraction=middle/sweep;
+  return {length:Math.abs(sweep)*radius,fraction,at(t){t=Math.max(0,Math.min(1,t));const frame=t<=fraction?interpolateArmFrame(start,via,t/fraction):interpolateArmFrame(via,end,(t-fraction)/(1-fraction));for(let i=0;i<3;i++)frame[12+i]=center[i]+radius*(Math.cos(sweep*t)*x[i]+Math.sin(sweep*t)*y[i]);return frame;}};
+}
+function endpointIK(frame,seed,tool,preferred){
+  const bearing=Math.atan2(frame[13],frame[12])*180/Math.PI;
+  const bases=[bearing,bearing-360,bearing+360].filter(v=>Math.abs(v)<=360).sort((a,b)=>Math.abs(a-(preferred??seed[0]))-Math.abs(b-(preferred??seed[0])));
+  const tilt=Math.abs(frame[10])<.5?90:180;
+  const seeds=[seed,...bases.flatMap(base=>[seed.map((v,i)=>i===0?base:v),...[-30,0,30,60].flatMap(shoulder=>[60,90,120,-90].map(elbow=>[base,shoulder,elbow,0,Math.max(-155,Math.min(155,tilt-shoulder-elbow)),0]))])];
+  for(const q of seeds){const result=inverseArmFrame(frame,q,tool);if(result)return result;}return null;
+}
+export async function planScenarioSimulation(startAngles,recipe,{toolPose=simulationToolPose,signal,yieldFrame=()=>new Promise(resolve=>setTimeout(resolve,0))}={}){
+  if(!recipe.simulation_only||recipe.errors?.length)throw Error(recipe.errors?.join(" ")||"가상 시나리오만 재생할 수 있습니다.");
+  const tool=poseFrame(toolPose),samples=[],gates=[],route=[],config=recipe.config;
+  let angles=[...startAngles],time=0,opening=recipe.idle_opening_mm,holding=false,released=false,counter=0;
+  function push(segment){samples.push({time,angles:[...angles],segment,opening_mm:opening,holding,released});}
+  push(0);
+  async function checkpoint(){if(signal?.aborted)throw new DOMException("Cancelled","AbortError");if(++counter%8===0)await yieldFrame();}
+  async function joint(goal,segment,speed){
+    if(!goal||goal.some((v,i)=>!Number.isFinite(v)||Math.abs(v)>simulationJointLimits[i]))throw Error("관절 범위를 확인하세요.");
+    const from=[...angles],distance=Math.max(...goal.map((v,i)=>Math.abs(v-from[i])));
+    const peak=Math.min(speed.speed,Math.sqrt(distance*speed.acceleration)),ramp=peak/speed.acceleration,cruise=peak?Math.max(0,(distance-peak*ramp)/peak):0,duration=Math.max(.2,2*ramp+cruise);
+    const count=Math.max(2,Math.ceil(Math.max(distance/2,duration*5)));
+    for(let i=1;i<=count;i++){await checkpoint();const t=duration*i/count,d=t<ramp?.5*speed.acceleration*t*t:t<=ramp+cruise?.5*peak*ramp+peak*(t-ramp):distance-.5*speed.acceleration*(duration-t)**2,s=distance?Math.max(0,Math.min(1,d/distance)):1;angles=from.map((v,k)=>v+(goal[k]-v)*s);time+=duration/count;push(segment);}
+  }
+  async function line(goal,segment,speed){
+    const from=multiply(armFrames(angles)[6],tool),target=poseFrame(goal),d=Math.hypot(...goal.slice(0,3).map((v,i)=>v-from[12+i]));
+    const count=Math.max(2,Math.ceil(d/2));if(count>1000)throw Error("직선 경로가 너무 깁니다.");
+    const duration=Math.max(.2,d/speed.speed+speed.speed/speed.acceleration);
+    for(let i=1;i<=count;i++){await checkpoint();const q=inverseArmFrame(interpolateArmFrame(from,target,i/count),angles,tool);if(!q)throw Error("직선 경로의 자세를 계산할 수 없습니다.");angles=q;time+=duration/count;push(segment);}
+  }
+  async function circle(goal,via,segment,speed){
+    if(!Array.isArray(via)||via.length!==6||!via.every(Number.isFinite))throw Error('movec의 원호 경유 TCP 여섯 값을 입력하세요.');
+    const arc=circularFrames(multiply(armFrames(angles)[6],tool),poseFrame(via),poseFrame(goal)),count=Math.max(2,Math.ceil(arc.length/2)),duration=Math.max(.2,arc.length/speed.speed+speed.speed/speed.acceleration);
+    if(count>3000)throw Error('원호 경로가 너무 깁니다. 경유 TCP를 확인하세요.');
+    for(let i=1;i<=count;i++){await checkpoint();const q=inverseArmFrame(arc.at(i/count),angles,tool);if(!q)throw Error('원호 경로의 자세를 계산할 수 없습니다.');angles=q;time+=duration/count;push(segment);}
+  }
+  async function armMove(step,segment){
+    const motion=step.motion||(step.kind==='joint'||step.kind==='ready'?'movej':step.kind==='circle'?'movec':'movel'),space=step.number===1?'joint':step.space,target=step.number===1?config.standby_joints:step.target;
+    if(motion==='movej'){
+      let q=space==='joint'?target:endpointIK(poseFrame(target),angles,tool,config.waypoint1_joints?.[0]);if(!q)throw Error('관절 목표의 해를 찾지 못했습니다.');
+      if(step.j1_only){if(q.slice(1).some((v,i)=>Math.abs(v-angles[i+1])>.5)||Math.abs(Math.abs(q[0]-angles[0])-180)>.5)throw Error('J1 단독 회전의 시작 관절각이 교시값과 다릅니다. 이전 경유점 이동을 movej로 설정하세요.');q=[angles[0]+(q[0]>angles[0]?180:-180),...angles.slice(1)];}
+      await joint(q,segment,step.speed);
+    }else{
+      const goal=space==='joint'?framePose(multiply(armFrames(target)[6],tool)):target;
+      if(motion==='movel')await line(goal,segment,step.speed);else if(motion==='movec')await circle(goal,step.via_pose,segment,step.speed);else throw Error('지원하지 않는 이동 방식입니다.');
+      if(space==='joint'&&angles.some((v,i)=>Math.abs(v-target[i])>.5))throw Error('교시한 관절 자세와 다른 해에 도달했습니다. 이 구간은 movej로 설정하세요.');
+    }
+  }
+  async function hand(goal,segment,speed){
+    const from=opening,duration=Math.max(.5,Math.abs(goal-from)/Math.max(1,speed.speed*2));
+    for(let i=1;i<=20;i++){await checkpoint();opening=from+(goal-from)*i/20;time+=duration/20;push(segment);}
+  }
+  for(const step of recipe.steps){const n=step.number,segment=n-1;
+    try{
+      if(n===1){await armMove(step,segment);await hand(recipe.idle_opening_mm,segment,config.profiles[config.stages['1'].profile].gripper);}
+      else if(n===2){time+=.4;push(segment);}
+      else if(['joint','line','circle'].includes(step.kind))await armMove(step,segment);
+      else if(step.kind==='gripper'){
+        await hand(n===6?recipe.width_mm:step.opening_mm,segment,step.speed);
+        if(n===6)holding=true;
+        if(n===12){holding=false;released=true;}
+      }
+      time+=.3;push(segment);
+      if(step.gate)gates.push({time,action:step.gate,step:n});
+      route.push({title:step.title,pose:framePose(multiply(armFrames(angles)[6],tool)),marker:[3,5,8,9,10,11].includes(n),number:n,motion:step.motion,via_pose:step.via_pose});
+    }catch(error){if(error.name==='AbortError')throw error;throw Error(`${n}단계 ${step.title}: ${error.message}`);}
+  }
+  const path=samples.map(s=>multiply(armFrames(s.angles)[6],tool).slice(12,15)),points=samples.flatMap(s=>armFrames(s.angles).map(f=>f.slice(12,15)));
+  const lo=[0,1,2].map(i=>Math.min(...points.map(p=>p[i]))-120),hi=[0,1,2].map(i=>Math.max(...points.map(p=>p[i]))+120),bounds=[];
+  for(const x of [lo[0],hi[0]])for(const y of [lo[1],hi[1]])for(const z of [lo[2],hi[2]])bounds.push([x,y,z]);
+  return {samples,path,bounds,route,tool,gates,recipe,duration:time};
 }

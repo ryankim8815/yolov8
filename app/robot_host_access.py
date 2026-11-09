@@ -1,6 +1,7 @@
 """Mac-only HTTP owner of one persistent Blink/DRFL connection; no ROS dependency."""
 import asyncio
 import logging
+import json
 import time
 from contextlib import asynccontextmanager, suppress
 from datetime import datetime, timezone
@@ -14,6 +15,7 @@ from scripts.check_robot_sdk_host import CACHE, lan_route, lan_settings, sdk_env
 from .robot_access_protocol import ModeTicket, ReclaimTicket, ServoTicket, local_json
 from .robot_gripper import HandCommand
 from .robot_poses import ACCELERATION, SPEED, HostLineCommand, HostPoseCommand
+from .robot_scenario_config import KinematicsRequest, ScenarioCommand, OperationStop
 
 WORKER = "/usr/local/bin/e0509-access-worker"
 LOG = logging.getLogger("uvicorn.error")
@@ -34,10 +36,22 @@ class AccessServer:
         self.process = None
         self.task = None
         self.motion = None
+        self.operations={}
+        self.active_operation=None
+        self.inspection=None
         self.reset("disconnected", "SDK 연결 대기")
 
     def reset(self, connection, detail):
+        if self.active_operation:
+            self.operations[self.active_operation["id"]].update(state="unknown",message="SDK 세션 단절 · 자동 재개하지 않습니다.")
+            self.active_operation=None
+        if self.inspection:
+            _,future=self.inspection
+            if not future.done():future.set_exception(HTTPException(503,"SDK 좌표 조회 연결이 끊겼습니다."))
+            self.inspection=None
         self.finish_motion("unknown", "SDK 연결이 끊겨 자세 이동 결과를 확인할 수 없습니다.")
+        self.scenario_supported=False
+        self.circle_supported=False
         self.mode_supported = False
         self.gripper_supported = False
         self.hand_feedback = None
@@ -72,7 +86,7 @@ class AccessServer:
         reason = self.motion_reason()
         return dict(mode_change=self.mode_status(), servo=self.servo_status(), motion_token=self.motion_token, can_move=reason is None, motion_reason=reason,
                     gripper_supported=self.gripper_supported, gripper_feedback=self.hand_feedback, gripper_target=self.hand_target,
-                    line_supported=self.line_supported, transfer_supported=self.line_supported,
+                    line_supported=self.line_supported, transfer_supported=self.line_supported,scenario_supported=self.scenario_supported,circle_supported=self.circle_supported,
                     operation_mode=self.mode, connection=self.connection, route=self.route, detail=self.detail,
                     sdk_version=self.sdk, controller_version=self.controller, robot_state=self.state,
                     initialized=self.initialized, session_id=self.session, revision=self.revision,
@@ -192,11 +206,77 @@ class AccessServer:
         self.motion = None
 
     def require_motion(self, command):
+        if self.inspection:raise HTTPException(409,"SDK 좌표 조회가 끝나면 다시 시도하세요.")
         if command.session_id != self.session or command.motion_token != self.motion_token:
             raise HTTPException(409, "SDK 세션 또는 제어권이 변경되었습니다. 자세를 다시 확인하세요.")
         reason = self.motion_reason()
         if reason:
             raise HTTPException(409, reason)
+
+    async def inspect_kinematics(self,body):
+        if not self.scenario_supported:raise HTTPException(409,"17단계 SDK 작업자를 다시 빌드하고 시작하세요.")
+        if body.session_id!=self.session or self.motion_reason() or self.inspection:
+            raise HTTPException(409,self.motion_reason() or "SDK 세션 또는 좌표 조회 상태가 변경되었습니다.")
+        await self.check_route(body.session_id)
+        if body.session_id!=self.session or self.motion_reason() or self.inspection:raise HTTPException(409,"SDK 상태가 변경되었습니다.")
+        identifier=uuid4().hex;future=asyncio.get_running_loop().create_future();self.inspection=(identifier,future)
+        values=" ".join(format(v,".9g") for pose in [*body.poses,*body.joints] for v in pose)
+        try:
+            self.process.stdin.write(f"inspect {self.grant_number} {identifier} {len(body.poses)} {len(body.joints)} {values}\n".encode())
+            result=await asyncio.wait_for(future,8)
+            if body.session_id!=self.session:raise HTTPException(409,"SDK 세션이 변경되었습니다.")
+            if result.get("error"):raise HTTPException(409,"SDK 좌표·그리퍼 조회 실패: "+result["error"])
+            return {**result,"session_id":self.session}
+        except (TimeoutError,OSError,RuntimeError):raise HTTPException(503,"SDK 좌표 조회 응답 미확인")
+        finally:
+            if self.inspection and self.inspection[0]==identifier:self.inspection=None
+
+    async def begin_operation(self,command):
+        if not self.scenario_supported:raise HTTPException(409,"17단계 SDK 작업자가 필요합니다.")
+        if command.kind=="circle" and not self.circle_supported:raise HTTPException(409,"movec 지원 SDK 작업자를 다시 시작하세요.")
+        self.require_motion(command);await self.check_route(command.session_id);self.require_motion(command)
+        identifier=uuid4().hex;self.motion_token=uuid4().hex;self.state=None;self.mode_token=None
+        self.motion=asyncio.get_running_loop().create_future()
+        self.active_operation=dict(id=identifier,session=self.session,grant=self.grant_number,token=self.motion_token,stop=False)
+        result=dict(operation_id=identifier,state="running",message="SDK 구간 실행 중")
+        self.operations[identifier]=result
+        if command.kind=="gripper":self.hand_target=command.position;self.hand_feedback=None
+        if len(self.operations)>128:self.operations.pop(next(iter(self.operations)))
+        name=command.tcp_name.encode().hex() or "-"
+        target=command.target or [0]*6
+        numbers=[command.speed,command.acceleration,command.position if command.position is not None else -1,
+                 command.contact_ma or 0,int(command.j1_only),int(command.timeout_s)]
+        values=" ".join(format(v,".9g") for v in [*target,*command.reference_tcp,*(command.via_pose or [])])
+        params=" ".join(format(v,".9g") for v in numbers)
+        try:self.process.stdin.write(f"segment {self.grant_number} {identifier} {command.kind} {params} {name} {values}\n".encode())
+        except (OSError,RuntimeError):self.drop_worker("SDK 구간 전송 응답 미확인")
+        return result
+
+    def segment_result(self,data):
+        op=self.active_operation
+        if not op or data.get("id")!=op["id"]:return
+        state=data.get("state")
+        if state not in {"completed","failed","cancelled","unknown"}:state="unknown"
+        if state=="completed" and (not self.held or self.session!=op["session"] or self.grant_number!=op["grant"] or self.mode!="AUTO" or not self.mode_verified):state="unknown"
+        result=self.operations[op["id"]];result.update(state=state,message=data.get("message") or "구간 응답 미확인")
+        if isinstance(data.get("current_joints"),list):result["current_joints"]=data["current_joints"]
+        if state=="completed" and not op["stop"]:result["next_motion_token"]=op["token"]
+        elif op["stop"] and state=="completed":result["state"]="cancelled"
+        if isinstance(data.get("feedback"),dict):
+            self.hand_feedback={**data["feedback"],"state":state,"observed_at":datetime.now(timezone.utc).isoformat()}
+            result["feedback"]=self.hand_feedback
+            if type(self.hand_feedback.get("goal_position")) is int and self.hand_feedback["goal_position"]>=0:self.hand_target=self.hand_feedback["goal_position"]
+        self.active_operation=None;self.finish_motion(result["state"],result["message"])
+
+    def stop_operation(self,body):
+        op=self.active_operation
+        if body.session_id!=self.session:raise HTTPException(409,"SDK 세션이 변경되었습니다.")
+        if not op or op["id"]!=body.operation_id:raise HTTPException(409,"현재 실행 중인 구간이 아닙니다.")
+        if not op["stop"]:
+            op["stop"]=True;self.operations[op["id"]].update(state="stopping",message="감속 정지 확인 중")
+            try:self.process.stdin.write(f"halt {op['grant']} {op['id']}\n".encode())
+            except (OSError,RuntimeError):self.drop_worker("정지 요청 결과 미확인")
+        return self.operations[op["id"]]
 
     async def move_pose(self, command):
         hand = isinstance(command, HandCommand)
@@ -307,7 +387,18 @@ class AccessServer:
         self.motion = None
 
     def event(self, key, value):
-        if key == "sdk":
+        if key=="feature" and value=="scenario17":self.scenario_supported=True
+        elif key=="feature" and value=="circle":self.circle_supported=True
+        elif key=="inspection":
+            try:
+                data=json.loads(value)
+                if self.inspection and self.inspection[0]==data.get("id") and not self.inspection[1].done():self.inspection[1].set_result(data)
+            except (ValueError,TypeError):pass
+        elif key=="segment":
+            try:self.segment_result(json.loads(value))
+            except (ValueError,TypeError,AttributeError):
+                if self.active_operation:self.segment_result(dict(id=self.active_operation["id"],state="unknown",message="구간 응답 형식 오류"))
+        elif key == "sdk":
             self.sdk = value
         elif key == "feature" and value == "rh_p12":
             self.gripper_supported = True
@@ -494,6 +585,27 @@ def create_host_app(server=None):
         if not request.headers.get("x-robot-target"):
             raise HTTPException(403, "로봇 관리 또는 승인된 이송 작업을 사용하세요.")
         return await owner.move_pose(command)
+
+    def internal(request):
+        if not request.headers.get("x-robot-target"):raise HTTPException(403,"승인된 로봇 웹 서버 요청만 사용할 수 있습니다.")
+
+    @app.post("/api/robot/host-access/kinematics",dependencies=[Depends(same_target),Depends(local_json)])
+    async def inspect(body:KinematicsRequest,request:Request):
+        internal(request);return await owner.inspect_kinematics(body)
+
+    @app.post("/api/robot/host-access/operation",status_code=202,dependencies=[Depends(same_target),Depends(local_json)])
+    async def operation(body:ScenarioCommand,request:Request):
+        internal(request);return await owner.begin_operation(body)
+
+    @app.get("/api/robot/host-access/operations/{identifier}",dependencies=[Depends(same_target)])
+    async def operation_status(identifier:str,request:Request):
+        internal(request)
+        if identifier not in owner.operations:raise HTTPException(404,"구간 결과가 없습니다.")
+        return owner.operations[identifier]
+
+    @app.post("/api/robot/host-access/operation-stop",dependencies=[Depends(same_target),Depends(local_json)])
+    async def operation_stop(body:OperationStop,request:Request):
+        internal(request);return owner.stop_operation(body)
 
     return app
 
