@@ -33,6 +33,7 @@ static bool valid_arc(const Six& start,const Six& via,const Six& end){
 static std::string hand_json(const rhp12::Status& h){std::ostringstream s;
     s<<"{\"position\":"<<h.position<<",\"current_ma\":"<<h.current<<",\"goal_current_ma\":"<<h.goal_current<<",\"limit_ma\":"<<h.limit
      <<",\"mode\":"<<h.mode<<",\"error\":"<<h.error<<",\"goal_position\":"<<h.goal_position<<",\"contact\":"<<(h.contact?"true":"false")
+     <<",\"input_voltage_v\":"<<(h.voltage_tenths<0?"null":std::to_string(h.voltage_tenths/10.0))
      <<",\"moving\":"<<(h.moving?"true":"false")<<",\"velocity_limit\":"<<h.velocity_limit<<",\"acceleration_limit\":"<<h.acceleration_limit<<",\"torque_known\":true}";return s.str();}
 
 static void inspect_scenario(DRAFramework::CDRFLEx& sdk,const char* command){

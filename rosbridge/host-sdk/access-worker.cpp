@@ -172,8 +172,8 @@ static void gripper(DRAFramework::CDRFLEx& sdk, const char* command) {
     }
     in_move = false;
     char result[200];
-    std::snprintf(result,sizeof(result),"%s %s %d %d %d %d %d %d",state.c_str(),reason.c_str(),
-                  feedback.position,feedback.current,feedback.goal_current,feedback.limit,feedback.mode,feedback.error);
+    std::snprintf(result,sizeof(result),"%s %s %d %d %d %d %d %d %d",state.c_str(),reason.c_str(),
+                  feedback.position,feedback.current,feedback.goal_current,feedback.limit,feedback.mode,feedback.error,feedback.voltage_tenths);
     event("hand",result);
 }
 

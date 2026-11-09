@@ -29,6 +29,7 @@ inline int word(const Bytes& bytes, size_t i) { return (bytes.at(i) << 8) | byte
 
 struct Status {
     int position = -1, current = 0, goal_current = 0, limit = 0, mode = 0, error = 0;
+    int voltage_tenths = -1;
     bool moving = false;
     int velocity_limit=0, acceleration_limit=0;
     bool torque=false, contact=false;
@@ -42,7 +43,8 @@ template<class Port> class Hand {
         if (actuator_write) attempted = true;
         port.write(frame(payload));
         Bytes reply;
-        const auto end = std::chrono::steady_clock::now() + std::chrono::milliseconds(500);
+        // Match Dart's flange_serial_read(1.0), including fragmented responses.
+        const auto end = std::chrono::steady_clock::now() + std::chrono::seconds(1);
         while (reply.size() < expected) {
             const float seconds = std::chrono::duration<float>(end - std::chrono::steady_clock::now()).count();
             if (seconds <= 0) throw std::runtime_error("timeout");
@@ -79,7 +81,13 @@ template<class Port> class Hand {
 public:
     bool attempted = false;
     explicit Hand(Port& p): port(p) {}
+    void read_voltage(Status& s) {
+        s.voltage_tenths = -1;
+        // 40297 -> zero-based 296 (0x0128): 01 03 01 28 00 01 + CRC.
+        s.voltage_tenths = word(regs(296,1),3);
+    }
     void inspect(Status& s) {
+        read_voltage(s);
         if(word(regs(0,1),3)!=35074)throw std::runtime_error("wrong_model");
         s.mode=word(regs(5,1),3)>>8;s.limit=word(regs(19,1),3);s.goal_current=int16_t(word(regs(275,1),3));
         auto v=regs(22,2),a=regs(20,2);
@@ -127,6 +135,7 @@ public:
         return false;
     }
     void run(int target, bool contact_allowed, Status& s) {
+        read_voltage(s);
         if (word(regs(0,1),3) != 35074) throw std::runtime_error("wrong_model");
         s.mode = word(regs(5,1),3) >> 8;
         s.limit = word(regs(19,1),3);

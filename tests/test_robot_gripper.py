@@ -8,6 +8,29 @@ from app.robot_gripper import CalibrationInput, Gripper
 from app.store import DomainError
 
 
+@pytest.mark.parametrize("state,voltage,expected", [
+    ("completed", " 241", 24.1),
+    ("failed", " 240", 24.0),
+    ("failed", " -1", None),
+    ("completed", "", None),  # Previous SDK worker protocol.
+])
+def test_host_gripper_voltage_feedback(state, voltage, expected):
+    import asyncio
+    from app.robot_host_access import AccessServer
+
+    async def receive():
+        server = AccessServer.__new__(AccessServer)
+        server.motion = asyncio.get_running_loop().create_future()
+        result = server.motion
+        server.hand_result(f"{state} ok 350 30 120 250 5 0{voltage}")
+        response = await result
+        assert response["feedback"]["input_voltage_v"] == expected
+        assert response["state"] == state
+        assert response["feedback"]["position"] == 350
+
+    asyncio.run(receive())
+
+
 def test_serial_wire_format_and_readback(tmp_path):
     compiler = shutil.which("c++")
     if not compiler:

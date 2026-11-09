@@ -76,6 +76,7 @@ export function renderHand(status, access) {
   get("hand-actual").textContent=Number.isInteger(f?.position) ? f.position+" · "+new Date(f.observed_at).toLocaleTimeString("ko-KR") : "—";
   get("hand-current").textContent=f?.position != null ? [f.current_ma,f.goal_current_ma,f.limit_ma].join(" / ")+" mA" : "—";
   get("hand-mode").textContent=f?.position != null ? f.mode+" · 오류 "+f.error : "—";
+  get("hand-voltage").textContent=Number.isFinite(f?.input_voltage_v) ? f.input_voltage_v.toFixed(1)+" V" : "—";
   controls();
 }
 samples.addEventListener("input",()=>{dirty=true; controls();});

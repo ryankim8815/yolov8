@@ -370,10 +370,16 @@ class AccessServer:
             return
         reasons = {"wrong_model":"장치 1의 모델 번호가 RH-P12-RN-A와 다릅니다.", "control":"제어권과 로봇 정지 상태를 확인하세요.", "current_config":"장치의 위치 제어 모드와 목표 전류·한계를 확인하세요.",
                    "device_state":"장치 오류·동작 상태 또는 위치 범위를 확인하세요.", "timeout":"응답 또는 목표 위치 확인 시간 초과",
-                   "bad_response":"Modbus 응답 형식 또는 CRC 오류", "device_exception":"Modbus 장치 예외"}
+                   "bad_response":"Modbus 응답 형식 또는 CRC 오류", "device_exception":"Modbus 장치 예외",
+                   "serial_open":"플랜지 시리얼 열기 실패 (57600 bps, 8N1)",
+                   "serial_write":"플랜지 시리얼 요청 전송 실패", "serial_close":"플랜지 시리얼 닫기 실패"}
         try:
             state, reason, *numbers = value.split()
-            pos, current, goal, limit, mode, error = map(int,numbers)
+            # Accept the previous worker format until the SDK worker is rebuilt.
+            if len(numbers) not in (6, 7):
+                raise ValueError()
+            pos, current, goal, limit, mode, error = map(int,numbers[:6])
+            voltage = int(numbers[6]) if len(numbers) == 7 else -1
             if state not in {"completed","failed","unknown"}:
                 raise ValueError()
         except ValueError:
@@ -381,6 +387,7 @@ class AccessServer:
             return
         self.hand_feedback = {"position":pos if pos >= 0 else None, "current_ma":current, "goal_current_ma":goal,
                               "limit_ma":limit, "mode":mode, "error":error, "state":state,
+                              "input_voltage_v":voltage / 10.0 if voltage >= 0 else None,
                               "observed_at":datetime.now(timezone.utc).isoformat()}
         message = "장치 응답 확인" if state == "completed" else reasons.get(reason, "플랜지 직렬통신 실패 · " + reason)
         self.motion.set_result({"state":state, "message":message, "feedback":self.hand_feedback})
