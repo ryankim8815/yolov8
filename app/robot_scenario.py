@@ -112,6 +112,7 @@ class Scenario:
         self.config=ScenarioConfig(directory/"pick-scenario.json",robot.floor.value["z_mm"])
         self.prepared=None
         self.runtimes={}
+        self.stop_generation=0
 
     @property
     def picks(self):return self.robot.picks
@@ -122,7 +123,7 @@ class Scenario:
 
     def versions(self):
         return dict(config=self.config.value["revision"],box=self.robot.work_points.points["box"]["revision"],
-                    hand=self.robot.hand.table["revision"],contact=self.robot.hand.contact["revision"])
+                    hand=self.robot.hand.table["revision"],contact=self.robot.hand.contact["revision"],stop=self.stop_generation)
 
     def idle_width(self,config,virtual=False):
         width=config["standby_opening_mm"]
@@ -167,15 +168,16 @@ class Scenario:
         if result.get("session_id")!=status["session_id"]:raise DomainError("SDK 세션이 변경되었습니다.")
         return status,result
 
-    def validate_hand(self,kin,config):
+    def validate_hand(self,kin,config,stage=None,require_contact=True):
         hand=kin.get("hand") or {}
         if hand.get("mode")!=5 or hand.get("error")!=0 or not hand.get("torque_known",False) or hand.get("moving") or type(hand.get("position")) is not int or not 0<=hand["position"]<=700:
             raise DomainError("RH-P12 전류 기반 위치 모드와 장치 상태를 확인하세요.")
         if not 0<hand.get("goal_current_ma",0)<=hand.get("limit_ma",0):raise DomainError("그리퍼 목표 전류와 전류 한계를 확인하세요.")
         threshold=self.robot.hand.contact["threshold_ma"]
-        if threshold is None or threshold>hand["goal_current_ma"]:raise DomainError("그리퍼 관리에서 접촉 전류 임계값을 목표 전류 이내로 설정하세요.")
+        if require_contact and (threshold is None or threshold>hand["goal_current_ma"]):raise DomainError("그리퍼 관리에서 접촉 전류 임계값을 목표 전류 이내로 설정하세요.")
         profiles=[(n,speed_for(config,n,k)) for n,k,_ in STAGES if k=="gripper"]
         profiles.append((1,config["profiles"][config["stages"]["1"]["profile"]]["gripper"]))
+        if stage is not None:profiles=[(n,speed) for n,speed in profiles if n==stage]
         for n,speed in profiles:
             if speed["speed"]*100>hand.get("velocity_limit",0) or speed["acceleration"]>hand.get("acceleration_limit",0):
                 raise DomainError(f"{n}단계 그리퍼 속도·가속도가 장치의 한계를 넘습니다.")
@@ -189,6 +191,7 @@ class Scenario:
         return identifier
 
     async def prepare_preview(self):
+        generation=self.stop_generation
         self.require_idle();config=copy.deepcopy(self.config.value)
         opening=self.idle_width(config);position=self.robot.hand.position_for(opening)
         status,kin=await self.inspect(joints=[config["standby_joints"]]);self.validate_hand(kin,config)
@@ -199,6 +202,7 @@ class Scenario:
             if not status.get("circle_supported"):raise DomainError("movec 지원 SDK 작업자로 갱신하세요.")
             validate_arc(kin["current_tcp"],via,goal)
         target=dict(kind="prepare",config=config,status=status,kin=kin,idle_position=position,opening=opening,prepare_target=goal)
+        if generation!=self.stop_generation:raise DomainError("중단 요청으로 준비 승인을 취소했습니다.")
         identifier=self.ticket(target)
         return dict(approval_id=identifier,expires_in=30,joints=config["standby_joints"],opening_mm=opening,
                     hand_position=position,speed=speed_for(config,1,"ready"),motion=motion,via_pose=via if motion=="movec" else None,
@@ -221,6 +225,7 @@ class Scenario:
         return status,kin
 
     async def preview_real(self,selection,reader):
+        generation=self.stop_generation
         packet=await asyncio.to_thread(reader,selection.session_id,selection.frame_id)
         camera=CameraFrame.from_packet(packet)
         if not 0<=selection.object_index<len(packet["objects"]):raise DomainError("선택한 객체가 없습니다.")
@@ -250,6 +255,7 @@ class Scenario:
                     revision=calibration["revision"],model=packet["model_version"],class_id=obj["class_id"],plane=plane,
                     pose=pose,opening=opening,position=position,idle_position=idle_position,threshold=threshold,
                     label=obj["label"],reason=reason,route={"box":box},handling="rh_p12",mode="transfer")
+        if generation!=self.stop_generation:raise DomainError("중단 요청으로 이동 승인을 취소했습니다.")
         identifier=self.ticket(target)
         return dict(approval_id=identifier,expires_in=30,scenario=True,region=region,pose=pose,approach=approach,
                     label=obj["label"],confidence=obj["confidence"],motion_reason=reason,gripper=estimate,
@@ -276,6 +282,7 @@ class Scenario:
         if motion=="movec":
             validate_arc(kin["current_tcp"],config["stages"]["1"].get("via_pose"),goal)
         steps[1]["title"]="설정한 객체 좌표 확인"
+        for step in steps:step.pop("gate",None)
         target=dict(kind="hardware-test",config=config,status=status,kin=kin,steps=steps,
                     region=body.region,pose=preview["pose"],opening=preview["opening_mm"],
                     position=position,idle_position=idle_position,threshold=threshold,
@@ -311,13 +318,24 @@ class Scenario:
             raise DomainError("TCP 이동 결과를 확인할 수 있는 SDK 작업자가 필요합니다.")
         command=dict(kind=MOTION_KINDS[motion],target=goal,speed=step["speed"],
                      via_pose=step.get("via_pose") if motion=="movec" else None,expected_joints=expected)
+        hand_command=None
+        if body.step in {1,4,6,12,17}:
+            threshold=self.validate_hand(kin,config,stage=body.step,require_contact=body.step==6)
+            width=self.idle_width(config) if body.step in {1,17} else preview["opening_mm"]
+            position=700 if body.step==6 else self.robot.hand.position_for(width)
+            speed=config["profiles"][config["stages"]["1"]["profile"]]["gripper"] if body.step==1 else speed_for(config,body.step,"gripper")
+            hand_command=dict(position=position,contact=threshold if body.step==6 else None,speed=speed)
         if versions!=self.versions():raise DomainError("위치를 확인하는 동안 설정이 변경되었습니다. 다시 확인하세요.",412)
-        target=dict(kind="hardware-step",config=config,status=status,kin=kin,command=command,
-                    step=body.step,label=f"{body.step}단계 위치로 이동")
+        target=dict(kind="hardware-step",config=config,status=status,kin=kin,command=command,hand_command=hand_command,
+                    step=body.step,label=f"{body.step}단계 이동"+("·그리퍼 동작" if hand_command else ""))
         identifier=self.ticket(target)
         shown=copy.deepcopy(step);shown.update(number=body.step,target=goal,space="joint" if motion=="movej" else "task")
+        shown_steps=[shown]
+        if hand_command:
+            shown_steps.append(dict(number=body.step,kind="gripper",title="접촉 확인·파지 유지" if body.step==6 else "그리퍼 벌림",
+                                    position=position,opening_mm=None if body.step==6 else width,contact_ma=hand_command["contact"],speed=speed))
         return dict(approval_id=identifier,expires_in=30,step=body.step,target_step=number,region=body.region,
-                    steps=[shown],tcp_name=kin["tcp_name"],current_joints=kin["current_joints"])
+                    steps=shown_steps,tcp_name=kin["tcp_name"],current_joints=kin["current_joints"])
 
     def approve(self,identifier,reader=None,prepare=False,hardware_test=False,hardware_step=False):
         target=self.picks.approvals.pop(identifier,None)
@@ -402,6 +420,10 @@ class Scenario:
                 command=target["command"]
                 await self.operation(identifier,command["kind"],command["speed"],command["target"],
                                      via_pose=command["via_pose"],expected_joints=command["expected_joints"])
+                hand=target["hand_command"]
+                if hand:
+                    self.picks.record(identifier,"scenario_running",f"{target['step']}단계 팔 이동 완료 · 그리퍼 응답 대기",step=target["step"])
+                    await self.operation(identifier,"gripper",hand["speed"],position=hand["position"],contact=hand["contact"])
                 self.picks.record(identifier,"completed",target["label"]+" 완료",step=target["step"],last_reached=target["label"])
                 return
             if target["kind"]=="prepare" or (target["kind"]=="hardware-test" and start==1):
@@ -439,7 +461,7 @@ class Scenario:
                         if target["actual_opening"] is None or target["actual_opening"]+1e-8<target["opening"]:raise DomainError("권장 벌림에 도달하지 못했습니다.")
                 else:await self.operation(identifier,kind,step["speed"],step.get("joints") or step["target"],j1_only=step.get("j1_only",False),via_pose=step.get("via_pose"),expected_joints=step.get("expected_joints"))
                 self.picks.record(identifier,"scenario_running",f"{number}/17 완료 · {step['title']}",last_reached=step["title"],step=number)
-                if number in {6,11}:
+                if number in {6,11} and target["kind"]!="hardware-test":
                     self.picks.record(identifier,"awaiting_grip" if number==6 else "awaiting_open",
                         "파지와 작업 공간을 확인하고 이송을 승인하세요." if number==6 else "박스에서 상품을 놓을 준비가 되면 열기를 승인하세요.")
                     return
@@ -483,6 +505,19 @@ class Scenario:
             if not self.picks.task or self.picks.task.done():
                 self.picks.record(identifier,"unknown","중단 응답 미확인 · 실제 장치 상태를 확인하세요.")
 
+    def stop_all(self):
+        self.stop_generation+=1
+        self.prepared=None
+        self.picks.approvals.clear()
+        identifier=self.picks.active_id
+        if identifier is None:
+            if self.robot.hand.busy or self.robot.pose_tests.snapshot()["busy"]:
+                raise DomainError("기존 수동 조작이 진행 중입니다. 제어기의 정지 버튼으로 중단하세요.")
+            return dict(state="idle",message="진행 중인 로봇 작업이 없습니다. 대기 중인 승인을 취소했습니다.")
+        if self.picks.moves[identifier].get("scenario"):
+            return self.action(identifier,"stop")
+        raise DomainError("기존 수동 이송이 진행 중입니다. 제어기의 정지 버튼으로 중단하세요.")
+
 
 router=APIRouter()
 
@@ -522,7 +557,14 @@ async def hardware_step_approve(body:Identifier,request:Request):
 async def scenario_status(request:Request):
     robot=request.app.state.robot;p=robot.picks
     move=p.moves.get(p.active_id) or next((v for v in reversed(p.moves.values()) if v.get("scenario")),None)
-    return dict(prepared=bool(robot.scenario.prepared),move=move)
+    issues=[]
+    if len(robot.hand.table["points"])<2:issues.append("실측 벌림표를 두 점 이상 등록하세요.")
+    if robot.hand.contact["threshold_ma"] is None:issues.append("접촉 전류 임계값을 설정하세요.")
+    return dict(prepared=bool(robot.scenario.prepared),move=move,hardware_test_issues=issues)
+
+@router.post("/stop",dependencies=[Depends(local_json)])
+async def global_stop(request:Request):
+    return request.app.state.robot.scenario.stop_all()
 
 @router.get("/pick/scenario/current")
 async def current_joints(request:Request):

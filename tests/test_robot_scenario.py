@@ -181,7 +181,8 @@ def test_expired_preparation_cross_endpoint_and_configuration_changes_send_nothi
 
 
 @pytest.mark.parametrize('phase',['status','dispatch'])
-def test_stop_during_dispatch_or_status_keeps_lock_until_safe(scenario,monkeypatch,phase):
+@pytest.mark.parametrize('global_stop',[False,True])
+def test_stop_during_dispatch_or_status_keeps_lock_until_safe(scenario,monkeypatch,phase,global_stop):
     import importlib
     from threading import Event
     module=importlib.import_module('app.robot_scenario')
@@ -202,7 +203,7 @@ def test_stop_during_dispatch_or_status_keeps_lock_until_safe(scenario,monkeypat
         assert client.post('/api/robot/pick/approve',json={'approval_id':target['approval_id']}).status_code==202
         assert entered.wait(5)
         for _ in range(2):
-            assert client.post('/api/robot/pick/moves/'+target['approval_id']+'/stop',json={}).status_code==200
+            assert client.post('/api/robot/stop' if global_stop else '/api/robot/pick/moves/'+target['approval_id']+'/stop',json={}).status_code==200
         assert client.get('/api/robot/pick/scenario/status').json()['move']['state']=='scenario_stopping'
         assert client.post('/api/robot/pick/prepare/preview',json={}).status_code==409
     finally:release.set()
@@ -332,11 +333,6 @@ def test_hardware_test_preview_approval_and_full_path_without_camera(scenario):
         codes = list(pool.map(lambda _: client.post('/api/robot/pick/scenario/hardware-test/approve',
                                                    json={'approval_id': identifier}).status_code, range(2)))
     assert sorted(codes) == [202, 409]
-    assert wait_state(client, identifier, {'awaiting_grip', 'failed', 'unknown'})['state'] == 'awaiting_grip'
-    assert len(calls) == 6
-    assert client.post('/api/robot/pick/moves/'+identifier+'/confirm-grip', json={}).status_code == 200
-    assert wait_state(client, identifier, {'awaiting_open', 'failed', 'unknown'})['state'] == 'awaiting_open'
-    assert client.post('/api/robot/pick/moves/'+identifier+'/open-at-box', json={}).status_code == 200
     assert wait_state(client, identifier, {'completed', 'failed', 'unknown'})['state'] == 'completed'
     assert len(calls) == 17
 
@@ -385,33 +381,90 @@ def test_hardware_test_accepts_displayed_example_draft_without_saving(scenario):
     identifier = response.json()['approval_id']
     frame['objects'] = []
     assert client.post(endpoint+'approve', json={'approval_id': identifier}).status_code == 202
-    assert wait_state(client, identifier, {'awaiting_grip', 'failed', 'unknown'})['state'] == 'awaiting_grip'
-    assert calls[4].target[:3] == [-430, 0, 30]
-    assert client.post('/api/robot/pick/moves/'+identifier+'/confirm-grip', json={}).status_code == 200
-    assert wait_state(client, identifier, {'awaiting_open', 'failed', 'unknown'})['state'] == 'awaiting_open'
-    assert client.post('/api/robot/pick/moves/'+identifier+'/open-at-box', json={}).status_code == 200
     assert wait_state(client, identifier, {'completed', 'failed', 'unknown'})['state'] == 'completed'
+    assert calls[4].target[:3] == [-430, 0, 30]
     assert client.get('/api/robot/pick-scenario').json() == original
     assert not client.get('/api/robot/pick/scenario/status').json()['prepared']
 
 
 @pytest.mark.parametrize('number', range(1, 18))
-def test_single_stage_preview_and_approval_only_move_arm(scenario, number):
+def test_single_stage_preview_and_approval_execute_selected_actions(scenario, number):
     client, calls, _, _, hand, *_ = scenario
-    hand['goal_current_ma'] = 0
+    has_gripper = number in {1, 4, 6, 12, 17}
+    if not has_gripper:hand['goal_current_ma'] = 0
     config = client.get('/api/robot/pick-scenario').json()
     endpoint = '/api/robot/pick/scenario/hardware-step/'
     response = client.post(endpoint+'preview', json={'revision': config['revision'], 'step': number})
     assert response.status_code == 200, response.text
     target = response.json()
-    assert len(target['steps']) == 1
+    assert len(target['steps']) == (2 if has_gripper else 1)
     assert target['step'] == number
     assert not calls
     identifier = target['approval_id']
     assert client.post(endpoint+'approve', json={'approval_id': identifier}).status_code == 202
     move = wait_state(client, identifier, {'completed', 'failed', 'unknown'})
     assert move['state'] == 'completed', move
-    assert len(calls) == 1
+    assert len(calls) == (2 if has_gripper else 1)
     assert calls[0].kind in {'joint', 'line', 'circle'}
     assert not calls[0].j1_only
+    if has_gripper:
+        assert calls[1].kind == 'gripper'
+        assert calls[1].position == target['steps'][1]['position']
+        assert bool(calls[1].contact_ma) == (number == 6)
     assert client.post(endpoint+'approve', json={'approval_id': identifier}).status_code == 409
+
+
+@pytest.mark.parametrize('failed_operation', [1, 2])
+def test_single_gripper_stage_stops_after_failed_operation(scenario, failed_operation):
+    client, calls, _, _, _, fault = scenario
+    config = client.get('/api/robot/pick-scenario').json()
+    endpoint = '/api/robot/pick/scenario/hardware-step/'
+    target = client.post(endpoint+'preview', json={'revision': config['revision'], 'step': 4}).json()
+    assert not calls
+    fault['step'] = failed_operation
+    assert client.post(endpoint+'approve', json={'approval_id': target['approval_id']}).status_code == 202
+    move = wait_state(client, target['approval_id'], {'completed', 'failed', 'unknown'})
+    assert move['state'] != 'completed'
+    assert len(calls) == failed_operation
+    assert calls[0].kind != 'gripper'
+    if failed_operation == 2:assert calls[1].kind == 'gripper'
+
+
+def test_opening_stage_allows_unset_contact_but_grasp_requires_it(scenario):
+    client, calls, *_ = scenario
+    contact = client.get('/api/robot/gripper/contact').json()
+    contact['threshold_ma'] = None
+    assert client.put('/api/robot/gripper/contact', json=contact).status_code == 200
+    config = client.get('/api/robot/pick-scenario').json()
+    endpoint = '/api/robot/pick/scenario/hardware-step/preview'
+    assert client.post(endpoint, json={'revision': config['revision'], 'step': 4}).status_code == 200
+    assert client.post(endpoint, json={'revision': config['revision'], 'step': 6}).status_code == 409
+    assert not calls
+
+
+def test_global_stop_invalidates_pending_approvals_without_motion(scenario):
+    client, calls, *_ = scenario
+    config = client.get('/api/robot/pick-scenario').json()
+    target = client.post('/api/robot/pick/scenario/hardware-test/preview', json={'revision': config['revision']}).json()
+    response = client.post('/api/robot/stop', json={})
+    assert response.status_code == 200
+    assert response.json()['state'] == 'idle'
+    assert client.post('/api/robot/pick/scenario/hardware-test/approve', json={'approval_id': target['approval_id']}).status_code == 409
+    assert not calls
+
+
+def test_global_stop_cancels_inflight_test_preview(scenario, monkeypatch):
+    client, calls, *_ = scenario
+    engine = client.app.state.robot.scenario
+    original = engine.inspect_steps
+
+    async def stopped(*args):
+        result = await original(*args)
+        engine.stop_all()
+        return result
+
+    monkeypatch.setattr(engine, 'inspect_steps', stopped)
+    response = client.post('/api/robot/pick/scenario/hardware-test/preview',
+                           json={'revision': engine.config.value['revision']})
+    assert response.status_code == 412
+    assert not calls

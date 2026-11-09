@@ -81,6 +81,21 @@ rail.append(nav);
 const mode = document.createElement("div");
 mode.className = "rail-status";
 mode.textContent = training ? "로컬 모델 학습" : document.body.dataset.workspace === "robot" ? "E0509 · 유선 LAN" : "패킹 시뮬레이션";
-rail.append(mode);
+const controls=document.createElement('div');controls.className='rail-controls';
+const stop=document.createElement('button');stop.type='button';stop.id='robot-global-stop';stop.className='rail-stop';stop.textContent='■ 중단';stop.setAttribute('aria-label','로봇 작업 중단');
+const stopState=document.createElement('p');stopState.className='rail-stop-state';stopState.setAttribute('role','status');stopState.hidden=true;
+controls.append(stop,stopState,mode);rail.append(controls);
+stop.addEventListener('click',async()=>{
+  if(stop.disabled)return;
+  stop.disabled=true;stopState.hidden=false;stopState.textContent='중단 요청 중…';
+  window.dispatchEvent(new Event('robot-global-stop'));
+  try{
+    const response=await fetch('/api/robot/stop',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}',signal:AbortSignal.timeout(5000)});
+    const result=await response.json();
+    if(!response.ok)throw Error(typeof result.detail==='string'?result.detail:'중단 요청에 실패했습니다.');
+    stopState.textContent=result.message||'중단을 요청했습니다.';
+  }catch(error){stopState.textContent=error.message||'중단 응답을 확인할 수 없습니다.';}
+  finally{stop.disabled=false;}
+});
 highlightDestination();
 window.addEventListener("hashchange", highlightDestination);
