@@ -3,7 +3,7 @@ import {armTelemetry,simulationToolPose,poseFrame,endpointIK} from './robot-arm.
 
 const stages=[['ready','대기 상태로 준비'],['target','YOLO 상품 요청'],['joint','상품 접근 위치'],['gripper','권장 폭으로 벌리기'],['line','파지점으로 접근'],['gripper','접촉 확인·파지 유지'],['line','접근 위치로 후퇴'],['joint','1차 경유점'],['joint','J1 회전·2차 경유점'],['joint','박스 위 위치'],['line','놓기 위치로 하강'],['gripper','파지 전 벌림으로 개방'],['line','박스 위로 상승'],['joint','2차 경유점 복귀'],['joint','J1 역회전·1차 경유점'],['joint','대기 자세 복귀'],['gripper','대기 벌림 복원']];
 const phases=[['준비',1,2],['파지',3,6],['이송',7,10],['놓기',11,13],['복귀',14,17]];
-const names={high:'상',medium:'중',low:'하'},regionNames={floor:'바닥 · 수직 파지',shelf:'선반 · 수평 파지'};
+const regionNames={floor:'바닥 · 수직 파지',shelf:'선반 · 수평 파지'};
 const kinds={ready:'대기 준비',target:'대상 선택',joint:'관절 이동 · movej',line:'직선 이동 · movel',gripper:'그리퍼'};
 const armSteps=new Set([1,3,5,7,8,9,10,11,13,14,15,16]),fixedMotions={5:'movel',7:'movel',9:'movej',11:'movel',13:'movel',15:'movej'};
 const motionNames={movej:'관절 이동 · movej',movel:'직선 이동 · movel',movec:'원호 이동 · movec'};
@@ -14,6 +14,8 @@ const path=(object,key)=>key.split('.').reduce((v,k)=>v?.[k],object);
 function put(object,key,value){const parts=key.split('.');let at=object;for(const p of parts.slice(0,-1))at=at[p]??=(/^\d+$/.test(parts.at(-1))?[]:{});at[parts.at(-1)]=value;}
 const node=(tag,text,cls)=>{const n=document.createElement(tag);if(text)n.textContent=text;if(cls)n.className=cls;return n;};
 const fmt=v=>Number.isFinite(v)?Number(v.toFixed(2)).toString():'—';
+// Joint (°/s), Cartesian (mm/s), and gripper (rpm) speeds share the server's cap of 10.
+const maximumSpeed=10;
 const terminal=state=>['completed','failed','unknown','cancelled'].includes(state);
 const activeSimulation=state=>['planning','running','paused','awaiting_grip','awaiting_open'].includes(state);
 
@@ -37,7 +39,6 @@ function build(root){
     <section data-sc-panel="products" role="tabpanel"><div class="scenario-section-head"><div><h4>어디에 놓인 상품을 집나요?</h4><p class="scenario-caption">가상 상품은 시뮬레이션 전용입니다. 실제 위치는 카메라의 파지 영역으로 계산합니다.</p></div><label>가상 상품 선택<select data-sc="region"><option value="floor">바닥 · 수직 파지</option><option value="shelf">선반 · 수평 파지</option></select></label></div><div data-sc="virtual-fields"></div><div class="scenario-regions"></div></section>
     <section data-sc-panel="points" role="tabpanel"><p class="scenario-caption">직접 정할 위치는 대기 자세·1차 경유점·박스 놓기 TCP입니다. 2차 경유점과 박스 위 위치는 자동 계산합니다.</p><div data-sc="joint-fields"></div><section class="scenario-card scenario-auto"><div class="scenario-card-top"><h4>2차 경유점</h4><span class="scenario-badge">자동 계산 · 9·14단계</span></div><label>J1 왕복 방향<select data-config="turn_degrees"><option value="180">갈 때 +180° / 돌아올 때 −180°</option><option value="-180">갈 때 −180° / 돌아올 때 +180°</option></select></label><p data-sc="waypoint2" class="scenario-coordinate"></p><p class="scenario-caption">1차 경유점의 J2~J6는 그대로 유지합니다.</p></section><section class="scenario-card"><div class="scenario-card-top"><h4>박스 놓기 위치와 상부 간격</h4><span class="scenario-badge">10–13단계</span></div><div data-sc="box-mount"></div><div class="pose-fields"><label>박스 위까지의 간격 (mm)<input data-config="box_clearance_mm" type="number" step="any" min="0.001"></label></div><p data-sc="above-box" class="scenario-coordinate"></p><p class="scenario-caption">박스 TCP는 아래 좌표 저장으로, 상부 간격은 시나리오 저장으로 저장합니다. 박스 외형은 택배 박스 위치 설정 탭에서 변경합니다.</p></section></section>
     <div data-motion-build><div data-sc="stage-motions"></div></div>
-    <section data-sc-panel="speeds" role="tabpanel"><h4>자주 쓰는 속도 3개를 먼저 정하세요</h4><p class="scenario-caption">카드를 펼쳐 속도와 가속도를 조절합니다. 단계별로 상·중·하를 선택하고 필요한 단계만 개별 설정하세요.</p><div data-sc="presets" class="scenario-presets"></div><div data-sc="stage-speeds" class="scenario-speed-groups"></div></section>
     <section data-sc-panel="simulation" role="tabpanel"><div class="scenario-section-head"><div><h4>가상 경로를 순서대로 확인하세요</h4><p class="scenario-caption">실제 장치 명령 없음 · 가상 접촉 표시 · 충돌 검증 아님</p></div><span data-sc="simulation-badge" class="scenario-badge">대기</span></div><div class="scenario-player"><div class="pose-actions"><button type="button" data-sc="play">시뮬레이션 시작</button><button type="button" data-sc="hardware-test">실제 매니퓰레이터 테스트</button><button type="button" data-sc="pause" disabled>일시정지</button><button type="button" data-sc="stop" disabled>종료</button><label>재생 배속<select data-sc="rate"><option value="1">1×</option><option value="2">2×</option><option value="5">5×</option><option value="10" selected>10×</option><option value="20">20×</option></select></label></div><label class="simulation-progress">전체 진행<input data-sc="progress" type="range" min="0" max="1000" value="0" disabled><output data-sc="percent">0%</output></label><p data-sc="simulation-state" role="status">시뮬레이션 대기</p><div class="scenario-confirm" data-sc="confirm-box" hidden><strong data-sc="confirm-title"></strong><p data-sc="confirm-help"></p><button type="button" data-sc="confirm">가상 파지 확인 후 이송</button></div><p data-sc="preview-warning" class="scenario-caption"></p></div><div class="scenario-inspector"><div data-sc="stages" class="scenario-stages" aria-label="17단계 경로"></div><aside class="scenario-step-detail" aria-label="선택한 단계 정보"><div class="scenario-card-top"><span data-sc="step-number" class="scenario-badge"></span><span data-sc="step-kind" class="scenario-kind"></span></div><h4 data-sc="step-title"></h4><p data-sc="step-help"></p><dl data-sc="step-values"></dl><div class="pose-actions"><button type="button" data-sc="jump" disabled>3D에서 이 단계 보기</button><button type="button" data-sc="previous" disabled>이전 단계</button><button type="button" data-sc="next" disabled>다음 단계</button></div><p class="scenario-caption">단계 보기와 진행 막대는 가상 위치를 확인하며 일시정지합니다. 실제 작업 승인과는 별개입니다.</p></aside></div></section>
     <div class="pose-actions scenario-save"><button type="button" data-sc="save" disabled>시나리오 저장</button><button type="button" data-sc="cancel" disabled>변경 취소</button><button type="button" data-sc="reload">최신 설정 불러오기</button></div><p data-sc="message" role="status"></p>
     <details class="scenario-real"><summary><strong>실제 로봇 작업</strong><span data-sc="ready">준비 상태 조회 중</span></summary><p>저장한 설정으로만 준비합니다. 실제 상품은 대시보드에서 선택하고 경로를 승인하세요.</p><div class="pose-actions"><button type="button" data-sc="prepare">대기 상태로 준비</button><a href="/#dashboard">대시보드에서 실제 상품 선택</a><a href="/robot#gripper">접촉 전류·실측 벌림표 설정</a></div><p data-sc="real-stage" role="status"></p><div class="pose-actions"><button type="button" data-sc="real-grip" hidden>파지 확인 후 이송</button><button type="button" data-sc="real-open" hidden>박스에서 열기</button><button type="button" data-sc="real-stop" hidden>실제 작업 중단</button></div></details>
@@ -59,7 +60,6 @@ function build(root){
   for(const [index,[title,first,last]]of phases.entries()){
     const button=node('button');button.type='button';button.dataset.phaseStart=first;button.append(node('span',String(index+1),'scenario-phase-number'),node('strong',title),node('small',`${first}–${last}단계`));root.querySelector('.scenario-flow').append(button);
     const group=node('section',null,'scenario-phase');group.dataset.phase=index;group.append(node('h5',title+' · '+first+'–'+last+'단계'));const list=node('ol');list.start=first;group.append(list);root.querySelector('[data-sc="stages"]').append(group);
-    const speeds=node('section',null,'scenario-speed-phase');speeds.append(node('h4',title+' · '+first+'–'+last+'단계'));root.querySelector('[data-sc="stage-speeds"]').append(speeds);
     const motions=node('section',null,'scenario-speed-phase');motions.append(node('h4',title+' · '+first+'–'+last+'단계'));root.querySelector('[data-sc="stage-motions"]').append(motions);
     for(let number=first;number<=last;number++){
       const [kind,text]=stages[number-1],item=node('li'),step=node('button');step.type='button';step.dataset.stage=number;step.setAttribute('aria-pressed','false');step.append(node('span',String(number),'scenario-step-number'));
@@ -74,15 +74,10 @@ function build(root){
         }
       }else motionHead.append(node('span',kind==='gripper'?'그리퍼 동작 · 팔 이동 없음':'대상 선택 · 팔 이동 없음','scenario-badge'));
       motions.append(motionRow);
-      if(kind==='target'){speeds.append(node('p','2 · YOLO 대상 선택 — 장치 동작 없음','scenario-caption'));continue;}
-      const row=node('div',null,'scenario-speed-row'),heading=node('div');row.dataset.speedStage=number;heading.append(node('strong',number+' · '+text),node('small',kinds[kind]));row.append(heading);
-      const label=node('label','프로파일'),select=node('select');select.dataset.config=`stages.${number}.profile`;select.setAttribute('aria-label',number+'단계 속도 프로파일');for(const [value,text]of Object.entries(names)){const o=node('option',text);o.value=value;select.append(o);}label.append(select);row.append(label);
-      const custom=node('label',null,'scenario-check'),check=node('input');check.type='checkbox';check.dataset.override=number;check.setAttribute('aria-label',number+'단계 개별 속도 사용');custom.append(check,document.createTextNode('개별 설정'));row.append(custom);
-      const value=node('span',null,'scenario-speed-value');value.dataset.speedValue=number;row.append(value);
-      const override=node('div',null,'scenario-speed-override');override.dataset.overrideFields=number;const unit=kind==='gripper'?'rpm':kind==='line'?'mm/s':'°/s',accunit=kind==='gripper'?'rpm²':kind==='line'?'mm/s²':'°/s²';fields(override,['속도 ('+unit+')','가속도 ('+accunit+')'],[`stages.${number}.override.speed`,`stages.${number}.override.acceleration`]);row.append(override);speeds.append(row);
+
     }
   }
-  for(const [id,title]of [['products','상품·파지 영역'],['speeds','속도 설정'],['simulation','시뮬레이션']]){
+  for(const [id,title]of [['products','상품·파지 영역'],['simulation','시뮬레이션']]){
     const tab=node('button',title);tab.type='button';tab.role='tab';tab.id='scenario-tab-'+id;tab.dataset.scTab=id;tab.setAttribute('aria-controls','scenario-panel-'+id);root.querySelector('.scenario-tabs').append(tab);const panel=root.querySelector(`[data-sc-panel="${id}"]`);panel.id='scenario-panel-'+id;panel.setAttribute('aria-labelledby',tab.id);
   }
   for(const region of ['floor','shelf']){
@@ -171,15 +166,16 @@ function build(root){
   const stageList=root.querySelector('[data-sc="stages"]');
   const table=node('table',null,'scenario-joint-table');
   table.append(node('caption','단계별 조인트 설정 · °'));
+  stageList.before(node('p','이동 속도는 허용된 최대 속도를 100%로 표시합니다. (관절 10°/s · 직선 10 mm/s · 그리퍼 10 rpm)','scenario-caption'));
   const thead=node('thead'),header=node('tr');
-  for(const title of ['단계','이동 방식','입력 방식','J1','J2','J3','J4','J5','J6']){
+  for(const title of ['단계','이동 방식','이동 속도','입력 방식','J1','J2','J3','J4','J5','J6']){
     const cell=node('th',title);cell.scope='col';header.append(cell);
   }
   thead.append(header);table.append(thead);
   for(const phase of stageList.querySelectorAll('.scenario-phase')){
     const body=node('tbody'),phaseRow=node('tr'),phaseTitle=node('th',phase.querySelector('h5').textContent);
     body.dataset.phase=phase.dataset.phase;
-    phaseTitle.colSpan=9;phaseTitle.scope='rowgroup';phaseRow.className='scenario-table-phase';phaseRow.append(phaseTitle);body.append(phaseRow);
+    phaseTitle.colSpan=10;phaseTitle.scope='rowgroup';phaseRow.className='scenario-table-phase';phaseRow.append(phaseTitle);body.append(phaseRow);
     for(const item of phase.querySelectorAll('li')){
       const joints=item.querySelector('[data-joint-step]'),row=node('tr',null,'scenario-stage-joints');
       row.dataset.jointStep=joints.dataset.jointStep;
@@ -203,14 +199,20 @@ function build(root){
         const number=Number(title.querySelector('[data-stage]').dataset.stage);
         mode.append(node('span',number>=3&&number<=7?'객체 기준 자동':armSteps.has(number)?'직접 입력':'자세 유지','scenario-caption'));
       }
-      row.append(title,motion,mode);
+      const speedCell=node('td');
+      if(number!==2){
+        const speed=node('select');speed.dataset.speedPercent=number;speed.setAttribute('aria-label',number+'단계 이동 속도');
+        for(let percent=10;percent<=100;percent+=10){const option=node('option',percent+'%');option.value=percent;speed.append(option);}
+        speedCell.append(speed);
+      }else speedCell.append(node('span','—','scenario-caption'));
+      row.append(title,motion,speedCell,mode);
       for(const input of joints.querySelectorAll('input')){
         const cell=node('td');cell.append(input);row.append(cell);
       }
       body.append(row);
       if(motionRow.querySelector('input,button,select')){
         const optionsRow=node('tr',null,'scenario-stage-options'),optionsCell=node('td');
-        optionsRow.dataset.stageOptions=number;optionsRow.hidden=true;optionsCell.colSpan=9;
+        optionsRow.dataset.stageOptions=number;optionsRow.hidden=true;optionsCell.colSpan=10;
         optionsCell.append(motionRow);optionsRow.append(optionsCell);body.append(optionsRow);
         const open=node('button','상세 설정');open.type='button';open.dataset.openStage=number;
         open.setAttribute('aria-expanded','false');open.setAttribute('aria-controls','scenario-stage-options-'+number);optionsRow.id='scenario-stage-options-'+number;motion.append(open);
@@ -224,10 +226,7 @@ function build(root){
   objectSettings.classList.add('scenario-object-settings');
   objectSettings.append(root.querySelector('[data-sc="region"]').closest('label'),root.querySelector('[data-sc="virtual-fields"]'));
   stageList.before(objectSettings);
-  for(const level of ['high','medium','low']){
-    const preset=node('details',null,'scenario-preset'),summary=node('summary');summary.append(node('strong',names[level]),node('span'));preset.dataset.preset=level;preset.append(summary);
-    for(const [kind,title,unit,accunit]of [['joint','관절','°/s','°/s²'],['line','직선','mm/s','mm/s²'],['gripper','그리퍼','rpm','rpm²']])fields(preset,[title+' 속도 ('+unit+')',title+' 가속도 ('+accunit+')'],[`profiles.${level}.${kind}.speed`,`profiles.${level}.${kind}.acceleration`]);root.querySelector('[data-sc="presets"]').append(preset);
-  }
+
 }
 
 export function connectScenario(root,arm,signal){
@@ -271,6 +270,7 @@ export function connectScenario(root,arm,signal){
   }
   function controls(){
     const hardwareBlocked=!draft||pending||realBusy||activeSimulation(simulation.state);
+    for(const select of root.querySelectorAll('[data-speed-percent]'))select.disabled=!draft||pending||realBusy;
     ui['hardware-test'].disabled=Boolean(hardwareBlocked);
     for(const button of root.querySelectorAll('[data-hardware-step]')){button.disabled=Boolean(hardwareBlocked);}
     ui['hardware-approve'].disabled=Boolean(hardwareBlocked)||!hardwareTicket;
@@ -315,14 +315,19 @@ export function connectScenario(root,arm,signal){
     if(draft){for(const input of inputs){const via=input.dataset.config.match(/^stages\.(\d+)\.via_pose\./);if(via)input.disabled=motionFor(Number(via[1]))!=='movec';input.required=!input.readOnly&&input.type!=='checkbox'&&input.dataset.config!=='standby_opening_mm'&&(!input.dataset.config.startsWith('waypoint1_joints.')||draft.waypoint1_joints!==null);}
       for(const select of root.querySelectorAll('[data-config$=".motion"]'))select.value=motionFor(Number(select.dataset.config.split('.')[1]));
       for(const group of root.querySelectorAll('[data-via-step]'))group.hidden=motionFor(Number(group.dataset.viaStep))!=='movec';
-      for(const row of root.querySelectorAll('[data-speed-stage]')){const n=Number(row.dataset.speedStage),kind=speedKind(n);row.querySelector('small').textContent=motionNames[motionFor(n)]||kinds[kind];row.querySelectorAll('[data-override-fields] label').forEach((label,i)=>label.firstChild.nodeValue=(i?'가속도':'속도')+' ('+(kind==='gripper'?(i?'rpm²':'rpm'):kind==='line'?(i?'mm/s²':'mm/s'):(i?'°/s²':'°/s'))+')');}
       for(const button of root.querySelectorAll('[data-stage]')){const n=Number(button.dataset.stage);button.querySelector('small').textContent=(motionNames[motionFor(n)]||kinds[stages[n-1][0]])+([6,11].includes(n)?' · 확인 대기':'');}
-      for(const p of root.querySelectorAll('[data-preset]')){const speed=draft.profiles[p.dataset.preset];p.querySelector('summary span').textContent=`관절 ${fmt(speed.joint.speed)}°/s · 직선 ${fmt(speed.line.speed)} mm/s · 그리퍼 ${fmt(speed.gripper.speed)} rpm`;}
-      for(const value of root.querySelectorAll('[data-speed-value]'))value.textContent=speedText(Number(value.dataset.speedValue));}controls();
+      for(const select of root.querySelectorAll('[data-speed-percent]')){
+        const n=Number(select.dataset.speedPercent),speed=resolvedSpeed(n),percent=Number((speed.speed/maximumSpeed*100).toFixed(6));
+        select.querySelector('[data-legacy-speed]')?.remove();
+        if(percent<10||percent>100||percent%10!==0){
+          const option=node('option',fmt(percent)+'% · 기존');option.value=percent;option.disabled=true;option.dataset.legacySpeed='';select.prepend(option);
+        }
+        select.value=String(percent);select.title=speedText(n);
+      }}controls();
   }
   function fill(){if(!draft)return;for(const n of [3,5,7])draft.stages[n].target_joints=null;for(const input of inputs){const value=path(draft,input.dataset.config);if(input.type==='checkbox')input.checked=Boolean(value);else input.value=value??'';}
     for(const input of root.querySelectorAll('[data-example-box-axis]'))input.value=exampleBox?.[Number(input.dataset.exampleBoxAxis)]??'';
-    for(const check of root.querySelectorAll('[data-override]')){const n=check.dataset.override;check.checked=Boolean(draft.stages[n].override);const group=root.querySelector(`[data-override-fields="${n}"]`);group.hidden=!check.checked;for(const field of group.querySelectorAll('input'))field.disabled=!check.checked;}update();}
+    update();}
   function stopAndInvalidate(){invalidateHardware();jointTargets.clear();clearTimeout(previewTimer);previewController?.abort();epoch++;previewBusy=true;recipe=null;arm.simulationAction('stop');arm.setScenarioPreview(null);controls();}
   async function preview(){
     if(!draft||signal.aborted)return;previewController?.abort();previewController=new AbortController();const current=++epoch;previewBusy=true;update();
@@ -359,8 +364,12 @@ export function connectScenario(root,arm,signal){
   });
   on(ui.source,'change',()=>void switchSource(ui.source.value));
   on(root,'input',event=>{const input=event.target;if(input.dataset.exampleBoxAxis===undefined||!isExample())return;exampleBox=boxFields().map(i=>Number.isFinite(i.valueAsNumber)?i.valueAsNumber:null);changed();});
-  on(root,'input',event=>{const input=event.target;if(!input.dataset.config||!draft)return;const value=input.type==='checkbox'?input.checked:input.tagName==='SELECT'?(input.dataset.config==='turn_degrees'?Number(input.value):input.value):Number.isFinite(input.valueAsNumber)?input.valueAsNumber:null;if(input.dataset.config.startsWith('waypoint1_joints.')&&!draft.waypoint1_joints)draft.waypoint1_joints=Array(6).fill(null);put(draft,input.dataset.config,value);if(input.dataset.config.endsWith('.motion')){const n=input.dataset.config.split('.')[1];draft.stages[n].override=null;fill();if(input.value==='movec')showStageOptions(n,true);}changed();});
-  on(root,'change',event=>{const input=event.target;if(input.dataset.override&&draft){const n=input.dataset.override,kind=speedKind(Number(n));draft.stages[n].override=input.checked?structuredClone(draft.profiles[draft.stages[n].profile][kind]):null;fill();changed();}});
+  on(root,'input',event=>{const input=event.target;if(!input.dataset.config||!draft)return;const value=input.type==='checkbox'?input.checked:input.tagName==='SELECT'?(input.dataset.config==='turn_degrees'?Number(input.value):input.value):Number.isFinite(input.valueAsNumber)?input.valueAsNumber:null;const previousSpeed=input.dataset.config.endsWith('.motion')?resolvedSpeed(Number(input.dataset.config.split('.')[1]))?.speed:null;if(input.dataset.config.startsWith('waypoint1_joints.')&&!draft.waypoint1_joints)draft.waypoint1_joints=Array(6).fill(null);put(draft,input.dataset.config,value);if(input.dataset.config.endsWith('.motion')){const n=input.dataset.config.split('.')[1];draft.stages[n].override={...resolvedSpeed(Number(n)),speed:previousSpeed};fill();if(input.value==='movec')showStageOptions(n,true);}changed();});
+  on(root,'change',event=>{
+    const input=event.target,number=Number(input.dataset.speedPercent),percent=Number(input.value);
+    if(!draft||!number||pending||realBusy||percent<10||percent>100||percent%10!==0)return;
+    draft.stages[number].override={...resolvedSpeed(number),speed:maximumSpeed*percent/100};changed();
+  });
   on(root,'click',async event=>{const button=event.target.closest('[data-capture-via]');if(!button||!draft)return;try{draft.stages[button.dataset.captureVia].via_pose=(await api('work-points/current','GET',undefined,signal)).pose;fill();changed();message('현재 TCP를 원호 경유점으로 불러왔습니다. 확인 후 저장하세요.');}catch(error){message(error.message,true);}});
   on(root,'work-point-change',event=>{if(!isExample()&&boxForm?.contains(event.target)&&draft)changed(false);});
   on(ui.region,'change',()=>{stopAndInvalidate();update();void preview();});

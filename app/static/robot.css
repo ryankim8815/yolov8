@@ -255,7 +255,7 @@
 .scenario-inspector { grid-template-columns:minmax(0,1fr); }
 .scenario-inspector .scenario-step-detail { position:static; grid-row:auto; }
 .scenario-stages { overflow-x:auto; }
-.scenario-joint-table { width:100%; min-width:840px; border-collapse:collapse; text-align:left; }
+.scenario-joint-table { width:100%; min-width:920px; border-collapse:collapse; text-align:left; }
 .scenario-joint-table caption { padding:12px 0; text-align:left; font-size:13px; font-weight:600; }
 .scenario-joint-table th,.scenario-joint-table td { padding:8px; border-bottom:1px solid var(--line); }
 .scenario-joint-table thead th { background:var(--soft); color:var(--sub); font:12px var(--mono); }
@@ -265,6 +265,7 @@
 .scenario-joint-table [data-hardware-step] { margin:4px 0 2px 40px; padding:4px 7px; font-size:11px; }
 .scenario-joint-table tr:has([data-stage][aria-pressed=true]) { background:var(--mint-bg); }
 .scenario-joint-table select { max-width:110px; font-size:12px; }
+.scenario-joint-table [data-speed-percent] { width:88px; min-width:0; }
 .scenario-joint-table [data-open-stage] { display:block; margin-top:5px; padding:3px 5px; font-size:11px; }
 .scenario-stage-options > td { background:var(--soft); }
 .scenario-stage-options .scenario-motion-row { border:0; padding:8px; }
@@ -273,7 +274,7 @@
 [data-sc=hardware-dialog] { width:min(960px,calc(100vw - 32px)); max-height:85dvh; overflow:auto; }
 .scenario-hardware-path { white-space:pre-wrap; overflow-wrap:anywhere; padding:12px; background:var(--soft); font:12px/1.8 var(--mono); }
 .scenario-table-phase th { padding-top:18px; color:var(--sub); font-size:12px; background:var(--soft); }
-.scenario-stage-joints td:nth-child(n+4) { position:relative; padding:0; border-left:1px solid var(--line); }
+.scenario-stage-joints td:nth-child(n+5) { position:relative; padding:0; border-left:1px solid var(--line); }
 .scenario-stage-joints input { position:absolute; inset:0; display:block; width:100%; height:100%; min-width:0; margin:0; padding:10px 8px; box-sizing:border-box; appearance:textfield; font:13px var(--mono); border:0; border-radius:0; color:var(--ink); background:transparent; }
 .scenario-stage-joints input:focus { outline:2px solid var(--mint); outline-offset:-2px; background:var(--mint-bg); }
 .scenario-stage-joints input[readonly] { color:var(--sub); }
