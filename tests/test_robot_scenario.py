@@ -284,14 +284,33 @@ def test_stage_joint_targets_saved_previewed_and_resolved(scenario):
     result = client.post('/api/robot/pick/scenario/preview', json={'region': 'floor'}).json()
     for step in result['steps']:
         number = step['number']
-        if number in [3, 5, 7, 9, 10, 11, 13, 14, 15, 16]:
+        if number in [9, 10, 11, 13, 14, 15, 16]:
             assert step['space'] == 'joint'
             assert step['target'] == [number, 0, 60, 0, 120, 0]
     assert not calls
     prepare(client)
     actual = preview(client)
     assert actual['motion_reason'] is None, actual
-    assert client.get('/api/robot/pick-scenario').json()['stages']['5']['target_joints'] == [5, 0, 60, 0, 120, 0]
+    assert client.get('/api/robot/pick-scenario').json()['stages']['5']['target_joints'] is None
     invalid = client.get('/api/robot/pick-scenario').json()
-    invalid['stages']['5']['target_joints'][2] = 156
+    invalid['stages']['9']['target_joints'][2] = 156
     assert client.put('/api/robot/pick-scenario', json=invalid).status_code == 422
+
+
+def test_object_coordinates_drive_automatic_grasp_steps(scenario):
+    client, calls, *_ = scenario
+    config = client.get('/api/robot/pick-scenario').json()
+    config['virtual']['floor'] = dict(center_base_mm=[-420, 15, 60], size_mm=[50, 40, 120])
+    for number in [3, 5, 7]:
+        config['stages'][str(number)]['target_joints'] = [1, 2, 3, 4, 5, 6]
+    response = client.post('/api/robot/pick/scenario/preview', json={'region': 'floor', 'config': config})
+    assert response.status_code == 200, response.text
+    result = response.json()
+    assert result['steps'][4]['target'][:3] == [-420, 15, 60]
+    assert result['steps'][2]['target'][:3] == [-420, 15, 160]
+    assert result['steps'][6]['target'] == result['steps'][2]['target']
+    assert result['steps'][3]['opening_mm'] == pytest.approx(60)
+    for number in [3, 5, 7]:
+        assert result['steps'][number - 1]['space'] == 'task'
+        assert result['config']['stages'][str(number)]['target_joints'] is None
+    assert not calls

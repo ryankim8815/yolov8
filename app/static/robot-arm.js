@@ -273,7 +273,7 @@ export function circularFrames(start,via,end){
   const fraction=middle/sweep;
   return {length:Math.abs(sweep)*radius,fraction,at(t){t=Math.max(0,Math.min(1,t));const frame=t<=fraction?interpolateArmFrame(start,via,t/fraction):interpolateArmFrame(via,end,(t-fraction)/(1-fraction));for(let i=0;i<3;i++)frame[12+i]=center[i]+radius*(Math.cos(sweep*t)*x[i]+Math.sin(sweep*t)*y[i]);return frame;}};
 }
-function endpointIK(frame,seed,tool,preferred){
+export function endpointIK(frame,seed,tool,preferred){
   const bearing=Math.atan2(frame[13],frame[12])*180/Math.PI;
   const bases=[bearing,bearing-360,bearing+360].filter(v=>Math.abs(v)<=360).sort((a,b)=>Math.abs(a-(preferred??seed[0]))-Math.abs(b-(preferred??seed[0])));
   const tilt=Math.abs(frame[10])<.5?90:180;

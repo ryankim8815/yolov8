@@ -62,7 +62,7 @@ def compile_steps(config,pose,approach,box,opening,idle):
             step["profile"]=config["stages"][str(number)]["profile"]
         if number in targets:
             step["target"]=copy.deepcopy(targets[number]);step["space"]="joint" if number in {1,8,9,14,15,16} else "task"
-            override=config["stages"][str(number)].get("target_joints")
+            override=config["stages"][str(number)].get("target_joints") if number not in {3,5,7} else None
             if override is not None:
                 step.update(target=copy.deepcopy(override),space="joint",joint_override=True)
         if number in {4,12,17}:step["opening_mm"]=idle if number==17 else opening

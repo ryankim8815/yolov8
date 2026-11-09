@@ -119,6 +119,8 @@ class ScenarioInput(Input):
         for n,k,_ in STAGES:
             if k=="target":continue
             stage=self.stages[str(n)]
+            if n in {3,5,7}:
+                stage.target_joints=None
             check_joints(stage.target_joints)
             if n == 1 and stage.target_joints is not None:
                 raise ValueError("1단계의 관절각은 대기 자세에서 설정하세요.")

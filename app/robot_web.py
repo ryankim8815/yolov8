@@ -59,6 +59,14 @@ def create_robot_app():
             yield
 
     application = FastAPI(title="Vision Lab · E0509", lifespan=lifespan)
+
+    @application.middleware("http")
+    async def revalidate_frontend(request, call_next):
+        response = await call_next(request)
+        if request.url.path.startswith("/static/") and request.url.path.endswith((".js", ".css")):
+            response.headers["Cache-Control"] = "no-cache"
+        return response
+
     install_robot_routes(application)
     application.mount("/static", StaticFiles(directory=STATIC), name="static")
 

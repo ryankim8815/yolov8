@@ -83,6 +83,12 @@ class RobotTests(unittest.TestCase):
                 self.assertEqual(robot.get("/healthz").json()["service"], "robot-web")
                 self.assertEqual(robot.get("/robot").status_code, 200)
                 self.assertEqual(robot.get("/static/robot-poses.js").status_code, 200)
+                for asset in ("robot-arm.js", "robot-scenario.js", "robot.css"):
+                    response = robot.get("/static/" + asset)
+                    self.assertEqual(response.headers["cache-control"], "no-cache")
+                    cached = robot.get("/static/" + asset, headers={"If-None-Match": response.headers["etag"]})
+                    self.assertEqual(cached.status_code, 304)
+                    self.assertEqual(cached.headers["cache-control"], "no-cache")
                 pose = {"angles": [0, 0, 0, 0, 0, 0], "revision": None}
                 saved = robot.put("/api/robot/poses/1", json=pose).json()["poses"][0]
                 with TestClient(create_app(settings(), factory, directory), follow_redirects=False) as native:

@@ -1,5 +1,5 @@
 import {api} from './robot-camera-frame.js';
-import {armTelemetry,simulationToolPose,poseFrame,inverseArmFrame} from './robot-arm.js';
+import {armTelemetry,simulationToolPose,poseFrame,endpointIK} from './robot-arm.js?v=joint-targets';
 
 const stages=[['ready','대기 상태로 준비'],['target','YOLO 상품 요청'],['joint','상품 접근 위치'],['gripper','권장 폭으로 벌리기'],['line','파지점으로 접근'],['gripper','접촉 확인·파지 유지'],['line','접근 위치로 후퇴'],['joint','1차 경유점'],['joint','J1 회전·2차 경유점'],['joint','박스 위 위치'],['line','놓기 위치로 하강'],['gripper','파지 전 벌림으로 개방'],['line','박스 위로 상승'],['joint','2차 경유점 복귀'],['joint','J1 역회전·1차 경유점'],['joint','대기 자세 복귀'],['gripper','대기 벌림 복원']];
 const phases=[['준비',1,2],['파지',3,6],['이송',7,10],['놓기',11,13],['복귀',14,17]];
@@ -78,7 +78,11 @@ function build(root){
     const tab=node('button',title);tab.type='button';tab.role='tab';tab.id='scenario-tab-'+id;tab.dataset.scTab=id;tab.setAttribute('aria-controls','scenario-panel-'+id);root.querySelector('.scenario-tabs').append(tab);const panel=root.querySelector(`[data-sc-panel="${id}"]`);panel.id='scenario-panel-'+id;panel.setAttribute('aria-labelledby',tab.id);
   }
   for(const region of ['floor','shelf']){
-    const product=card(regionNames[region]+' 상품','중심은 로봇 BASE 좌표(mm), 크기는 X·Y·Z 방향 길이입니다.');product.dataset.virtualRegion=region;fields(product,['중심 X (mm)','중심 Y (mm)','중심 Z (mm)','가로 X (mm)','세로 Y (mm)','높이 Z (mm)'],[0,1,2].map(i=>`virtual.${region}.center_base_mm.${i}`).concat([0,1,2].map(i=>`virtual.${region}.size_mm.${i}`)));root.querySelector('[data-sc="virtual-fields"]').append(product);
+    const widthAxis=region==='floor'?0:1;
+    const product=card(regionNames[region]+' 객체','중심은 BASE 좌표입니다. 폭 w는 파지 방향 길이, 높이 h는 BASE Z 방향 길이이며 단위는 mm입니다.');product.dataset.virtualRegion=region;
+    fields(product,['중심 X','중심 Y','중심 Z','폭 w · '+(widthAxis===0?'X':'Y'),'높이 h · Z'],[0,1,2].map(i=>`virtual.${region}.center_base_mm.${i}`).concat([`virtual.${region}.size_mm.${widthAxis}`,`virtual.${region}.size_mm.2`]));
+    const depth=node('details');depth.append(node('summary','객체 깊이'));
+    fields(depth,['깊이 · '+(widthAxis===0?'Y':'X')+' (mm)'],[`virtual.${region}.size_mm.${1-widthAxis}`]);product.append(depth);root.querySelector('[data-sc="virtual-fields"]').append(product);
     const approach=card(regionNames[region],region==='floor'?'상품 위에서 내려가 파지하고 같은 위치로 올라옵니다.':'상품 앞에서 수평으로 파지하고 같은 위치로 물러납니다.');fields(approach,['접근·후퇴 간격 (mm)'],[`approaches.${region}.distance_mm`]);
     if(region==='shelf'){const l=node('label',null,'scenario-check'),check=node('input');check.type='checkbox';check.dataset.config='approaches.shelf.reverse';l.append(check,document.createTextNode('수평 접근 방향 반전'));approach.append(l);}
     const link=node('a',region==='floor'?'바닥 파지 평면 네 점 교시 →':'선반 파지 평면 네 점 교시 →');link.href='/robot?pick_region='+region+'#work-plane';approach.append(link);root.querySelector('.scenario-regions').append(approach);
@@ -118,7 +122,7 @@ function build(root){
   rowAt(11).append(pointPanel.querySelector('.scenario-card'));
   pointPanel.remove();
   for(const number of armSteps){
-    if([1,8].includes(number))continue;
+    if([1,3,5,7,8].includes(number))continue;
     const group=rowAt(number).querySelector('[data-joint-step]');
     const label=node('label','관절 목표 '),select=node('select');
     select.dataset.jointMode=number;
@@ -147,7 +151,7 @@ function build(root){
     if(!armSteps.has(number)){
       [...joints.querySelectorAll('input')].forEach((input,i)=>{input.dataset.computedJoint=i;});
     }
-    if(armSteps.has(number)&&![1,8].includes(number)){
+    if(armSteps.has(number)&&![1,3,5,7,8].includes(number)){
       const mode=rowAt(number).querySelector('[data-joint-mode]').parentElement.cloneNode(true);
       item.append(mode);
     }
@@ -156,6 +160,41 @@ function build(root){
       number===1?'대기 자세':
       number===8?'1차 경유점':'자동 계산 또는 직접 입력 · J1~J6 (°)','scenario-caption scenario-stage-hint'));
   }
+  const stageList=root.querySelector('[data-sc="stages"]');
+  const table=node('table',null,'scenario-joint-table');
+  table.append(node('caption','단계별 조인트 설정 · °'));
+  const thead=node('thead'),header=node('tr');
+  for(const title of ['단계','입력 방식','J1','J2','J3','J4','J5','J6']){
+    const cell=node('th',title);cell.scope='col';header.append(cell);
+  }
+  thead.append(header);table.append(thead);
+  for(const phase of stageList.querySelectorAll('.scenario-phase')){
+    const body=node('tbody'),phaseRow=node('tr'),phaseTitle=node('th',phase.querySelector('h5').textContent);
+    body.dataset.phase=phase.dataset.phase;
+    phaseTitle.colSpan=8;phaseTitle.scope='rowgroup';phaseRow.className='scenario-table-phase';phaseRow.append(phaseTitle);body.append(phaseRow);
+    for(const item of phase.querySelectorAll('li')){
+      const joints=item.querySelector('[data-joint-step]'),row=node('tr',null,'scenario-stage-joints');
+      row.dataset.jointStep=joints.dataset.jointStep;
+      const title=node('th'),mode=node('td'),select=item.querySelector('[data-joint-mode]');
+      title.scope='row';title.append(item.querySelector('[data-stage]'));
+      if(select)mode.append(select);
+      else {
+        const number=Number(title.querySelector('[data-stage]').dataset.stage);
+        mode.append(node('span',number>=3&&number<=7?'객체 기준 자동':armSteps.has(number)?'직접 입력':'자세 유지','scenario-caption'));
+      }
+      row.append(title,mode);
+      for(const input of joints.querySelectorAll('input')){
+        const cell=node('td');cell.append(input);row.append(cell);
+      }
+      body.append(row);
+    }
+    table.append(body);
+  }
+  stageList.replaceChildren(table);
+  const objectSettings=card('파지 객체 · 시뮬레이션','객체의 중심과 폭·높이를 입력하면 3~7단계의 접근·파지·후퇴 자세와 벌림이 자동 계산됩니다.');
+  objectSettings.classList.add('scenario-object-settings');
+  objectSettings.append(root.querySelector('[data-sc="region"]').closest('label'),root.querySelector('[data-sc="virtual-fields"]'));
+  stageList.before(objectSettings);
   for(const level of ['high','medium','low']){
     const preset=node('details',null,'scenario-preset'),summary=node('summary');summary.append(node('strong',names[level]),node('span'));preset.dataset.preset=level;preset.append(summary);
     for(const [kind,title,unit,accunit]of [['joint','관절','°/s','°/s²'],['line','직선','mm/s','mm/s²'],['gripper','그리퍼','rpm','rpm²']])fields(preset,[title+' 속도 ('+unit+')',title+' 가속도 ('+accunit+')'],[`profiles.${level}.${kind}.speed`,`profiles.${level}.${kind}.acceleration`]);root.querySelector('[data-sc="presets"]').append(preset);
@@ -243,7 +282,7 @@ export function connectScenario(root,arm,signal){
       for(const p of root.querySelectorAll('[data-preset]')){const speed=draft.profiles[p.dataset.preset];p.querySelector('summary span').textContent=`관절 ${fmt(speed.joint.speed)}°/s · 직선 ${fmt(speed.line.speed)} mm/s · 그리퍼 ${fmt(speed.gripper.speed)} rpm`;}
       for(const value of root.querySelectorAll('[data-speed-value]'))value.textContent=speedText(Number(value.dataset.speedValue));}controls();
   }
-  function fill(){if(!draft)return;for(const input of inputs){const value=path(draft,input.dataset.config);if(input.type==='checkbox')input.checked=Boolean(value);else input.value=value??'';}
+  function fill(){if(!draft)return;for(const n of [3,5,7])draft.stages[n].target_joints=null;for(const input of inputs){const value=path(draft,input.dataset.config);if(input.type==='checkbox')input.checked=Boolean(value);else input.value=value??'';}
     for(const input of root.querySelectorAll('[data-example-box-axis]'))input.value=exampleBox?.[Number(input.dataset.exampleBoxAxis)]??'';
     for(const check of root.querySelectorAll('[data-override]')){const n=check.dataset.override;check.checked=Boolean(draft.stages[n].override);const group=root.querySelector(`[data-override-fields="${n}"]`);group.hidden=!check.checked;for(const field of group.querySelectorAll('input'))field.disabled=!check.checked;}update();}
   function stopAndInvalidate(){jointTargets.clear();clearTimeout(previewTimer);previewController?.abort();epoch++;previewBusy=true;recipe=null;arm.simulationAction('stop');arm.setScenarioPreview(null);controls();}
@@ -256,7 +295,7 @@ export function connectScenario(root,arm,signal){
       let seed=result.config.standby_joints;const tool=poseFrame(simulationToolPose);
       for(const step of result.steps){
         if(step.target?.length!==6||!step.target.every(Number.isFinite))continue;
-        let q=step.space==='joint'?step.target:inverseArmFrame(poseFrame(step.target),seed,tool);
+        let q=step.space==='joint'?step.target:endpointIK(poseFrame(step.target),seed,tool,result.config.waypoint1_joints?.[0]);
         if(q){jointTargets.set(step.number,q);seed=q;}
       }
       update();arm.setScenarioPreview(result);
