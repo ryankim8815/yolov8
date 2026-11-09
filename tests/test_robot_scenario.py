@@ -369,3 +369,49 @@ def test_hardware_test_rejects_settings_changed_during_inspection(scenario, monk
                            json={'revision': engine.config.value['revision']})
     assert response.status_code == 412
     assert calls == []
+
+
+def test_hardware_test_accepts_displayed_example_draft_without_saving(scenario):
+    client, calls, frame, *_ = scenario
+    original = client.get('/api/robot/pick-scenario').json()
+    example = client.post('/api/robot/pick/scenario/preview', json={'example': True}).json()
+    example['config']['virtual']['floor']['center_base_mm'] = [-430, 0, 30]
+    endpoint = '/api/robot/pick/scenario/hardware-test/'
+    response = client.post(endpoint+'preview', json={'revision': original['revision'], 'config': example['config'],
+                                                    'box_pose': example['box_pose']})
+    assert response.status_code == 200, response.text
+    assert response.json()['pose'][:3] == [-430, 0, 30]
+    assert not calls
+    identifier = response.json()['approval_id']
+    frame['objects'] = []
+    assert client.post(endpoint+'approve', json={'approval_id': identifier}).status_code == 202
+    assert wait_state(client, identifier, {'awaiting_grip', 'failed', 'unknown'})['state'] == 'awaiting_grip'
+    assert calls[4].target[:3] == [-430, 0, 30]
+    assert client.post('/api/robot/pick/moves/'+identifier+'/confirm-grip', json={}).status_code == 200
+    assert wait_state(client, identifier, {'awaiting_open', 'failed', 'unknown'})['state'] == 'awaiting_open'
+    assert client.post('/api/robot/pick/moves/'+identifier+'/open-at-box', json={}).status_code == 200
+    assert wait_state(client, identifier, {'completed', 'failed', 'unknown'})['state'] == 'completed'
+    assert client.get('/api/robot/pick-scenario').json() == original
+    assert not client.get('/api/robot/pick/scenario/status').json()['prepared']
+
+
+@pytest.mark.parametrize('number', range(1, 18))
+def test_single_stage_preview_and_approval_only_move_arm(scenario, number):
+    client, calls, _, _, hand, *_ = scenario
+    hand['goal_current_ma'] = 0
+    config = client.get('/api/robot/pick-scenario').json()
+    endpoint = '/api/robot/pick/scenario/hardware-step/'
+    response = client.post(endpoint+'preview', json={'revision': config['revision'], 'step': number})
+    assert response.status_code == 200, response.text
+    target = response.json()
+    assert len(target['steps']) == 1
+    assert target['step'] == number
+    assert not calls
+    identifier = target['approval_id']
+    assert client.post(endpoint+'approve', json={'approval_id': identifier}).status_code == 202
+    move = wait_state(client, identifier, {'completed', 'failed', 'unknown'})
+    assert move['state'] == 'completed', move
+    assert len(calls) == 1
+    assert calls[0].kind in {'joint', 'line', 'circle'}
+    assert not calls[0].j1_only
+    assert client.post(endpoint+'approve', json={'approval_id': identifier}).status_code == 409

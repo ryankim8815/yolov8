@@ -262,6 +262,7 @@
 .scenario-joint-table th[scope=row] { width:28%; font-weight:normal; }
 .scenario-joint-table [data-stage] { display:flex; align-items:center; gap:8px; width:100%; padding:5px; text-align:left; background:transparent; border:0; }
 .scenario-joint-table [data-stage][aria-pressed=true] { color:var(--mint); }
+.scenario-joint-table [data-hardware-step] { margin:4px 0 2px 40px; padding:4px 7px; font-size:11px; }
 .scenario-joint-table tr:has([data-stage][aria-pressed=true]) { background:var(--mint-bg); }
 .scenario-joint-table select { max-width:110px; font-size:12px; }
 .scenario-joint-table [data-open-stage] { display:block; margin-top:5px; padding:3px 5px; font-size:11px; }
