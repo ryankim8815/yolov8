@@ -3,7 +3,7 @@
 #include <cassert>
 using namespace rhp12;
 struct Port {
-    std::map<int,int> r{{0,35074},{5,5<<8},{19,250},{20,3447},{22,2970},{256,1},{275,120},{287,50},{290,100},{296,240}};
+    std::map<int,int> r{{0,35074},{5,5<<8},{19,250},{20,3447},{22,2970},{24,1150},{256,1},{275,120},{287,50},{290,100},{296,240}};
     Bytes reply;std::vector<Bytes> writes;bool empty=false,bad_crc=false;
     void check(){}
     void write(Bytes b){assert(crc(b)==0);int address=word(b,2);

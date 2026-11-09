@@ -62,7 +62,7 @@ static void inspect_scenario(DRAFramework::CDRFLEx& sdk,const char* command){
         }
         for(auto q:qs){if(!joint_six(q))throw std::runtime_error("joint_limit");fk.push_back(forward(sdk,q));}
         FlangePort port{sdk,grant};rhp12::Hand<FlangePort> hand(port);rhp12::Status h;
-        opened=sdk.flange_serial_open(57600,BYTE_SIZE_EIGHTBITS,PARITY_CHECK_NONE,STOPBITS_ONE);
+        opened=port.open();
         if(!opened)throw std::runtime_error("serial_open");hand.inspect(h);
         if(!sdk.flange_serial_close())throw std::runtime_error("serial_close");opened=false;port.check();
         std::ostringstream out;out<<"{\"id\":"<<json_quote(id)<<",\"current_joints\":"<<array_json(joints_now(sdk))<<",\"current_tcp\":"<<array_json(current)
@@ -116,7 +116,7 @@ struct ScenarioRun {
             else if(kind=="circle"){float p[2][6],v[]={velocity,velocity},a[]={acceleration,acceleration};std::copy(via.begin(),via.end(),p[0]);std::copy(target.begin(),target.end(),p[1]);accepted=sdk.amovec(p,v,a,0,MOVE_MODE_ABSOLUTE,MOVE_REFERENCE_BASE);}
             else{
                 port=std::make_unique<FlangePort>(FlangePort{sdk,grant});hand=std::make_unique<rhp12::Hand<FlangePort>>(*port);
-                serial=sdk.flange_serial_open(57600,BYTE_SIZE_EIGHTBITS,PARITY_CHECK_NONE,STOPBITS_ONE);
+                serial=port->open();
                 if(!serial)throw std::runtime_error("serial_open");hand->start(position,std::lround(velocity*100),std::lround(acceleration),threshold,timeout,feedback);
             }
             if(!accepted)throw std::runtime_error("command_refused");

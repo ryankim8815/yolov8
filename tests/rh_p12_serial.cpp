@@ -5,11 +5,12 @@
 #include <string>
 using namespace rhp12;
 struct FakePort {
-    std::map<int,int> registers{{0,35074},{5,5<<8},{19,250},{275,120},{285,0},{287,30},{290,350},{296,241}};
+    std::map<int,int> registers{{0,35074},{5,5<<8},{19,250},{24,1150},{275,120},{285,0},{287,30},{290,350},{296,241}};
     std::vector<Bytes> writes;
     std::vector<Bytes> requests;
     Bytes reply;
     std::string fault;
+    int empty_reads=0;
     void check() {}
     void write(Bytes bytes) {
         assert(crc(bytes)==0);
@@ -35,9 +36,11 @@ struct FakePort {
         if(fault=="exception") reply=frame({1,uint8_t(bytes[1]|128),2});
         if(fault=="timeout" && bytes[1]==16) reply.clear();
         if(fault=="read_timeout")reply.clear();
+        if(fault=="first_request_timeout"&&requests.size()==1)reply.clear();
     }
     Bytes read(float timeout) {
-        assert(timeout>0.5f && timeout<=1.0f);
+        assert(timeout>0 && timeout<=1.0f);
+        if(empty_reads>0){--empty_reads;return {};}
         auto n=std::min<size_t>(3,reply.size());
         Bytes chunk(reply.begin(),reply.begin()+n);
         reply.erase(reply.begin(),reply.begin()+n);
@@ -62,8 +65,11 @@ int main() {
         if(bad.fault=="wrong_model") bad.registers[0]=9;
         if(bad.fault=="current_config") bad.registers[275]=300;
         Hand<FakePort> device(bad);
-        try { device.run(700,true,s); assert(false); } catch(const std::runtime_error&) {}
+        try { device.run(700,true,s); assert(false); } catch(const std::runtime_error& error) {
+            if(bad.fault=="read_timeout")assert(std::string(error.what())=="response_timeout_296_0");
+        }
         assert(device.attempted==(bad.fault=="timeout"));
+        if(bad.fault=="timeout")assert(bad.writes.size()==1); // Never replay a goal write.
     }
     FakePort probe;
     Hand<FakePort> diagnostic(probe);
@@ -73,4 +79,18 @@ int main() {
     probe.fault="crc";
     try {diagnostic.read_voltage(voltage);assert(false);}catch(const std::runtime_error&){}
     assert(voltage.voltage_tenths==-1 && !diagnostic.attempted);
+    FakePort delayed;delayed.empty_reads=3;
+    Hand<FakePort> delayed_hand(delayed);delayed_hand.run(-1,false,s);
+    assert(s.voltage_tenths==241&&delayed.writes.empty()&&delayed.requests.size()==8);
+    FakePort first_lost;first_lost.fault="first_request_timeout";
+    Hand<FakePort> retried(first_lost);retried.run(-1,false,s);
+    assert(s.voltage_tenths==241&&first_lost.writes.empty()&&first_lost.requests.size()==9);
+    assert(first_lost.requests[0]==first_lost.requests[1]);
+    FakePort beyond_ui; beyond_ui.registers[290]=737;
+    Hand<FakePort> returning(beyond_ui);returning.run(700,false,s);
+    assert(s.position==700&&s.position_max==1150);
+    FakePort restricted;restricted.registers[24]=600;
+    Hand<FakePort> limited(restricted);
+    try{limited.run(700,false,s);assert(false);}catch(const std::runtime_error&){}
+    assert(restricted.writes.empty());
 }

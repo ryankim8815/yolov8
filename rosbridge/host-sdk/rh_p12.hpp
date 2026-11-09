@@ -6,6 +6,7 @@
 #include <cmath>
 #include <cstdint>
 #include <stdexcept>
+#include <string>
 #include <thread>
 #include <vector>
 
@@ -30,6 +31,8 @@ inline int word(const Bytes& bytes, size_t i) { return (bytes.at(i) << 8) | byte
 struct Status {
     int position = -1, current = 0, goal_current = 0, limit = 0, mode = 0, error = 0;
     int voltage_tenths = -1;
+    int position_min = 0, position_max = 0;
+    bool position_valid(int value) const {return value >= position_min && value <= position_max;}
     bool moving = false;
     int velocity_limit=0, acceleration_limit=0;
     bool torque=false, contact=false;
@@ -47,9 +50,13 @@ template<class Port> class Hand {
         const auto end = std::chrono::steady_clock::now() + std::chrono::seconds(1);
         while (reply.size() < expected) {
             const float seconds = std::chrono::duration<float>(end - std::chrono::steady_clock::now()).count();
-            if (seconds <= 0) throw std::runtime_error("timeout");
+            if (seconds <= 0) throw std::runtime_error("response_timeout_"+
+                std::to_string(word(payload,2))+"_"+std::to_string(reply.size()));
             auto chunk = port.read(seconds);
-            if (chunk.empty()) throw std::runtime_error("timeout");
+            if (chunk.empty()) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(10));
+                continue;
+            }
             reply.insert(reply.end(),chunk.begin(),chunk.end());
             if (reply.size() >= 2 && (reply[1] & 0x80)) expected = 5;
         }
@@ -78,18 +85,35 @@ template<class Port> class Hand {
         s.position = static_cast<int32_t>(raw);
         s.error = word(regs(259,1),3) & 255;
     }
+    void position_limits(Status& s) {
+        auto r=regs(24,4); // 40025 max position, 40027 min position (low word first).
+        s.position_max=static_cast<int32_t>(uint32_t(word(r,3))|(uint32_t(word(r,5))<<16));
+        s.position_min=static_cast<int32_t>(uint32_t(word(r,7))|(uint32_t(word(r,9))<<16));
+        if(s.position_min<0||s.position_max>1150||s.position_min>=s.position_max)
+            throw std::runtime_error("position_limits");
+    }
 public:
     bool attempted = false;
     explicit Hand(Port& p): port(p) {}
     void read_voltage(Status& s) {
         s.voltage_tenths = -1;
         // 40297 -> zero-based 296 (0x0128): 01 03 01 28 00 01 + CRC.
-        s.voltage_tenths = word(regs(296,1),3);
+        // A flange can acknowledge OPEN before it accepts the first TX frame.
+        // Retry this read-only probe; never replay torque or goal writes.
+        for(int attempt=0;attempt<3;++attempt) {
+            try {s.voltage_tenths=word(regs(296,1),3);return;}
+            catch(const std::runtime_error& error) {
+                if(attempt==2||std::string(error.what()).rfind("response_timeout_",0)!=0)throw;
+                port.check();
+                std::this_thread::sleep_for(std::chrono::milliseconds(100));
+            }
+        }
     }
     void inspect(Status& s) {
         read_voltage(s);
         if(word(regs(0,1),3)!=35074)throw std::runtime_error("wrong_model");
         s.mode=word(regs(5,1),3)>>8;s.limit=word(regs(19,1),3);s.goal_current=int16_t(word(regs(275,1),3));
+        position_limits(s);
         auto v=regs(22,2),a=regs(20,2);
         s.velocity_limit=word(v,3)|(word(v,5)<<16);s.acceleration_limit=word(a,3)|(word(a,5)<<16);
         s.torque=(word(regs(256,1),3)&1)!=0;observe(s);
@@ -104,7 +128,7 @@ public:
     std::chrono::steady_clock::time_point stable_since{},expires{};
     void start(int target,int velocity,int acceleration,int threshold,int timeout,Status& s) {
         inspect(s);
-        if(target<0||target>700||s.mode!=5||s.error||s.moving||s.position<0||s.position>700||
+        if(target<0||target>700||!s.position_valid(target)||s.mode!=5||s.error||s.moving||!s.position_valid(s.position)||
            s.goal_current<=0||s.goal_current>s.limit||velocity<=0||velocity>s.velocity_limit||
            acceleration<=0||acceleration>s.acceleration_limit||threshold<0||threshold>s.goal_current)
             throw std::runtime_error("current_config");
@@ -117,8 +141,8 @@ public:
     void halt(Status& s) {observe(s);goal(s.position);destination=s.position;s.goal_position=s.position;contact_threshold=0;halted=true;holding=true;stable_since={};}
     bool tick(Status& s) {
         observe(s);const auto now=std::chrono::steady_clock::now();
-        if(s.error||s.position<0||s.position>700)throw std::runtime_error("device_state");
-        if(now>expires)throw std::runtime_error("timeout");
+        if(s.error||!s.position_valid(s.position))throw std::runtime_error("device_state");
+        if(now>expires)throw std::runtime_error("position_timeout");
         const bool close_contact=contact_threshold>0&&!holding;
         if(close_contact&&s.position>=698)throw std::runtime_error("empty_grip");
         bool eligible=close_contact?s.position>start_position+2&&std::abs(s.current)>=contact_threshold:
@@ -140,11 +164,12 @@ public:
         s.mode = word(regs(5,1),3) >> 8;
         s.limit = word(regs(19,1),3);
         s.goal_current = int16_t(word(regs(275,1),3));
+        position_limits(s);
         observe(s);
         if (target < 0) return; // Explicit read: no torque or goal writes.
-        if (target > 700 || s.mode != 5 || s.goal_current <= 0 || s.goal_current > s.limit)
+        if (target > 700 || !s.position_valid(target) || s.mode != 5 || s.goal_current <= 0 || s.goal_current > s.limit)
             throw std::runtime_error("current_config");
-        if (s.error || s.moving || s.position < 0 || s.position > 700) throw std::runtime_error("device_state");
+        if (s.error || s.moving || !s.position_valid(s.position)) throw std::runtime_error("device_state");
         int initial = s.position;
         if (!(word(regs(256,1),3) & 1)) {
             goal(initial); // Do not energize the motor with a stale target.
@@ -157,14 +182,14 @@ public:
         while (std::chrono::steady_clock::now() < end) {
             std::this_thread::sleep_for(std::chrono::milliseconds(100));
             observe(s);
-            if (s.error || s.position < 0 || s.position > 700) throw std::runtime_error("device_state");
+            if (s.error || !s.position_valid(s.position)) throw std::runtime_error("device_state");
             bool reached = std::abs(s.position-target) <= 2;
             bool stopped_on_object = contact_allowed && s.position > initial+2 && std::abs(s.current)>0;
             stable = (!s.moving && std::abs(s.position-previous)<=1 && (reached || stopped_on_object)) ? stable+1 : 0;
             if (stable >= 3) { port.check(); return; }
             previous = s.position;
         }
-        throw std::runtime_error("timeout");
+        throw std::runtime_error("position_timeout");
     }
 };
 } // namespace rhp12

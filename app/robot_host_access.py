@@ -72,6 +72,7 @@ class AccessServer:
         self.session = None
         self.connection, self.detail = connection, detail
         self.sdk = self.controller = self.state = None
+        self.flange = None
         self.initialized = self.held = False
         self.callback = self.callback_at = self.held_since = None
         self.result, self.deadline, self.revision = "idle", None, 0
@@ -88,7 +89,7 @@ class AccessServer:
                     gripper_supported=self.gripper_supported, gripper_feedback=self.hand_feedback, gripper_target=self.hand_target,
                     line_supported=self.line_supported, transfer_supported=self.line_supported,scenario_supported=self.scenario_supported,circle_supported=self.circle_supported,
                     operation_mode=self.mode, connection=self.connection, route=self.route, detail=self.detail,
-                    sdk_version=self.sdk, controller_version=self.controller, robot_state=self.state,
+                    sdk_version=self.sdk, controller_version=self.controller, flange_version=self.flange, robot_state=self.state,
                     initialized=self.initialized, session_id=self.session, revision=self.revision,
                     worker_pid=self.process.pid if self.process and self.session else None,
                     held=held, held_seconds=int(time.monotonic() - self.held_since) if held else None,
@@ -370,6 +371,8 @@ class AccessServer:
             return
         reasons = {"wrong_model":"장치 1의 모델 번호가 RH-P12-RN-A와 다릅니다.", "control":"제어권과 로봇 정지 상태를 확인하세요.", "current_config":"장치의 위치 제어 모드와 목표 전류·한계를 확인하세요.",
                    "device_state":"장치 오류·동작 상태 또는 위치 범위를 확인하세요.", "timeout":"응답 또는 목표 위치 확인 시간 초과",
+                   "position_timeout":"그리퍼 목표 위치 도달 확인 시간 초과",
+                   "position_limits":"그리퍼 장치의 최소·최대 위치 한계를 확인하세요.",
                    "bad_response":"Modbus 응답 형식 또는 CRC 오류", "device_exception":"Modbus 장치 예외",
                    "serial_open":"플랜지 시리얼 열기 실패 (57600 bps, 8N1)",
                    "serial_write":"플랜지 시리얼 요청 전송 실패", "serial_close":"플랜지 시리얼 닫기 실패"}
@@ -390,10 +393,18 @@ class AccessServer:
                               "input_voltage_v":voltage / 10.0 if voltage >= 0 else None,
                               "observed_at":datetime.now(timezone.utc).isoformat()}
         message = "장치 응답 확인" if state == "completed" else reasons.get(reason, "플랜지 직렬통신 실패 · " + reason)
+        if state != "completed" and reason.startswith("response_timeout_"):
+            parts = reason.split("_")
+            if len(parts) == 4 and parts[2].isdigit() and parts[3].isdigit():
+                message = f"그리퍼 Modbus 응답 시간 초과 (레지스터 {40001 + int(parts[2])}, 수신 {int(parts[3])}바이트)"
         self.motion.set_result({"state":state, "message":message, "feedback":self.hand_feedback})
         self.motion = None
 
     def event(self, key, value):
+        if key == "flange":
+            self.flange = value
+            LOG.info("SDK flange: %s", value)
+            return
         if key=="feature" and value=="scenario17":self.scenario_supported=True
         elif key=="feature" and value=="circle":self.circle_supported=True
         elif key=="inspection":

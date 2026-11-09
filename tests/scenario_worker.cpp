@@ -23,7 +23,7 @@ static std::atomic<unsigned> grant_number{1};static std::atomic<long long> last_
 static long long now_ms(){return clock_ms;}static std::string last_result;
 static void event(const char* key,const char* value){if(std::string(key)=="segment")last_result=value;}
 static bool can_move(DRAFramework::CDRFLEx& s,unsigned g){return !in_move&&held&&initialized&&!down&&g==grant_number&&s.state==STATE_STANDBY;}
-struct FlangePort{DRAFramework::CDRFLEx& sdk;unsigned grant;void check(){}void write(rhp12::Bytes){}rhp12::Bytes read(float){return {};}};
+struct FlangePort{DRAFramework::CDRFLEx& sdk;unsigned grant;bool open(){return sdk.flange_serial_open(57600,BYTE_SIZE_EIGHTBITS,PARITY_CHECK_NONE,STOPBITS_ONE);}void check(){}void write(rhp12::Bytes){}rhp12::Bytes read(float){return {};}};
 #include "../rosbridge/host-sdk/scenario_worker.hpp"
 static std::string command(float shoulder=0){std::ostringstream s;s<<"segment 1 0123456789abcdef0123456789abcdef joint 10 10 -1 0 1 120 746f6f6c 180 "<<shoulder<<" 90 0 90 0 373 0 262 -90 180 0";return s.str();}
 static void advance(){clock_ms+=300;last_frame=clock_ms;}

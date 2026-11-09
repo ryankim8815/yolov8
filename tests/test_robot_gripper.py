@@ -31,6 +31,24 @@ def test_host_gripper_voltage_feedback(state, voltage, expected):
     asyncio.run(receive())
 
 
+@pytest.mark.parametrize("reason,expected", [
+    ("response_timeout_296_0", "Modbus 응답 시간 초과 (레지스터 40297, 수신 0바이트)"),
+    ("position_timeout", "목표 위치 도달 확인 시간 초과"),
+])
+def test_host_distinguishes_serial_timeout_from_position_timeout(reason, expected):
+    import asyncio
+    from app.robot_host_access import AccessServer
+
+    async def receive():
+        server = AccessServer.__new__(AccessServer)
+        server.motion = asyncio.get_running_loop().create_future()
+        result = server.motion
+        server.hand_result(f"failed {reason} -1 0 0 0 0 0 -1")
+        assert expected in (await result)["message"]
+
+    asyncio.run(receive())
+
+
 def test_serial_wire_format_and_readback(tmp_path):
     compiler = shutil.which("c++")
     if not compiler:

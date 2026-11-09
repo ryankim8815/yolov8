@@ -127,6 +127,12 @@ static void move_pose(DRAFramework::CDRFLEx& sdk, const char* command) {
 struct FlangePort {
     DRAFramework::CDRFLEx& sdk;
     unsigned grant;
+    bool open() {
+        const bool opened=sdk.flange_serial_open(57600,BYTE_SIZE_EIGHTBITS,PARITY_CHECK_NONE,STOPBITS_ONE);
+        // The SDK acknowledges configuration before the flange is ready for TX.
+        if(opened)std::this_thread::sleep_for(std::chrono::milliseconds(500));
+        return opened;
+    }
     void check() {
         if (!mode_verified || !held || down || !initialized || grant != grant_number.load() ||
             !last_frame.load() || now_ms()-last_frame.load()>2000 ||
@@ -160,7 +166,7 @@ static void gripper(DRAFramework::CDRFLEx& sdk, const char* command) {
     in_move = true;
     try {
         port.check();
-        opened = sdk.flange_serial_open(57600, BYTE_SIZE_EIGHTBITS, PARITY_CHECK_NONE, STOPBITS_ONE);
+        opened = port.open();
         if (!opened) throw std::runtime_error("serial_open");
         hand.run(target, contact, feedback);
         port.check();
@@ -223,6 +229,7 @@ int main() {
         event("disconnect", "DRCF version unavailable"); sdk.close_connection(); return 3;
     }
     event("connected", system._szController);
+    event("flange", system._szFlangeBoard);
     const auto opened = now_ms();
     long long heartbeat = 0;
     while (!down) {
