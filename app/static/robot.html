@@ -126,9 +126,9 @@ docker compose run --rm --no-deps doosan-driver timeout 15 check-e0509</pre>
           <div class="robot-joints" id="robot-joints"></div>
         </section>
         <section id="manipulator-work-points" data-manipulator-panel hidden class="panel" role="tabpanel" aria-labelledby="manipulator-points-tab" tabindex="0">
-          <div class="panel-head"><h2 id="work-points-title">경유 지점 설정</h2><span class="meta">로봇 베이스 기준 · BASE</span></div>
+          <div class="panel-head"><h2 id="work-points-title">이동 프리셋</h2><span class="meta">로봇 베이스 기준 · BASE</span></div>
           <div class="pose-body">
-            <p class="work-point-help">17단계 이송의 파지 영역·대기 자세·경유점과 속도를 설정합니다. TCP의 X·Y·Z는 mm, A·B·C는 °(ZYZ), 관절각은 °입니다. 기존 수동 이송 작업점은 하단에서 설정할 수 있습니다.</p>
+            <p class="work-point-help">프리셋별 이동 경로와 음성 명령을 설정합니다. 단계와 묶음을 추가·재정렬하고 저장된 좌표로 실행합니다. TCP XYZ는 mm, ABC는 °(ZYZ), 관절각은 °입니다.</p>
             <section id="scenario-editor" aria-label="17단계 이송 시나리오"></section>
             <details class="legacy-points"><summary>기존 작업점 · 수동 이송 / 단일 지점 시뮬레이션</summary>
             <div id="work-point-simulation" class="point-simulation" aria-labelledby="point-simulation-title">
@@ -302,7 +302,7 @@ docker compose run --rm --no-deps doosan-driver timeout 15 check-e0509</pre>
                 </div>
                 <div class="plane-tabs" role="tablist" aria-label="작업 평면 보정 설정">
                   <button type="button" role="tab" id="manipulator-control-tab" data-manipulator-tab="#manipulator" aria-selected="false" aria-controls="manipulator-control" tabindex="-1" hidden>로봇 제어</button>
-                  <button type="button" role="tab" id="manipulator-points-tab" data-manipulator-tab="#work-points-title" aria-selected="false" aria-controls="manipulator-work-points" tabindex="-1" hidden>경유 지점 설정</button>
+                  <button type="button" role="tab" id="manipulator-points-tab" data-manipulator-tab="#work-points-title" aria-selected="false" aria-controls="manipulator-work-points" tabindex="-1" hidden>이동 프리셋</button>
                   <button type="button" role="tab" id="manipulator-box-tab" data-manipulator-tab="#parcel-box-title" aria-selected="false" aria-controls="manipulator-parcel-box" tabindex="-1" hidden>택배 박스 위치 설정</button>
                   <button type="button" role="tab" id="manipulator-products-tab" data-manipulator-tab="#product-grasp-title" aria-selected="false" aria-controls="manipulator-products" tabindex="-1" hidden>상품·파지 영역</button>
                   <button type="button" role="tab" id="manipulator-poses-tab" data-manipulator-tab="#pose-title" aria-selected="false" aria-controls="manipulator-pose-tests" tabindex="-1" hidden>자세 테스트</button>

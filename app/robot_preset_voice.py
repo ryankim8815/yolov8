@@ -1,0 +1,310 @@
+"""Consume final transcripts from the Mac audio owner; browser text tests cannot approve hardware."""
+import asyncio
+import copy
+import json
+import os
+import time
+from contextlib import suppress
+from http.client import HTTPConnection
+from typing import Literal
+
+from fastapi import APIRouter, Depends, Request
+from pydantic import Field
+
+from .pick_plane import Input
+from .robot_access_protocol import local_json
+from .robot_preset_config import uid
+from .store import DomainError
+from .voice_commands import normalized
+
+
+def native_voice(action, after=0, *, session_id=None):
+    host="host.docker.internal" if os.getenv("ROBOT_BRIDGE_NETWORK")=="compose" else "127.0.0.1"
+    conn=HTTPConnection(host,8000,timeout=3)
+    try:
+        headers={"Content-Type":"application/json"}
+        if session_id:headers["X-Voice-Session"]=session_id
+        conn.request("GET" if action=="events" else "POST",f"/api/voice/robot/{action}"+(f"?after={after}" if action=="events" else ""),headers=headers)
+        response=conn.getresponse();body=json.loads(response.read(262144))
+        if response.status!=200:raise DomainError(body.get("detail") or "음성 서비스를 확인하세요.",response.status)
+        return body
+    except (OSError,ValueError) as exc:raise DomainError("Mac 음성 서비스에 연결할 수 없습니다. YOLO_VOICE_ENABLED=1로 Mac 서버를 시작하고 한국어 모델을 확인하세요.",503) from exc
+    finally:conn.close()
+
+
+class PresetVoice:
+    def __init__(self,engine):
+        self.engine=engine;self.task=None;self.session=None;self.cursor=0;self.generation=0
+        self.target="simulation";self.pending=None;self.message="음성 대기를 시작하세요.";self.transcript=""
+        self.simulation=None;self.ui_seen=0;self.native_state="idle"
+        self.stop_serial=0
+        self.lifecycle_lock=asyncio.Lock()
+        self.release_session=None
+        self.selection=None;self.needs_preparation=None
+
+    def invalidate(self,message="확인 대기를 취소했습니다."):
+        self.generation+=1
+        if self.pending and self.pending.get("hardware_id"):
+            self.engine.robot.picks.approvals.pop(self.pending["hardware_id"],None)
+        self.pending=None;self.selection=None;self.needs_preparation=None;self.simulation=None;self.message=message
+
+    def status(self,heartbeat=False):
+        if heartbeat:self.ui_seen=time.monotonic()
+        if self.pending and self.pending["deadline"]<=time.monotonic():self.invalidate("실행 확인이 만료되었습니다.")
+        if self.pending:
+            try:self.validate_pending()
+            except DomainError as exc:self.invalidate(str(exc))
+        if self.selection:
+            try:self.validate_selection()
+            except DomainError as exc:self.invalidate(str(exc))
+        private={"deadline","hardware_id","generation","confirm_after","versions","floor_revision","recipe","binding","session","preset"}
+        public={k:v for k,v in self.pending.items() if k not in private} if self.pending else None
+        selection={k:v for k,v in self.selection.items() if k not in private} if self.selection else None
+        move=self.engine.robot.picks.moves.get(self.engine.robot.picks.active_id)
+        return dict(listening=self.session is not None,can_stop=bool(self.session or self.release_session),state=self.native_state,target=self.target,message=self.message,transcript=self.transcript,
+                    pending=public,selection=selection,needs_preparation=self.needs_preparation,simulation=self.simulation,move=move,stop_serial=self.stop_serial,
+                    busy=self.engine.robot.picks.busy or self.engine.robot.hand.busy or self.engine.robot.pose_tests.snapshot()["busy"])
+
+    async def start(self,target):
+        async with self.lifecycle_lock:
+            if self.session:
+                if target!=self.target:raise DomainError("음성 대기를 종료한 뒤 실행 대상을 변경하세요.")
+                return self.status()
+            await self.release_native()
+            self.invalidate();native=await asyncio.to_thread(native_voice,"start")
+            self.session=native["session_id"];self.cursor=native["cursor"];self.target=target;self.native_state=native["state"]
+            self.message="등록한 명령을 말씀하세요."
+            self.task=asyncio.create_task(self.poll())
+            return self.status()
+
+    async def stop(self,notify_native=True):
+        async with self.lifecycle_lock:
+            self.release_session=self.session or self.release_session;self.session=None;self.invalidate("음성 대기를 종료했습니다. 실행 중인 작업은 별도 중단 버튼으로 제어하세요.")
+            if self.task and self.task is not asyncio.current_task():
+                self.task.cancel()
+                with suppress(asyncio.CancelledError):await self.task
+            self.task=None;self.native_state="idle"
+            if notify_native:await self.release_native()
+            else:self.release_session=None
+            return self.status()
+
+    async def release_native(self):
+        if not self.release_session:return
+        try:await asyncio.to_thread(native_voice,"stop",session_id=self.release_session)
+        except DomainError as exc:
+            if exc.status!=409:
+                self.native_state="error";self.message="마이크 종료를 확인하지 못했습니다. 음성 대기 종료를 다시 누르세요. "+str(exc)
+                raise
+        self.release_session=None
+
+    def match(self,text):
+        word=normalized(text)
+        matches=[p for p in self.engine.library.load()["presets"] if p["voice_enabled"] and word in {normalized(a) for a in p["aliases"]}]
+        if len(matches)!=1:raise DomainError("미등록 또는 중복 명령입니다. 실행할 작업이 없습니다.")
+        p=copy.deepcopy(matches[0]);recipe=self.engine.compile(p)
+        if p["object_source"]=="yolo":self.engine.detections.criteria(p)
+        elif recipe["errors"]:raise DomainError(" ".join(recipe["errors"]))
+        return p,recipe
+
+    async def test(self,text,snapshot_id=None,candidate_id=None):
+        # Deliberately does not modify the real microphone confirmation state.
+        if normalized(text) in {normalized(s) for s in ("로봇 실행","로봇 중단","중단","로봇 취소","음성 대기 종료")}:
+            raise DomainError("공통 제어 명령은 문장 테스트로 실행하지 않습니다.")
+        p,recipe=self.match(text)
+        if p["object_source"]=="yolo":
+            if snapshot_id is None:
+                capture=await self.engine.detections.capture(p)
+                if capture["selected_id"] is None:
+                    return dict(name=p["name"],revision=p["revision"],preset_id=p["id"],detection=capture,recipe=None,simulation_only=True)
+                snapshot_id=capture["snapshot_id"];candidate_id=capture["selected_id"]
+            binding=self.engine.detections.bind(p,snapshot_id,candidate_id)
+            await self.engine.detections.revalidate(p,binding)
+            recipe=self.engine.compile(p,binding["resolved"])
+            if recipe["errors"]:raise DomainError(" ".join(recipe["errors"]))
+        return dict(name=p["name"],revision=p["revision"],preset_id=p["id"],recipe=recipe,simulation_only=True)
+
+    def validate_pending(self):
+        p=self.pending
+        if not p or p["deadline"]<=time.monotonic() or p["generation"]!=self.generation:raise DomainError("실행 확인이 만료되었습니다.")
+        if self.engine.library.get(p["preset_id"])["revision"]!=p["revision"]:raise DomainError("프리셋이 변경되었습니다.")
+        if p["versions"]!=self.engine.legacy.versions() or p["floor_revision"]!=self.engine.robot.floor.value["revision"]:raise DomainError("장비 또는 공통 설정이 변경되었습니다.")
+        if p.get("binding"):
+            self.engine.detections.check(self.engine.library.get(p["preset_id"]),p["binding"]["snapshot_id"])
+        return p
+
+    def validate_selection(self):
+        selected=self.selection
+        if not selected or selected["generation"]!=self.generation or selected["session"]!=self.session or not self.session:
+            raise DomainError("음성 대상 선택이 취소되었습니다.")
+        preset=self.engine.library.get(selected["preset_id"])
+        self.engine.detections.check(preset,selected["detection"]["snapshot_id"])
+        return selected
+
+    async def select(self,request_id,candidate_id):
+        selected=self.validate_selection()
+        if selected["request_id"]!=request_id:raise DomainError("대상 선택 요청이 변경되었습니다.")
+        self.invalidate()
+        preset=self.engine.library.get(selected["preset_id"])
+        binding=self.engine.detections.bind(preset,selected["detection"]["snapshot_id"],candidate_id)
+        recipe=self.engine.compile(preset,binding["resolved"])
+        await self.make_pending(preset,recipe,self.generation,self.session,self.engine.legacy.versions(),self.engine.robot.floor.value["revision"],binding)
+        return self.status()
+
+    async def hear(self,event):
+        text=event["text"];word=normalized(text);self.transcript=text
+        if word in {normalized("로봇 중단"),normalized("중단")}:
+            self.engine.robot.scenario.stop_all();self.message="로봇 작업 중단을 요청했습니다.";return
+        if word==normalized("음성 대기 종료"):await self.stop();return
+        if word==normalized("로봇 취소"):self.invalidate();return
+        if word==normalized("로봇 실행"):
+            p=self.validate_pending()
+            if p["confirmation"]!="voice" or event["sequence"]<=p["confirm_after"]:raise DomainError("새 음성 재확인이 필요하거나 화면 승인이 필요한 작업입니다.")
+            self.confirm(p["approval_id"],from_voice=True);return
+        self.invalidate()
+        self.engine.legacy.require_idle()
+        preset,recipe=self.match(text);generation=self.generation;session=self.session
+        versions=self.engine.legacy.versions();floor=self.engine.robot.floor.value["revision"]
+        binding=None
+        if preset["object_source"]=="yolo":
+            try:capture=await self.engine.detections.capture(preset,hardware=self.target=="hardware")
+            except DomainError as exc:
+                if generation!=self.generation or session!=self.session:return
+                if "인식 자세가 다릅니다" in str(exc):
+                    self.needs_preparation=dict(preset_id=preset["id"],revision=preset["revision"],name=preset["name"])
+                    self.message=str(exc);return
+                raise
+            if generation!=self.generation or session!=self.session or not session:return
+            if capture["selected_id"] is None:
+                self.message=capture["message"]
+                if capture["state"]=="selection_required":
+                    self.selection=dict(request_id=uid(),preset_id=preset["id"],revision=preset["revision"],name=preset["name"],target=self.target,
+                                        detection=capture,generation=generation,session=session)
+                return
+            binding=self.engine.detections.bind(preset,capture["snapshot_id"],capture["selected_id"])
+            recipe=self.engine.compile(preset,binding["resolved"])
+        await self.make_pending(preset,recipe,generation,session,versions,floor,binding)
+
+    async def make_pending(self,preset,recipe,generation,session,versions,floor,binding=None):
+        if recipe["errors"]:raise DomainError(" ".join(recipe["errors"]))
+        hardware=None;published=False
+        def cancelled():return generation!=self.generation or not session or session!=self.session
+        try:
+            if binding:
+                await self.engine.detections.revalidate(preset,binding)
+                if cancelled():return
+            kwargs=dict(snapshot_id=binding["snapshot_id"],candidate_id=binding["candidate_id"]) if binding else {}
+            hardware=await self.engine.preview(preset["id"],preset["revision"],**kwargs) if self.target=="hardware" else None
+            if cancelled():return
+            head=await asyncio.to_thread(native_voice,"events")
+            # Every await may overlap stop, save, or a replacement microphone session.
+            if cancelled():return
+            if head.get("session_id")!=session or head.get("context","robot")!="robot":raise DomainError("음성 세션이 변경되었습니다.")
+            if versions!=self.engine.legacy.versions() or floor!=self.engine.robot.floor.value["revision"] or self.engine.library.get(preset["id"])["revision"]!=preset["revision"]:
+                raise DomainError("설정이 변경되었습니다. 명령을 다시 말씀하세요.")
+            self.engine.legacy.require_idle()
+            approval=self.engine.robot.picks.approvals.get(hardware["approval_id"]) if hardware else None
+            if hardware and (not approval or approval["deadline"]<=time.monotonic()):raise DomainError("실행 확인이 만료되었습니다.")
+            deadline=approval["deadline"] if approval else time.monotonic()+30
+            if binding:
+                self.engine.detections.check(preset,binding["snapshot_id"])
+                deadline=min(deadline,binding["deadline"])
+            ids=[s["id"] for s in preset["steps"]]
+            range_label="전체 경로" if not preset["range_start"] else " → ".join(f'{ids.index(preset[key])+1} · {preset["steps"][ids.index(preset[key])]["name"] or "동작"}' for key in ("range_start","range_end"))
+            self.pending=dict(approval_id=uid(),hardware_id=hardware["approval_id"] if hardware else None,preset_id=preset["id"],name=preset["name"],revision=preset["revision"],
+                confirmation=preset["confirmation"],total_steps=len(recipe["steps"]),range_label=range_label,target=self.target,deadline=deadline,generation=generation,confirm_after=head["cursor"],
+                versions=versions,floor_revision=floor,recipe=copy.deepcopy(recipe),binding=binding,
+                detected=copy.deepcopy(binding["resolved"]) if binding else None)
+            published=True
+            self.message=preset["name"]+" · "+("‘로봇 실행’을 말씀하세요." if preset["confirmation"]=="voice" else "화면에서 승인하세요.")
+        finally:
+            if hardware and not published:self.engine.robot.picks.approvals.pop(hardware["approval_id"],None)
+
+    def confirm(self,identifier,from_voice=False):
+        p=self.validate_pending()
+        self.engine.legacy.require_idle()
+        if identifier!=p["approval_id"]:raise DomainError("실행 확인 ID가 다릅니다.")
+        if p["confirmation"]=="voice" and not from_voice:raise DomainError("마이크의 ‘로봇 실행’ 재확인이 필요합니다.")
+        if p["target"]=="simulation" and time.monotonic()-self.ui_seen>5:raise DomainError("시뮬레이션 화면을 열어주세요.")
+        if p["target"]=="hardware":
+            try:result=self.engine.approve(p["hardware_id"])
+            except Exception as exc:
+                self.invalidate(str(exc));raise
+        else:
+            result=dict(id=uid(),recipe=copy.deepcopy(p["recipe"]))
+            self.simulation=result
+        self.pending=None;self.message=p["name"]+" 실행을 요청했습니다."
+        return result
+
+    async def poll(self):
+        session=self.session;consumer=asyncio.current_task()
+        def owns_session():return self.session==session and self.task is consumer
+        try:
+            while session and owns_session():
+                data=await asyncio.to_thread(native_voice,"events",self.cursor)
+                if not owns_session():return
+                if data.get("context")!="robot" or data.get("session_id")!=session:
+                    raise DomainError(data.get("error") or "마이크 세션이 종료되었습니다.")
+                self.native_state=data["state"]
+                events=[e for e in data["events"] if e["session_id"]==self.session and e["sequence"]>self.cursor]
+                self.cursor=data["cursor"]
+                stops=[e for e in events if normalized(e["text"]) in {normalized("로봇 중단"),normalized("중단"),normalized("음성 대기 종료")}]
+                for event in sorted(stops,key=lambda e:normalized(e["text"])==normalized("음성 대기 종료")) or events:
+                    if not owns_session():return
+                    try:await self.hear(event)
+                    except DomainError as exc:self.invalidate(str(exc))
+                self.status()
+                await asyncio.sleep(.25)
+        except asyncio.CancelledError:raise
+        except Exception as exc:
+            async with self.lifecycle_lock:
+                if not owns_session():return
+                self.session=None;self.task=None;self.native_state="error";self.invalidate(str(exc))
+                # Release only this owner, even if the native service has already replaced it.
+                self.release_session=session
+                with suppress(DomainError):await self.release_native()
+
+
+class Listening(Input):
+    target: Literal["simulation","hardware"] = "simulation"
+
+
+class TextTest(Input):
+    text: str = Field(min_length=1,max_length=300)
+    snapshot_id: str | None = Field(default=None,pattern=r"^[a-f0-9]{32}$")
+    candidate_id: str | None = Field(default=None,pattern=r"^[a-f0-9]{32}$")
+
+
+class VoiceSelection(Input):
+    request_id: str = Field(pattern=r"^[a-f0-9]{32}$")
+    candidate_id: str = Field(pattern=r"^[a-f0-9]{32}$")
+
+
+class VoiceApproval(Input):
+    approval_id:str
+
+
+router=APIRouter(prefix="/preset-voice")
+
+def voice(request):return request.app.state.robot.presets.voice
+
+@router.get("/status")
+async def status(request:Request,heartbeat:bool=False):return voice(request).status(heartbeat=heartbeat)
+
+@router.post("/start",dependencies=[Depends(local_json)])
+async def start(body:Listening,request:Request):return await voice(request).start(body.target)
+
+@router.post("/stop",dependencies=[Depends(local_json)])
+async def stop(request:Request):return await voice(request).stop()
+
+@router.post("/test",dependencies=[Depends(local_json)])
+async def text_test(body:TextTest,request:Request):return await voice(request).test(body.text,body.snapshot_id,body.candidate_id)
+
+@router.post("/select",dependencies=[Depends(local_json)])
+async def select(body:VoiceSelection,request:Request):return await voice(request).select(body.request_id,body.candidate_id)
+
+@router.post("/approve",dependencies=[Depends(local_json)])
+async def approve(body:VoiceApproval,request:Request):return voice(request).confirm(body.approval_id)
+
+@router.post("/cancel",dependencies=[Depends(local_json)])
+async def cancel(request:Request):
+    v=voice(request);v.invalidate();return v.status()

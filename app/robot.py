@@ -25,6 +25,8 @@ from .robot_gripper import Gripper, router as hand_router
 from .robot_pick import PickTargets, router as pick_router
 from .robot_work_points import TRANSFER_POINTS, FloorReference, FloorReferenceInput, ParcelBox, ParcelBoxInput, PointName, WorkPointInput, WorkPoints
 from .robot_scenario import Scenario, router as scenario_router
+from .robot_presets import PresetEngine, router as preset_router
+from .robot_preset_voice import PresetVoice, router as preset_voice_router
 from .store import DomainError
 
 RECLAIM_SERVICE = "system/reclaim_control"
@@ -116,12 +118,16 @@ class RobotMonitor:
         self.hand = Gripper(self.pose_tests.path.parent) if self.pose_tests else None
         self.picks = PickTargets(self, self.pose_tests.path.parent) if self.pose_tests else None
         self.scenario = Scenario(self,self.pose_tests.path.parent) if self.pose_tests else None
+        self.presets = PresetEngine(self,self.pose_tests.path.parent) if self.pose_tests else None
+        if self.presets:self.presets.voice=PresetVoice(self.presets)
 
     def start(self):
         if self.settings.ros_pc_ip and self.task is None:
             self.task = asyncio.create_task(self._run())
 
     async def stop(self):
+        if self.presets:
+            with suppress(DomainError):await self.presets.voice.stop()
         if self.picks:
             await self.picks.stop()
         if self.task is not None:
@@ -429,6 +435,8 @@ def require_robot_owner(request: Request):
 router = APIRouter(prefix="/api/robot", dependencies=[Depends(require_robot_owner)])
 router.include_router(pick_router)
 router.include_router(scenario_router)
+router.include_router(preset_router)
+router.include_router(preset_voice_router)
 router.include_router(hand_router)
 
 

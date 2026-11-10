@@ -2,6 +2,7 @@
 import asyncio
 import json
 import logging
+from collections import deque
 from contextlib import suppress
 from uuid import uuid4
 
@@ -45,11 +46,15 @@ class Voice:
         self.turn = 0
         self.confirming = False
         self.session_lock = asyncio.Lock()
+        self.context = "packing"
+        self.robot_events = deque(maxlen=256)
+        self.robot_sequence = 0
 
     def status(self):
         return {"state": self.state, "can_stop": self.session is not None,
                 "barge_in": self.barge_in, "last_playback": self.last_playback,
-                "error": self.error, "transcript": self.transcript, "reply": self.reply}
+                "error": self.error, "transcript": self.transcript, "reply": self.reply,
+                "context": self.context, "session_id": self.session}
 
     def finish(self, error=""):
         self.session = None
@@ -68,8 +73,12 @@ class Voice:
             return
         self.reader = asyncio.create_task(self.read_events(self.process))
 
-    async def stop(self, *, session_only=False):
+    async def stop(self, *, session_only=False, expected_session=None, expected_context=None):
         async with self.session_lock:
+            if expected_context is not None and self.context != expected_context:
+                raise DomainError("로봇 음성 대기가 아닙니다.",409)
+            if expected_session is not None and self.session != expected_session:
+                raise DomainError("음성 세션이 변경되었습니다.",409)
             if session_only and self.session is None:
                 return self.status()
             if self.process is not None:
@@ -84,6 +93,7 @@ class Voice:
             # Shutdown drains it before closing the store. Manual stop only waits for audio release.
             if not session_only and self.reader is not None:
                 await self.reader
+            self.finish()
             return self.status()
 
     async def send(self, action, **fields):
@@ -91,11 +101,13 @@ class Voice:
         self.process.stdin.write((json.dumps(data, ensure_ascii=False) + "\n").encode())
         await self.process.stdin.drain()
 
-    async def wake(self):
+    async def wake(self, *, context="packing"):
         async with self.session_lock:
             if not self.enabled:
                 raise DomainError("YOLO_VOICE_ENABLED=1로 서버를 시작하세요.", 503)
             if self.session:
+                if self.context != context:
+                    raise DomainError("다른 음성 대화가 진행 중입니다. 해당 대화를 종료한 뒤 시작하세요.",409)
                 return self.status()
             if self.process is None or self.process.returncode is not None:
                 if self.reader:
@@ -104,6 +116,7 @@ class Voice:
                 if self.process is None or self.process.returncode is not None:
                     raise DomainError(self.error, 503)
             self.session = uuid4().hex
+            self.context = context
             self.turn = 1
             self.state = "preparing"
             self.last_playback = None
@@ -137,7 +150,11 @@ class Voice:
         elif event == "listening" and self.state in ("preparing", "permission"):
             self.state = "listening"
         elif event == "timeout" and self.state == "listening":
-            self.finish()
+            if self.context == "robot":
+                self.turn += 1
+                self.state = "preparing"
+                await self.send("listen")
+            else:self.finish()
         elif event == "playback_started" and self.state == "preparing_reply":
             self.state = "speaking"
         elif event in ("interrupted", "reply_finished") and self.barge_in and self.state == "speaking":
@@ -153,6 +170,13 @@ class Voice:
         elif event == "final" and self.state == "listening":
             self.state = "processing"
             self.transcript = data["text"]
+            if self.context == "robot":
+                self.robot_sequence += 1
+                self.robot_events.append(dict(sequence=self.robot_sequence,session_id=self.session,text=self.transcript))
+                self.turn += 1
+                self.state = "preparing"
+                await self.send("listen")
+                return
             intent = INTENTS.get(normalized(self.transcript))
             if intent == "end":
                 self.reply = "대화를 종료했습니다."
@@ -173,6 +197,25 @@ class Voice:
 @router.get("/status")
 async def status(request: Request):
     return request.app.state.voice.status()
+
+
+@router.get("/robot/events")
+async def robot_events(request:Request,after:int=0):
+    voice=request.app.state.voice
+    return dict(**voice.status(),cursor=voice.robot_sequence,events=[e for e in voice.robot_events if e["sequence"]>after and e["session_id"]==voice.session])
+
+
+@router.post("/robot/start")
+async def robot_start(request:Request):
+    check_control_origin(request)
+    await request.app.state.voice.wake(context="robot")
+    return await robot_events(request)
+
+
+@router.post("/robot/stop")
+async def robot_stop(request:Request):
+    check_control_origin(request)
+    return await request.app.state.voice.stop(session_only=True,expected_session=request.headers.get("x-voice-session"),expected_context="robot")
 
 
 def check_control_origin(request: Request):

@@ -282,6 +282,7 @@ export function endpointIK(frame,seed,tool,preferred){
 }
 export async function planScenarioSimulation(startAngles,recipe,{toolPose=simulationToolPose,signal,yieldFrame=()=>new Promise(resolve=>setTimeout(resolve,0))}={}){
   if(!recipe.simulation_only||recipe.errors?.length)throw Error(recipe.errors?.join(" ")||"가상 시나리오만 재생할 수 있습니다.");
+  if(!recipe.steps?.length)throw Error("실행할 동작이 한 개 이상 있어야 합니다.");
   const tool=poseFrame(toolPose),samples=[],gates=[],route=[],config=recipe.config;
   let angles=[...startAngles],time=0,opening=recipe.idle_opening_mm,holding=false,released=false,counter=0;
   function push(segment){samples.push({time,angles:[...angles],segment,opening_mm:opening,holding,released});}
@@ -307,7 +308,7 @@ export async function planScenarioSimulation(startAngles,recipe,{toolPose=simula
     for(let i=1;i<=count;i++){await checkpoint();const q=inverseArmFrame(arc.at(i/count),angles,tool);if(!q)throw Error('원호 경로의 자세를 계산할 수 없습니다.');angles=q;time+=duration/count;push(segment);}
   }
   async function armMove(step,segment){
-    const motion=step.motion||(step.kind==='joint'||step.kind==='ready'?'movej':step.kind==='circle'?'movec':'movel'),space=step.number===1?'joint':step.space,target=step.number===1?config.standby_joints:step.target;
+    const motion=step.motion||(step.kind==='joint'||step.kind==='ready'?'movej':step.kind==='circle'?'movec':'movel'),space=!recipe.generic&&step.number===1?'joint':step.space,target=!recipe.generic&&step.number===1?config.standby_joints:step.target;
     if(motion==='movej'){
       let q=space==='joint'?target:endpointIK(poseFrame(target),angles,tool,config.waypoint1_joints?.[0]);if(!q)throw Error('관절 목표의 해를 찾지 못했습니다.');
       if(step.j1_only){if(q.slice(1).some((v,i)=>Math.abs(v-angles[i+1])>.5)||Math.abs(Math.abs(q[0]-angles[0])-180)>.5)throw Error('J1 단독 회전의 시작 관절각이 교시값과 다릅니다. 이전 경유점 이동을 movej로 설정하세요.');q=[angles[0]+(q[0]>angles[0]?180:-180),...angles.slice(1)];}
@@ -324,7 +325,12 @@ export async function planScenarioSimulation(startAngles,recipe,{toolPose=simula
   }
   for(const step of recipe.steps){const n=step.number,segment=n-1;
     try{
-      if(n===1){await armMove(step,segment);await hand(recipe.idle_opening_mm,segment,config.profiles[config.stages['1'].profile].gripper);}
+      if(recipe.generic){
+        if(['joint','line','circle'].includes(step.kind))await armMove(step,segment);
+        else if(step.kind==='gripper'){await hand(step.contact?recipe.width_mm:step.opening_mm,segment,step.speed);if(step.contact)holding=true;else if(holding){holding=false;released=true;}}
+        else if(step.kind==='wait'){time+=step.seconds;push(segment);}
+      }
+      else if(n===1){await armMove(step,segment);await hand(recipe.idle_opening_mm,segment,config.profiles[config.stages['1'].profile].gripper);}
       else if(n===2){time+=.4;push(segment);}
       else if(['joint','line','circle'].includes(step.kind))await armMove(step,segment);
       else if(step.kind==='gripper'){

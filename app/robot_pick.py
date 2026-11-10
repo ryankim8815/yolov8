@@ -2,6 +2,7 @@
 import asyncio
 import json
 import math
+import os
 import time
 from contextlib import closing, suppress
 from http.client import HTTPConnection, HTTPException as HTTPError
@@ -43,7 +44,8 @@ def read_camera(session_id=None, frame_id=None):
     # The Compose robot service does not own or open the Mac camera.
     query = urlencode({k: v for k, v in {"session_id": session_id, "frame_id": frame_id}.items() if v is not None})
     try:
-        with closing(HTTPConnection("host.docker.internal", 8000, timeout=2)) as conn:
+        host="host.docker.internal" if os.getenv("ROBOT_BRIDGE_NETWORK")=="compose" else "127.0.0.1"
+        with closing(HTTPConnection(host, 8000, timeout=2)) as conn:
             conn.request("GET", "/api/detections/pick-frame?" + query)
             response = conn.getresponse()
             frame = json.loads(response.read())

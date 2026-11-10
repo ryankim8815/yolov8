@@ -354,6 +354,7 @@ class Scenario:
         return move
 
     async def check_context(self,target):
+        if target.get("kind")=="preset":self.robot.presets.check_versions(target)
         if target["cancelled"]:raise DomainError("작업을 중단했습니다.")
         if target["versions"]!=self.versions():raise DomainError("작업 설정 버전이 변경되었습니다.")
         status=await self.host("status")
@@ -506,6 +507,9 @@ class Scenario:
                 self.picks.record(identifier,"unknown","중단 응답 미확인 · 실제 장치 상태를 확인하세요.")
 
     def stop_all(self):
+        if getattr(self.robot,"presets",None):
+            self.robot.presets.voice.stop_serial+=1
+            self.robot.presets.voice.invalidate("중단 요청으로 실행 확인을 취소했습니다.")
         self.stop_generation+=1
         self.prepared=None
         self.picks.approvals.clear()

@@ -217,7 +217,7 @@ export function connectRobotArm(el,signal,onOrbit) {
     active(value){active=value;root.hidden=!value;if(!value){stopSimulation();cancelHandRequests();cancelTcp("수신 대기");}else{tick();publish();}},
     setAttached(value){attached=value;ui.hand.hidden=!value;if(!value){stopSimulation();cancelHandRequests();readNote="";}else lastTableRead=-Infinity;tick();publish();},
     simulate,simulationAction,
-    simulateRecipe(recipe,toolPose){return simulate(recipe.steps.map(s=>({title:s.title})),toolPose,recipe);},
+    simulateRecipe(recipe,toolPose=simulationToolPose){return simulate(recipe.steps.map(s=>({title:s.title})),toolPose,recipe);},
     setScenarioPreview(value){scenarioPreview=value;publish();},
     setScenarioVisible(value){scenarioVisible=value;if(!value&&simulation?.recipe)stopSimulation();publish();},
     observeSimulation(fn){simulationObservers.add(fn);fn(simulationState());return()=>simulationObservers.delete(fn);},

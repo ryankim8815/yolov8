@@ -13,7 +13,8 @@ export async function api(path, method = "GET", body, signal) {
   let data;
   try { data = await response.json(); } catch { throw new Error("로봇 웹 서버에 연결할 수 없습니다."); }
   if (!response.ok) {
-    const error = new Error(typeof data.detail === "string" ? data.detail : "입력한 좌표와 연결 상태를 확인하세요.");
+    const detail=Array.isArray(data.detail)?data.detail.map(item=>item.msg?.replace(/^Value error, /,'')).filter(Boolean).join(' · '):data.detail;
+    const error = new Error(typeof detail === "string" ? detail : "입력한 좌표와 연결 상태를 확인하세요.");
     error.status = response.status;
     throw error;
   }

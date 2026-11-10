@@ -3,7 +3,7 @@ import { connectOrientation } from "./gripper-orientation.js";
 import { trackGripperEstimate } from "./gripper-measurement.js";
 import { imagePixel, api, center, marker, sameInput, readCalibration } from "./robot-camera-frame.js";
 import { subscribeParcelBox, connectWaypointSimulation } from "./robot-work-points.js";
-import {connectScenario} from './robot-scenario.js';
+import {connectPresets} from './robot-presets.js';
 
 const axes = ["X", "Y", "Z"];
 const blankCorners = () => Array.from({length:4}, () => ({pixel:null, pose:Array(6).fill(null)}));
@@ -428,7 +428,7 @@ export function connectWorkPlane(root) {
       manipulatorWorkspace = id === "manipulator";
       if (manipulatorWorkspace && !manipulatorConnected) {
         connectWaypointSimulation(editor.querySelector("#manipulator-work-points"),orientation,lifetime.signal);
-        connectScenario(editor.querySelector("#scenario-editor"),orientation,lifetime.signal);
+        connectPresets(editor.querySelector("#scenario-editor"),orientation,lifetime.signal);
         manipulatorConnected = true;
       }
       orientation.setParcelBox(manipulatorWorkspace ? parcelBox : null);
