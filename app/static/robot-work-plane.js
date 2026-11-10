@@ -438,7 +438,9 @@ export function connectWorkPlane(root) {
       for (const tab of tabs) tab.hidden = !visibleTabs.includes(tab);
       const current = visibleTabs.find(tab => (tab.dataset.manipulatorTab || tab.dataset.gripperTab) === location.hash);
       selectTab(current ?? visibleTabs[0]);
-      editor.querySelector('[role="tablist"]').setAttribute("aria-label", gripperWorkspace ? "그리퍼" : manipulatorWorkspace ? "매니퓰레이터 설정" : "작업 평면 보정 설정");
+      const tablist=editor.querySelector('[role="tablist"]');
+      tablist.hidden=gripperWorkspace;
+      tablist.setAttribute("aria-label", gripperWorkspace ? "그리퍼" : manipulatorWorkspace ? "매니퓰레이터 설정" : "작업 평면 보정 설정");
       root.querySelector(".plane-summary").hidden = id !== "work-plane";
       availability();
     },

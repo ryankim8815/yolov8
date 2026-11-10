@@ -479,6 +479,9 @@ async function refresh() {
   }
 }
 function routeRobot() {
+  if(location.hash==="#gripper-test"){
+    const url=new URL(location.href);url.hash="gripper";history.replaceState(history.state,"",url);
+  }
   const page = currentDestination();
   for (const dialog of document.querySelectorAll("dialog[open]")) dialog.close();
   document.querySelectorAll("[data-view]").forEach(el=>{el.hidden = !el.dataset.view.split(" ").includes(page.id);});

@@ -226,13 +226,13 @@ docker compose run --rm --no-deps doosan-driver timeout 15 check-e0509</pre>
             <button id="pose-cancel" type="button" autofocus>취소</button>
             <button id="pose-confirm" type="button">이 자세로 이동</button></div>
         </dialog>
-        <dialog id="hand-test-dialog" aria-labelledby="hand-test-confirm-title">
-          <h2 id="hand-test-confirm-title">그리퍼 벌림 테스트 승인</h2>
-          <p id="hand-test-target"></p>
+        <dialog id="hand-move-dialog" aria-labelledby="hand-move-confirm-title">
+          <h2 id="hand-move-confirm-title">그리퍼 이동 확인</h2>
+          <p id="hand-move-target"></p>
           <p>손가락이 실제로 움직입니다. 주변과 물체 간섭을 확인한 후 승인하세요.</p>
-          <p id="hand-test-confirm-state" role="status"></p>
-          <div class="pose-actions"><button type="button" id="hand-test-cancel" autofocus>취소</button>
-            <button type="button" id="hand-test-confirm" disabled>승인 후 그리퍼 이동</button></div>
+          <p id="hand-move-confirm-state" role="status"></p>
+          <div class="pose-actions"><button type="button" id="hand-move-cancel" autofocus>취소</button>
+            <button type="button" id="hand-move-confirm" disabled>승인 후 그리퍼 이동</button></div>
         </dialog>
         <section id="work-plane" data-view="work-plane gripper manipulator" hidden>
           <header class="panel plane-summary">
@@ -312,7 +312,6 @@ docker compose run --rm --no-deps doosan-driver timeout 15 check-e0509</pre>
                   <button type="button" role="tab" id="plane-example-tab" aria-selected="false" aria-controls="plane-example-settings" tabindex="-1">예시 객체 설정</button>
                   <button type="button" role="tab" id="plane-gripper-tab" aria-selected="false" aria-controls="plane-gripper-settings" tabindex="-1" hidden>그리퍼 설정</button>
                   <button type="button" role="tab" id="plane-hand-table-tab" data-gripper-tab="#gripper" aria-selected="false" aria-controls="plane-hand-table" tabindex="-1" hidden>캘리브레이션</button>
-                  <button type="button" role="tab" id="plane-hand-test-tab" data-gripper-tab="#gripper-test" aria-selected="false" aria-controls="plane-hand-test" tabindex="-1" hidden>벌림 테스트</button>
                 </div>
                 <section id="plane-camera-settings" role="tabpanel" aria-labelledby="plane-camera-tab" tabindex="0">
                   <div class="pick-steps" data-pick="steps" role="group" aria-label="교시할 모서리"></div>
@@ -403,13 +402,14 @@ docker compose run --rm --no-deps doosan-driver timeout 15 check-e0509</pre>
               </footer>
             </article>
           </template>
-          <section id="plane-hand-table" data-hand-panel role="tabpanel" aria-labelledby="plane-hand-table-tab" tabindex="0" hidden>
+          <section id="plane-hand-table" data-hand-panel role="region" aria-labelledby="hand-calibration-title" hidden>
             <div class="pose-body">
-              <h3>RH-P12-RN-A <small class="meta">플랜지 RS-485 · 장치 1</small></h3>
+              <h3 id="hand-calibration-title">그리퍼 캘리브레이션 <small class="meta">RH-P12-RN-A · 플랜지 RS-485 · 장치 1</small></h3>
               <p id="hand-ready" class="meta">SDK 상태 확인 중</p>
               <dl class="robot-config">
                 <div><dt>마지막 명령 위치</dt><dd id="hand-target">—</dd></div>
                 <div><dt>실제 위치 · 최근 응답</dt><dd id="hand-actual">—</dd></div>
+                <div><dt>벌림표 기준 추정 벌림</dt><dd id="hand-opening">—</dd></div>
                 <div><dt>실측 전류 / 목표 / 한계</dt><dd id="hand-current">—</dd></div>
                 <div><dt>장치 모드 · 오류</dt><dd id="hand-mode">—</dd></div>
                 <div><dt>입력 전압 (40297)</dt><dd id="hand-voltage">—</dd></div>
@@ -419,8 +419,11 @@ docker compose run --rm --no-deps doosan-driver timeout 15 check-e0509</pre>
                 <button type="button" data-hand="open" disabled>열기 (0)</button>
                 <button type="button" data-hand="close" disabled>닫기 (700)</button>
               </div>
-              <div class="hand-actions"><label>지정 위치 <input type="number" id="hand-position" min="0" max="700" step="1" placeholder="0–700"></label>
-                <button type="button" data-hand="position" disabled>지정 위치로 이동</button></div>
+              <div class="hand-actions hand-position-control">
+                <label>입력 단위 <select id="hand-position-unit"><option value="position">위치값 (0–700)</option><option value="width">벌림 (mm)</option></select></label>
+                <label><span id="hand-position-label">지정 위치</span> <input type="number" id="hand-position" min="0" max="700" step="1" placeholder="0–700" aria-describedby="hand-position-help"></label>
+                <button type="button" id="hand-position-move" data-hand="position" disabled>지정 위치로 이동</button></div>
+              <p id="hand-position-help" class="meta"></p>
               <p id="hand-result" role="status"></p>
               <h3 id="gripper-table">실측 벌림표</h3>
               <p>정지한 손가락의 실제 위치와 안쪽 간격을 두 점 이상 등록하세요. 위치값이 커질수록 측정 간격은 작아져야 합니다.</p>
@@ -437,18 +440,6 @@ docker compose run --rm --no-deps doosan-driver timeout 15 check-e0509</pre>
                 <div class="pose-actions"><button type="button" id="hand-contact-save">접촉 설정 저장</button><button type="button" id="hand-contact-reload">최신 접촉 설정 불러오기</button></div>
                 <p id="hand-contact-result" role="status"></p>
               </div>
-            </div>
-          </section>
-          <section id="plane-hand-test" data-hand-panel role="tabpanel" aria-labelledby="plane-hand-test-tab" tabindex="0" hidden>
-            <div class="pose-body">
-              <p>저장된 실측 벌림표로 목표를 계산합니다. 미리보기 후 승인하면 실제 그리퍼가 움직입니다.</p>
-              <div class="hand-actions"><label>테스트 벌림 (mm) <input id="hand-test-width" type="number" min="0" step="any" placeholder="예: 50"></label>
-                <button type="button" id="hand-test-preview" disabled>벌림 미리보기</button>
-                <button type="button" id="hand-test-read" disabled>실제 상태 읽기</button></div>
-              <p id="hand-test-range"></p>
-              <p id="hand-test-state" role="status"></p>
-              <p id="hand-test-result" role="status"></p>
-              <p id="hand-test-feedback" class="mono"></p>
             </div>
           </section>
         </section>

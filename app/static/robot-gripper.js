@@ -8,7 +8,7 @@ get('hand-contact-save').onclick=async()=>{if(contactPending||!contact||locked)r
 void loadContact();
 let table = null, dirty = false, saving = false, busy = false, host = null, locked = false, sdkMode = false;
 let loading = 0;
-let testPending=false, testTarget=null, testVersion=0, testExpiry=null;
+let widthPending=false, widthTarget=null, widthVersion=0, widthExpiry=null;
 async function api(path, method = "GET", body) {
   const res = await fetch("/api/robot/gripper/"+path, {method,cache:"no-store",
     headers:body ? {"Content-Type":"application/json"} : {}, body:body && JSON.stringify(body)});
@@ -36,23 +36,24 @@ function calibrationError(points) {
 }
 const valid=points=>!calibrationError(points);
 function controls() {
-  get('hand-contact-save').disabled=contactPending||locked||!contact;
-  get('hand-contact-current').disabled=contactPending||locked;
-  const ready = host?.gripper_supported && host.can_move && !locked && !busy;
+  get('hand-contact-save').disabled=contactPending||locked||busy||!contact;
+  get('hand-contact-current').disabled=contactPending||locked||busy;
+  const ready = host?.gripper_supported && host.can_move && !locked && !busy && !widthPending && !saving;
   for (const button of document.querySelectorAll("[data-hand]")) button.disabled = !ready;
   get("hand-ready").textContent = !sdkMode ? "RH-P12 제어에는 Mac SDK가 필요합니다." :
     locked ? "로봇 작업 진행 중" : !host?.gripper_supported ? host?.detail || "RH-P12 지원 SDK 작업자 연결 대기" :
     host.motion_reason || (!host.gripper_feedback ? "SDK 준비 · 상태 읽기로 장치 연결을 확인하세요." :
       host.gripper_feedback.state === "completed" ? "RH-P12 최근 응답 확인 · 자동 운전" : "RH-P12 응답 또는 장치 상태를 확인하세요.");
-  const reason=saving?"벌림표 저장 중입니다.":locked?"로봇 작업이 끝나면 저장할 수 있습니다.":!table?"벌림표를 불러오는 중입니다. 조회 실패 시 저장값 불러오기를 누르세요.":calibrationError(rows())||(!dirty?"저장된 값입니다. 값을 변경하면 저장할 수 있습니다.":"");
+  samples.inert=saving||busy;
+  const reason=busy?"그리퍼 응답을 확인한 뒤 저장하세요.":saving?"벌림표 저장 중입니다.":locked?"로봇 작업이 끝나면 저장할 수 있습니다.":!table?"벌림표를 불러오는 중입니다. 조회 실패 시 저장값 불러오기를 누르세요.":calibrationError(rows())||(!dirty?"저장된 값입니다. 값을 변경하면 저장할 수 있습니다.":"");
   get("hand-save").disabled = Boolean(reason);
   get("hand-save").title=reason||"입력한 실측 벌림표 저장";
   get("hand-table-validation").textContent=reason||"저장할 수 있습니다. 측정값을 확인한 뒤 벌림표 저장을 누르세요.";
-  get("hand-add").disabled = saving || !table;
-  get("hand-capture").disabled = saving || !host?.gripper_supported || host.gripper_feedback?.state !== "completed" ||
+  get("hand-add").disabled = saving || busy || !table;
+  get("hand-capture").disabled = saving || busy || !host?.gripper_supported || host.gripper_feedback?.state !== "completed" ||
     !Number.isInteger(host.gripper_feedback.position) || !table;
-  get("hand-reload").disabled = saving;
-  testControls();
+  get("hand-reload").disabled = saving || busy;
+  moveControls();
 }
 function row(position="", width="") {
   const item = document.createElement("div"); item.className="hand-sample";
@@ -64,11 +65,11 @@ function row(position="", width="") {
     input.dataset.field=key; input.value=val; label.append(name+" ",input);item.append(label);
   }
   const remove=document.createElement("button"); remove.type="button";remove.textContent="삭제";
-  remove.onclick=()=>{item.remove();dirty=true;controls();};
+  remove.onclick=()=>{item.remove();dirty=true;invalidateMove();controls();};
   item.append(remove);samples.append(item);
 }
 function fill(data) {
-  invalidateTest();
+  invalidateMove();
   table=data;dirty=false;samples.replaceChildren();
   for(const p of data.points) row(p.position,p.width_mm);
   if(!data.points.length){row();row();}
@@ -95,13 +96,13 @@ export function renderHand(status, access) {
   get("hand-voltage").textContent=Number.isFinite(f?.input_voltage_v) ? f.input_voltage_v.toFixed(1)+" V" : "—";
   controls();
 }
-samples.addEventListener("input",()=>{dirty=true; controls();});
-get("hand-add").onclick=()=>{row();dirty=true;controls();};
+samples.addEventListener("input",()=>{dirty=true;invalidateMove();controls();});
+get("hand-add").onclick=()=>{row();dirty=true;invalidateMove();controls();};
 get("hand-capture").onclick=()=>{
   const empty=[...samples.children].find(item=>[...item.querySelectorAll('input')].every(input=>input.value===""));
   if(empty)empty.querySelector('[data-field="position"]').value=host.gripper_feedback.position;
   else row(host.gripper_feedback.position);
-  dirty=true;controls();
+  dirty=true;invalidateMove();controls();
 };
 get("hand-reload").onclick=()=>void loadHandTable(true);
 get("hand-save").onclick=async()=>{
@@ -112,83 +113,89 @@ get("hand-save").onclick=async()=>{
   catch(error) { get("hand-table-note").textContent=error.message; }
   finally { saving=false; samples.inert=false; controls(); }
 };
-for(const button of document.querySelectorAll("[data-hand]")) button.onclick=async()=>{
-  if(button.disabled || busy) return;
-  const action=button.dataset.hand;
-  const body={session_id:host.session_id,motion_token:host.motion_token,action};
-  if(action==="position") {
-    body.position=get("hand-position").valueAsNumber;
-    if(!Number.isInteger(body.position) || body.position<0 || body.position>700) {
-      get("hand-result").textContent="0~700의 정수 위치를 입력하세요.";return;
-    }
-  }
-  invalidateTest();busy=true;controls();get("hand-result").textContent="장치 응답 대기 중";
-  get("hand-test-result").textContent="장치 응답 대기 중";
-  try {
-    const result=await api("command","POST",body);
-    get("hand-result").textContent=(result.state==="unknown"?"결과 미확인 · ":"")+result.message;
-  } catch(error) { get("hand-result").textContent="명령 상태 확인 필요 · "+error.message; }
-  finally { get("hand-test-result").textContent=get("hand-result").textContent; busy=false;host=null;controls(); }
-};
-
-
-function invalidateTest() {
-  testVersion++; testTarget=null; clearTimeout(testExpiry);
-  if(get("hand-test-dialog").open) get("hand-test-dialog").close();
+const widthMode=()=>get('hand-position-unit').value==='width';
+const calibrationVisible=()=>!get('plane-hand-table').hidden&&!get('work-plane').hidden;
+function invalidateMove() {
+  widthVersion++;widthTarget=null;clearTimeout(widthExpiry);
+  if(get('hand-move-dialog').open)get('hand-move-dialog').close();
 }
 function feedbackWidth(position) {
-  for(let i=1;i<(table?.points.length ?? 0);i++) {
+  for(let i=1;i<(table?.points.length??0);i++){
     const a=table.points[i-1],b=table.points[i];
-    if(a.position<=position && position<=b.position)
+    if(a.position<=position&&position<=b.position)
       return a.width_mm+(b.width_mm-a.width_mm)*(position-a.position)/(b.position-a.position);
   }
   return null;
 }
-function testControls() {
-  const calibrated=table && valid(table.points);
-  const ready=sdkMode && host?.gripper_supported && host.can_move && !locked && !busy && !testPending;
-  const width=get("hand-test-width").valueAsNumber;
-  get("hand-test-preview").disabled=!calibrated || dirty || saving || busy || testPending || !Number.isFinite(width) || width<0;
-  get("hand-test-read").disabled=!ready;
-  get("hand-test-range").textContent=calibrated ? `저장된 교시 범위 ${table.points.at(-1).width_mm}–${table.points[0].width_mm} mm` : "벌림표를 두 점 이상 교시하고 저장하세요.";
-  const reason=dirty ? "벌림표 변경사항을 저장하거나 저장값을 불러온 뒤 테스트하세요." :
-    !ready ? get("hand-ready").textContent || "장치 준비 상태 확인 중" : "실제 구동 가능 · 미리보기 후 승인 필요";
-  get("hand-test-state").textContent=reason;
-  get("hand-test-confirm-state").textContent=ready ? "" : reason;
-  get("hand-test-confirm").disabled=!ready || !testTarget || dirty || saving ||
-    testTarget.session_id!==host?.session_id || testTarget.motion_token!==host?.motion_token || Date.now()>testTarget.expires;
-  const f=host?.gripper_feedback;
-  const measured=Number.isInteger(f?.position) && f.state==="completed" ? feedbackWidth(f.position) : null;
-  get("hand-test-feedback").textContent=Number.isInteger(f?.position) ?
-    `명령 위치 ${host.gripper_target ?? '—'} / 실제 위치 ${f.position} · 벌림표 기준 추정 ${measured==null?'계산 불가':measured.toFixed(1)+' mm'} · ${new Date(f.observed_at).toLocaleTimeString('ko-KR')}` : "실제 위치 응답 없음 · 상태 읽기로 확인하세요.";
+function moveControls() {
+  const calibrated=table&&valid(table.points),isWidth=widthMode(),input=get('hand-position');
+  const ready=sdkMode&&host?.gripper_supported&&host.can_move&&!locked&&!busy&&!widthPending&&!saving;
+  input.disabled=get('hand-position-unit').disabled=busy||saving;
+  input.step=isWidth?'any':'1';input.placeholder=isWidth?'예: 50':'0–700';
+  if(!isWidth)input.max=700;
+  else if(calibrated)input.max=table.points[0].width_mm;
+  else input.removeAttribute('max');
+  get('hand-position-label').textContent=isWidth?'목표 벌림 (mm)':'지정 위치';
+  get('hand-position-move').textContent=isWidth?'벌림 확인 후 이동':'지정 위치로 이동';
+  get('hand-position-move').disabled=isWidth?
+    !ready||!calibrated||dirty||!Number.isFinite(input.valueAsNumber)||input.valueAsNumber<0:!ready;
+  const range=calibrated?`저장된 교시 범위 ${table.points.at(-1).width_mm}–${table.points[0].width_mm} mm`:'실측 벌림표를 두 점 이상 교시하고 저장하세요.';
+  get('hand-position-help').textContent=!isWidth?'위치값은 0–700의 정수입니다. 값이 커질수록 손가락이 닫힙니다.':
+    dirty?'벌림표 변경사항을 저장하거나 저장값을 불러온 뒤 이동하세요.':range+' · 저장된 벌림표로 위치를 계산하고 승인 후 이동합니다.';
+  const reason=dirty?'벌림표 변경사항을 저장하거나 저장값을 불러오세요.':!ready?get('hand-ready').textContent:'';
+  get('hand-move-confirm-state').textContent=reason;
+  get('hand-move-confirm').disabled=!ready||!widthTarget||dirty||saving||!isWidth||
+    widthTarget.session_id!==host?.session_id||widthTarget.motion_token!==host?.motion_token||Date.now()>widthTarget.expires;
+  const f=host?.gripper_feedback,estimated=f?.state==='completed'&&Number.isInteger(f.position)?feedbackWidth(f.position):null;
+  get('hand-opening').textContent=estimated===null?'—':estimated.toFixed(1)+' mm';
 }
-get("hand-test-width").oninput=()=>{invalidateTest();get("hand-test-result").textContent="";controls();};
-get("hand-test-preview").onclick=async()=>{
-  if(get("hand-test-preview").disabled)return;
-  invalidateTest(); const version=testVersion;
-  const body={width_mm:get("hand-test-width").valueAsNumber,revision:table.revision};
-  testPending=true;controls();get("hand-test-result").textContent="벌림 계산 중";
-  try {
-    const target=await api("test/preview","POST",body);
-    if(version!==testVersion || dirty || get("plane-hand-test").hidden)return;
-    testTarget={...body,session_id:host?.session_id,motion_token:host?.motion_token,expires:Date.now()+30000};
-    get("hand-test-target").textContent=`요청 벌림 ${target.width_mm} mm → 명령 위치 ${target.position} · 예상 벌림 ${target.estimated_width_mm.toFixed(1)} mm (더 열린 쪽으로 반올림)`;
-    get("hand-test-result").textContent=get("hand-test-target").textContent;
-    get("hand-test-dialog").showModal();
-    testExpiry=setTimeout(()=>{invalidateTest();get("hand-test-result").textContent="승인 시간이 만료되었습니다. 다시 미리보기하세요.";controls();},30000);
-  } catch(error) {get("hand-test-result").textContent=error.message;}
-  finally {testPending=false;controls();}
+for(const button of document.querySelectorAll('[data-hand]'))button.onclick=async()=>{
+  if(button.disabled||busy||widthPending)return;
+  const action=button.dataset.hand;
+  if(action==='position'&&widthMode()){await previewWidth();return;}
+  const body={session_id:host.session_id,motion_token:host.motion_token,action};
+  if(action==='position'){
+    body.position=get('hand-position').valueAsNumber;
+    if(!Number.isInteger(body.position)||body.position<0||body.position>700){get('hand-result').textContent='0~700의 정수 위치를 입력하세요.';return;}
+  }
+  invalidateMove();busy=true;controls();get('hand-result').textContent='장치 응답 대기 중';
+  try{
+    const result=await api('command','POST',body);
+    get('hand-result').textContent=(result.state==='unknown'?'결과 미확인 · ':'')+result.message;
+  }catch(error){get('hand-result').textContent='명령 상태 확인 필요 · '+error.message;}
+  finally{busy=false;host=null;controls();}
 };
-get("hand-test-cancel").onclick=()=>get("hand-test-dialog").close();
-get("hand-test-dialog").addEventListener("close",()=>{testTarget=null;clearTimeout(testExpiry);});
-get("hand-test-confirm").onclick=async()=>{
-  if(get("hand-test-confirm").disabled || !testTarget)return;
-  const {expires,...body}=testTarget;
-  invalidateTest(); busy=true;controls();get("hand-test-result").textContent="실제 그리퍼 응답 대기 중";
-  try {
-    const result=await api("test","POST",body);
-    get("hand-test-result").textContent=(result.state==="unknown"?"결과 미확인 · ":"")+result.message;
-  } catch(error) {get("hand-test-result").textContent="명령 결과 확인 필요 · "+error.message;}
-  finally {busy=false;host=null;controls();}
+get('hand-position-unit').onchange=()=>{
+  invalidateMove();get('hand-position').value='';get('hand-result').textContent='';controls();
 };
-get("hand-test-read").onclick=()=>document.querySelector('[data-hand="read"]').click();
+get('hand-position').oninput=()=>{invalidateMove();get('hand-result').textContent='';controls();};
+async function previewWidth(){
+  if(get('hand-position-move').disabled||!widthMode())return;
+  invalidateMove();const version=widthVersion;
+  const body={width_mm:get('hand-position').valueAsNumber,revision:table.revision};
+  widthPending=true;controls();get('hand-result').textContent='벌림 계산 중';
+  try{
+    const target=await api('test/preview','POST',body);
+    if(version!==widthVersion||dirty||!widthMode()||!calibrationVisible())return;
+    widthTarget={...body,session_id:host?.session_id,motion_token:host?.motion_token,expires:Date.now()+30000};
+    get('hand-move-target').textContent=`요청 벌림 ${target.width_mm} mm → 명령 위치 ${target.position} · 예상 벌림 ${target.estimated_width_mm.toFixed(1)} mm (더 열린 쪽으로 반올림)`;
+    get('hand-result').textContent=get('hand-move-target').textContent;
+    get('hand-move-dialog').showModal();
+    widthExpiry=setTimeout(()=>{invalidateMove();get('hand-result').textContent='이동 확인이 만료되었습니다. 다시 확인하세요.';controls();},30000);
+  }catch(error){if(version===widthVersion)get('hand-result').textContent=error.message;}
+  finally{widthPending=false;controls();}
+}
+get('hand-move-cancel').onclick=()=>get('hand-move-dialog').close();
+get('hand-move-dialog').addEventListener('close',()=>{if(!get('hand-move-dialog').open){widthTarget=null;clearTimeout(widthExpiry);}});
+get('hand-move-confirm').onclick=async()=>{
+  if(get('hand-move-confirm').disabled||!widthTarget)return;
+  const {expires,...body}=widthTarget;
+  invalidateMove();busy=true;controls();get('hand-result').textContent='실제 그리퍼 응답 대기 중';
+  try{
+    const result=await api('test','POST',body);
+    get('hand-result').textContent=(result.state==='unknown'?'결과 미확인 · ':'')+result.message;
+  }catch(error){get('hand-result').textContent='명령 결과 확인 필요 · '+error.message;}
+  finally{busy=false;host=null;controls();}
+};
+window.addEventListener('hashchange',invalidateMove);
+window.addEventListener('robot-global-stop',invalidateMove);

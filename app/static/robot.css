@@ -141,9 +141,9 @@
 #pose-last { border-top: 1px solid var(--line); padding-top: 12px; color: var(--sub); }
 #pose-last[data-state="completed"] { color: var(--mint); }
 #pose-last[data-state="failed"], #pose-last[data-state="unknown"] { color: var(--amber); }
-:is(#pose-dialog, #control-dialog, #servo-dialog, #operation-dialog, #hand-test-dialog) { width: min(440px, 92vw); padding: 20px; color: var(--ink); background: var(--surface); border: 1px solid var(--line); border-radius: 10px; }
-:is(#pose-dialog, #control-dialog, #servo-dialog, #operation-dialog, #hand-test-dialog)::backdrop { background: #0b1d25aa; }
-:is(#pose-dialog, #control-dialog, #servo-dialog, #operation-dialog, #hand-test-dialog) p { margin: 10px 0; font-size: 13px; }
+:is(#pose-dialog, #control-dialog, #servo-dialog, #operation-dialog, #hand-move-dialog) { width: min(440px, 92vw); padding: 20px; color: var(--ink); background: var(--surface); border: 1px solid var(--line); border-radius: 10px; }
+:is(#pose-dialog, #control-dialog, #servo-dialog, #operation-dialog, #hand-move-dialog)::backdrop { background: #0b1d25aa; }
+:is(#pose-dialog, #control-dialog, #servo-dialog, #operation-dialog, #hand-move-dialog) p { margin: 10px 0; font-size: 13px; }
 .robot-control { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; padding: 16px 20px; border-top: 1px solid var(--line); }
 .robot-control p { margin-top: 5px; font-size: 13px; }
 #direct-teach { appearance: none; width: 44px; height: 26px; margin: 0; border: 1px solid var(--line); border-radius: 16px; background: var(--sub); cursor: pointer; }
@@ -235,6 +235,9 @@
 .hand-actions,.hand-sample { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
 .hand-contact { border-top:1px solid var(--line); margin-top:18px; padding-top:16px; font-size:13px; }.hand-contact h3 { font-size:15px; }.hand-contact input { width:8em; padding:7px; color:var(--ink); background:var(--surface); border:1px solid var(--line); border-radius:5px; }.hand-contact p { margin:10px 0; }
 .hand-actions input,.hand-sample input { width:5.8em; padding:6px; font:inherit; color:var(--ink); background:var(--surface); border:1px solid var(--line); border-radius:5px; }
+.hand-position-control { align-items:end; margin-top:12px; }
+.hand-position-control label { display:grid; gap:5px; font-size:13px; min-width:0; }
+.hand-position-control select { padding:6px; font:inherit; color:var(--ink); background:var(--surface); border:1px solid var(--line); border-radius:5px; }
 .hand-sample { padding:6px 0; }
 .hand-sample label { font-size:13px; }
 #plane-hand-table .pose-body { padding:4px 0; }

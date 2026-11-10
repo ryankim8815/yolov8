@@ -90,6 +90,9 @@ const recoveryDialog=document.createElement('dialog');recoveryDialog.id='robot-s
 recoveryDialog.innerHTML='<h2 id="robot-standby-title">STANDBY로 복구할까요?</h2><p id="robot-standby-description"></p><p>정지 원인을 해소하고 작업 공간과 제어기 알람을 확인하세요. 중단된 작업은 자동 재개하지 않습니다.</p><form method="dialog"><button value="cancel" autofocus>취소</button><button id="robot-standby-confirm" value="confirm">STANDBY 전환 요청</button></form>';
 recoveryDialog.setAttribute('aria-describedby','robot-standby-description');document.body.append(recoveryDialog);
 controls.append(standby,standbyState,stop,stopState,mode);rail.append(controls);
+if(typeof ResizeObserver==='function'){
+  new ResizeObserver(()=>document.documentElement.style.setProperty('--rail-controls-height',controls.getBoundingClientRect().height+'px')).observe(controls);
+}
 let recoveryTicket=null;
 const recoveryMessage=message=>{standbyState.hidden=false;standbyState.textContent=message;};
 async function accessState(){

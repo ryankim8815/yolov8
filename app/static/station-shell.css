@@ -61,7 +61,8 @@
   .station-rail { padding-inline: 8px; }
 }
 @media (max-width: 750px) {
-  .station-shell { display: block; }
+  .station-shell { display: block; padding-bottom:calc(var(--rail-controls-height, 160px) + 24px + env(safe-area-inset-bottom, 0px)); }
+  html { scroll-padding-bottom:calc(var(--rail-controls-height, 160px) + 24px); }
   .station-rail { position: static; display: block; height: auto; padding: 10px 12px; }
   .station-brand { font-size: 16px; padding: 0; margin-bottom: 8px; }
   .brand-mark { width: 24px; height: 24px; }
