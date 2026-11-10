@@ -442,7 +442,8 @@ export function connectWorkPlane(root) {
       visibleTabs = tabs.filter(tab => manipulatorWorkspace ? tab.hasAttribute("data-manipulator-tab") :
         gripperWorkspace ? tab.hasAttribute("data-gripper-tab") : !tab.hasAttribute("data-manipulator-tab") && !tab.hasAttribute("data-gripper-tab"));
       for (const tab of tabs) tab.hidden = !visibleTabs.includes(tab);
-      const current = visibleTabs.find(tab => (tab.dataset.manipulatorTab || tab.dataset.gripperTab) === location.hash);
+      const requestedHash=location.hash==='#preset-execution'?'#work-points-title':location.hash;
+      const current = visibleTabs.find(tab => (tab.dataset.manipulatorTab || tab.dataset.gripperTab) === requestedHash);
       selectTab(current ?? visibleTabs[0]);
       const tablist=editor.querySelector('[role="tablist"]');
       tablist.hidden=gripperWorkspace;

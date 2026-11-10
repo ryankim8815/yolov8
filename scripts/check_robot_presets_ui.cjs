@@ -54,12 +54,14 @@ const assert=require('node:assert/strict');
   assert.equal(await root.locator('td.preset-joints-held[colspan="6"]').count(),1);
   await page.waitForFunction(()=>!document.querySelector('[data-action=play]').disabled);
   // The row action follows the same simulation target and compiles only the selected node.
+  const firstPlayback=Number(await root.locator('[data-p=simulation]').getAttribute('data-playback')||0);
   await root.locator('[data-op=execute]').first().click();
-  await page.waitForFunction(()=>document.querySelector('[data-arm=canvas]')?.dataset.simulation==='complete');
+  await page.waitForFunction(previous=>{const p=document.querySelector('[data-p=simulation]');return Number(p.dataset.playback)>previous&&p.dataset.state==='complete';},firstPlayback);
   assert.match(await root.locator('[data-p=simulation]').textContent(),/^1\/1/);assert.deepEqual(commands,[]);
   assert.equal(await page.locator('[data-arm=simulationPause],[data-arm=simulationStop]').filter({visible:true}).count(),0);
+  const fullPlayback=Number(await root.locator('[data-p=simulation]').getAttribute('data-playback')||0);
   await action('play').click();assert.equal(await root.locator('[data-p=voice-target]').count(),1);assert.equal(await root.locator('[data-op=execute]').first().isDisabled(),true);
-  await page.waitForFunction(()=>document.querySelector('[data-arm=canvas]')?.dataset.simulation==='complete',null,{timeout:15000});
+  await page.waitForFunction(previous=>{const p=document.querySelector('[data-p=simulation]');return Number(p.dataset.playback)>previous&&p.dataset.state==='complete';},fullPlayback,{timeout:15000});
   assert.equal(await action('sim-stop').isDisabled(),true);
   await root.locator('[data-p=kind]').selectOption('grasp');await action('add').click();
   await page.waitForFunction(()=>document.querySelectorAll('#scenario-editor [data-preset-step]').length===7);

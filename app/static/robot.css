@@ -370,3 +370,12 @@
 [data-view-tabs] { display:flex; flex-wrap:wrap; gap:8px; padding:8px 0; }
 [data-view-tabs] [aria-selected=true] { border-color:#70ddc4; color:#70ddc4; }
 #preset-execution { scroll-margin-top:24px; }
+
+.preset-readiness { padding:12px 0; margin-bottom:16px; border-bottom:1px solid var(--border,#33434b); }
+.preset-readiness h5 { margin:0; font-size:14px; }
+.preset-readiness p { margin:8px 0; font-size:12px; overflow-wrap:anywhere; }
+.preset-requirement { display:flex; align-items:center; flex-wrap:wrap; gap:8px; margin-top:8px; }
+.preset-source-copy { display:flex; align-items:end; flex-wrap:wrap; gap:8px; margin:12px 0; }
+.preset-source-copy label { display:grid; gap:6px; min-width:0; }
+.preset-source-copy select { max-width:100%; }
+@media(max-width:600px) { .preset-source-copy label { width:100%; }.preset-readiness .preset-edit-head { gap:8px; } }
