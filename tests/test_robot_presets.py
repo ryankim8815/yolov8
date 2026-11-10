@@ -228,3 +228,58 @@ def test_audio_poll_prioritizes_stop_over_queued_run_and_deduplicates(scenario,m
         assert v.generation==generation
         await v.stop(notify_native=False)
     client.portal.call(run)
+
+
+def test_ui_cleanup_imports_all_saved_locations_once_without_changing_routes(scenario):
+    """Both saved-point editors disappear only after their exact targets are recoverable."""
+    import json
+    from app.store import atomic_json
+    from app.robot_preset_config import PresetLibrary
+    client,calls,*_=scenario;robot=client.app.state.robot
+    lib=robot.presets.library
+    saved=copy.deepcopy(lib.load())
+    original=saved['presets'][0]
+    # An existing user's schema-1 library must keep every ID, revision, alias and target.
+    old={'schema_version':1,'presets':[original]}
+    atomic_json(lib.path,old);original_bytes=lib.path.read_bytes()
+    for i,key in enumerate(('waypoint','box','shipping_label')):
+        robot.work_points.points[key].update(pose=[410+i,20+i,300+i,0,180,0],revision='point-'+key)
+    atomic_json(robot.work_points.path,robot.work_points.points)
+    for i,pose in enumerate(robot.pose_tests.data['poses']):
+        pose.update(angles=[i*10,0,90,0,90,0],revision='pose-'+str(i))
+    robot.pose_tests.write(robot.pose_tests.data)
+    before={path:path.read_bytes() for path in lib.path.parent.glob('*.json') if path!=lib.path}
+    migrated=PresetLibrary(lib.path.parent,robot).load()
+    assert migrated['schema_version']==2 and migrated['presets'][0]==original
+    imports=migrated['ui_migration']['imported'];assert len(imports)==6
+    presets={p['id']:p for p in migrated['presets']}
+    for source in imports:
+        p=presets[source['preset_id']]
+        assert not p['voice_enabled'] and p['aliases']==[] and len(p['steps'])==1
+        step=p['steps'][0]
+        if source['source'].startswith('point-'):
+            point=robot.work_points.points[source['source'][6:]]
+            assert step['space']=='task' and step['target']==point['pose']
+            assert source['source_revision']==point['revision']
+        else:
+            pose=robot.pose_tests.data['poses'][int(source['source'][5:])-1]
+            assert step['space']=='joint' and step['target']==pose['angles']
+            assert step['percent']==100 and step['acceleration']==10
+    backup=list(lib.path.parent.glob('backups/ui-cleanup-*/motion-presets.json'))
+    assert len(backup)==1 and backup[0].read_bytes()==original_bytes
+    assert all(path.read_bytes()==content for path,content in before.items())
+    assert PresetLibrary(lib.path.parent,robot).load()==migrated
+    assert len(list(lib.path.parent.glob('backups/ui-cleanup-*')))==1 and not calls
+    assert json.loads(lib.path.read_text())==migrated
+
+
+def test_ui_cleanup_migration_fails_closed_and_keeps_original_on_invalid_source(scenario):
+    from app.store import atomic_json
+    from app.robot_preset_config import PresetLibrary
+    from pydantic import ValidationError
+    client,calls,*_=scenario;robot=client.app.state.robot;lib=robot.presets.library
+    atomic_json(lib.path,dict(schema_version=1,presets=[lib.load()['presets'][0]]))
+    original=lib.path.read_bytes()
+    robot.pose_tests.data['poses'][0]['angles']=[900,0,90,0,90,0]
+    with pytest.raises(ValidationError):PresetLibrary(lib.path.parent,robot).load()
+    assert lib.path.read_bytes()==original and not calls

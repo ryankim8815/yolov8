@@ -166,7 +166,7 @@ export function connectRobotArm(el,signal,onOrbit) {
       ui.handOpening.textContent=Number.isFinite(hand.opening_mm)?hand.opening_mm.toFixed(1)+" mm":"—";
       ui.handObserved.textContent=hand.observedAt?"관측 "+new Date(hand.observedAt).toLocaleTimeString("ko-KR",{hour12:false})+" · "+hand.ageSeconds+"초 전":"실측 피드백 없음";
       ui.handNote.textContent=readNote||tableError;ui.handRead.disabled=!canReadHand();
-      ui.canvas.setAttribute("aria-label",ui.canvas.getAttribute("aria-label")+" 사진 기준 그리퍼 장착. "+hand.reason+". "+(hand.opening_mm===null?"벌림 미확인.":"실측 벌림 "+hand.opening_mm.toFixed(1)+" mm."));
+      ui.canvas.setAttribute("aria-label",ui.canvas.getAttribute("aria-label")+" 사진 기준 그리퍼 장착. "+hand.reason+". "+(hand.opening_mm===null?"벌림 미확인.":"추정 벌림 "+hand.opening_mm.toFixed(1)+" mm."));
     }
     let product=null;const recipe=sceneRecipe;
     if(recipe){

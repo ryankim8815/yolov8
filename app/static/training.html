@@ -31,7 +31,7 @@
       <a href="#live" data-tab="live">실시간 객체 탐지</a>
       <a href="#collect" data-tab="collect">학습 데이터 수집</a>
       <a href="#jobs" data-tab="jobs">학습 작업</a>
-      <a href="#models" data-tab="models">모델 관리</a>
+      <a href="#models" data-tab="models">모델 버전</a>
     </nav>
     <p id="action-message" role="status" hidden></p>
     <div id="live-controls"><div class="controls"><label>현재 백엔드의 모델 <select id="live-model"></select></label><button id="activate-model">모델 적용</button><button id="camera-on">카메라 켜기</button><button class="secondary" id="camera-off">카메라 끄기</button><span id="active-version"></span></div>
@@ -123,7 +123,7 @@
       <div id="jobs-list" class="record-list"></div><pre id="job-log" hidden></pre>
     </section>
     <section id="models-page" hidden aria-labelledby="registry-heading">
-      <div class="registry-bar"><h2 id="registry-heading">모델 관리</h2><span id="registry-active" class="registry-active"></span></div>
+      <div class="registry-bar"><h2 id="registry-heading">모델 버전</h2><span id="registry-active" class="registry-active"></span></div>
       <div class="registry-grid">
         <aside class="registry-panel library"><h3>보관된 모델 <small id="registry-count"></small></h3><nav id="models-list" aria-label="보관된 모델 버전"></nav></aside>
         <article class="registry-panel profile" id="model-profile" hidden>

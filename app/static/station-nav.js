@@ -4,7 +4,8 @@ export const destinations = [
   { id: "robot", label: "로봇 모니터링", icon: "robot-arm" },
   { id: "people", label: "사용자 관리", icon: "contact" },
   { id: "stock", label: "재고 관리", icon: "boxes" },
-  { id: "model-management", label: "모델 관리", icon: "scan-line" },
+  { id: "model-management", label: "상품·클래스 연결 현황", icon: "scan-line" },
+  { id: "models", label: "모델 버전", icon: "scan-line" },
   { id: "logs", label: "로그", icon: "scroll-text" }
 ];
 
@@ -27,7 +28,7 @@ export function currentDestination() {
     if (["gripper-table","gripper-test"].includes(id)) return robotPages.find(page => page.id === "gripper");
     return robotPages.find(page => page.id === id) || destinations.find(page => page.id === "robot");
   }
-  if (training) return destinations.find(item => item.id === "model-management");
+  if (training) return destinations.find(item => item.id === "models");
   const route = location.hash.slice(1);
   return destinations.find(item => item.id === route) || destinations[0];
 }
@@ -70,7 +71,7 @@ for (const item of destinations) {
   }
   if (item.id === "people") nav.append(toggle,children);
   const link = document.createElement("a");
-  link.href = item.id === "robot" ? "/robot" : "/#" + item.id;
+  link.href = item.id === "robot" ? "/robot" : item.id === "models" ? "/training#models" : "/#" + item.id;
   link.dataset.page = item.id;
   link.innerHTML = icon(item.icon) + item.label;
   nav.append(link);
@@ -82,12 +83,12 @@ const mode = document.createElement("div");
 mode.className = "rail-status";
 mode.textContent = training ? "로컬 모델 학습" : document.body.dataset.workspace === "robot" ? "E0509 · 유선 LAN" : "패킹 시뮬레이션";
 const controls=document.createElement('div');controls.className='rail-controls';
-const stop=document.createElement('button');stop.type='button';stop.id='robot-global-stop';stop.className='rail-stop';stop.textContent='■ 중단';stop.setAttribute('aria-label','로봇 작업 중단');
+const stop=document.createElement('button');stop.type='button';stop.id='robot-global-stop';stop.className='rail-stop';stop.textContent='■ 로봇 중단';stop.setAttribute('aria-label','로봇 작업 중단');
 const stopState=document.createElement('p');stopState.className='rail-stop-state';stopState.setAttribute('role','status');stopState.hidden=true;
 const standby=document.createElement('button');standby.type='button';standby.id='robot-standby';standby.className='rail-standby';standby.textContent='STANDBY 복구';
 const standbyState=document.createElement('p');standbyState.className='rail-standby-state';standbyState.setAttribute('role','status');standbyState.hidden=true;
 const recoveryDialog=document.createElement('dialog');recoveryDialog.id='robot-standby-dialog';recoveryDialog.className='rail-recovery-dialog';recoveryDialog.setAttribute('aria-labelledby','robot-standby-title');
-recoveryDialog.innerHTML='<h2 id="robot-standby-title">STANDBY로 복구할까요?</h2><p id="robot-standby-description"></p><p>정지 원인을 해소하고 작업 공간과 제어기 알람을 확인하세요. 중단된 작업은 자동 재개하지 않습니다.</p><form method="dialog"><button value="cancel" autofocus>취소</button><button id="robot-standby-confirm" value="confirm">STANDBY 전환 요청</button></form>';
+recoveryDialog.innerHTML='<h2 id="robot-standby-title">STANDBY로 복구할까요?</h2><p id="robot-standby-description"></p><p>정지 원인을 해소하고 작업 공간과 제어기 알람을 확인하세요. 중단된 작업은 자동 재개하지 않습니다.</p><form method="dialog"><button value="cancel" autofocus>복구 요청 취소</button><button id="robot-standby-confirm" value="confirm">STANDBY 전환 요청</button></form>';
 recoveryDialog.setAttribute('aria-describedby','robot-standby-description');document.body.append(recoveryDialog);
 controls.append(standby,standbyState,stop,stopState,mode);rail.append(controls);
 if(typeof ResizeObserver==='function'){
@@ -106,6 +107,8 @@ standby.addEventListener('click',async()=>{
   standby.disabled=true;recoveryMessage('제어기 상태 확인 중…');
   try{
     const state=await accessState();
+    standby.textContent=state.robot_state==='SAFE_OFF'?'서보 켜기':state.robot_state==='SAFE_STOP'?'STANDBY 복구':'로봇 준비 상태 확인';
+    document.getElementById('robot-standby-title').textContent=state.robot_state==='SAFE_OFF'?'서보를 켜고 STANDBY로 전환할까요?':'STANDBY로 복구할까요?';
     if(state.robot_state==='STANDBY'){recoveryMessage('현재 STANDBY · 준비 완료');return;}
     if(!state.servo?.token)throw Error(state.servo?.message||'STANDBY 전환을 요청할 수 없습니다.');
     recoveryTicket={session_id:state.session_id,servo_token:state.servo.token};

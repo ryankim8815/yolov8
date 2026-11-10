@@ -2,7 +2,7 @@ import { watchDetections } from "./detection-feed.js";
 import { connectOrientation } from "./gripper-orientation.js";
 import { trackGripperEstimate } from "./gripper-measurement.js";
 import { imagePixel, api, center, marker, sameInput, readCalibration } from "./robot-camera-frame.js";
-import { subscribeParcelBox, connectWaypointSimulation } from "./robot-work-points.js";
+import { subscribeParcelBox } from "./robot-work-points.js";
 import {connectPresets} from './robot-presets.js';
 
 const axes = ["X", "Y", "Z"];
@@ -66,10 +66,15 @@ export function connectWorkPlane(root) {
   const lifetime = new AbortController();
   const on = (node, type, handler) => node.addEventListener(type, handler, {signal:lifetime.signal});
   const tabs = [...editor.querySelectorAll('.plane-tabs > [role="tab"]')];
+  const viewOptions=editor.querySelector('.plane-view-options');
+  const viewTabs=editor.querySelector('[data-view-tabs]');
+  viewTabs.setAttribute('role','tablist');viewTabs.setAttribute('aria-label','고급 3D 보기');
+  for(const id of ['plane-surface-tab','plane-example-tab'])viewTabs.append(editor.querySelector('#'+id));
   let visibleTabs = tabs;
   let gripperWorkspace = false;
   let manipulatorWorkspace = false;
   function selectTab(active, navigate = false) {
+    if(viewTabs.contains(active))viewOptions.open=true;
     orientation.setManipulator(!gripperWorkspace && active.id !== "plane-gripper-tab");
     orientation.setScenarioVisible(active.id==='manipulator-points-tab'&&manipulatorWorkspace);
     if(active.id!=="manipulator-points-tab")orientation.simulationAction("stop");
@@ -88,13 +93,14 @@ export function connectWorkPlane(root) {
   tabs.forEach(tab => {
     on(tab, "click", () => selectTab(tab,true));
     on(tab, "keydown", event => {
-      const index = visibleTabs.indexOf(tab), count = visibleTabs.length;
+      const navigable=visibleTabs.filter(item=>item.parentElement===tab.parentElement);
+      const index = navigable.indexOf(tab), count = navigable.length;
       const next = {ArrowRight:(index+1)%count, ArrowLeft:(index+count-1)%count,
         Home:0, End:count-1}[event.key];
       if (next === undefined) return;
       event.preventDefault();
-      selectTab(visibleTabs[next],true);
-      visibleTabs[next].focus();
+      selectTab(navigable[next],true);
+      navigable[next].focus();
     });
   });
   let frozen, calibration, corners = blankCorners(), savedCorners, clearance = 5, corner = 0, measureIndex = -1;
@@ -427,10 +433,10 @@ export function connectWorkPlane(root) {
       gripperWorkspace = id === "gripper";
       manipulatorWorkspace = id === "manipulator";
       if (manipulatorWorkspace && !manipulatorConnected) {
-        connectWaypointSimulation(editor.querySelector("#manipulator-work-points"),orientation,lifetime.signal);
         connectPresets(editor.querySelector("#scenario-editor"),orientation,lifetime.signal);
         manipulatorConnected = true;
       }
+      viewOptions.hidden=gripperWorkspace||manipulatorWorkspace;
       orientation.setParcelBox(manipulatorWorkspace ? parcelBox : null);
       orientation.setGripperAttached(manipulatorWorkspace);
       visibleTabs = tabs.filter(tab => manipulatorWorkspace ? tab.hasAttribute("data-manipulator-tab") :

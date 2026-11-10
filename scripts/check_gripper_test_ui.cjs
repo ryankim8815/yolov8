@@ -21,6 +21,9 @@ process.chdir(path.resolve(__dirname,'..'));
    if(resource==='/api/robot/status')value=status;
    else if(resource==='/api/robot/host-access/status')value=host;
    else if(resource.endsWith('/parcel-box'))value={revision:null};
+   else if(resource==='/api/robot/presets')return route.fulfill({status:503,json:{detail:'그리퍼 전용 모의 화면'}});
+   else if(resource==='/api/robot/preset-voice/status')value={busy:false,listening:false,can_stop:false,stop_serial:0};
+   else if(resource==='/api/robot/pick/scenario/status')value={move:null};
    else if(resource.endsWith('/floor-reference'))value={revision:null,z_mm:0};
    else if(resource.endsWith('/contact')){
     if(req.method()==='PUT'){contactWrites.push(body);contact={revision:'contact-saved',threshold_ma:body.threshold_ma};}
@@ -53,6 +56,7 @@ process.chdir(path.resolve(__dirname,'..'));
   assert.equal(await page.locator('[data-depth-view=side]').getAttribute('aria-pressed'),'true');
   await page.locator('[data-page=work-plane]').click();
   assert.equal(await page.locator('.plane-tabs').isVisible(),true);
+  await page.locator('.plane-view-options > summary').click();
   await page.getByRole('tab',{name:'예시 객체 설정'}).click();
   assert.equal(await page.locator('#plane-example-settings').isVisible(),true);
   await page.getByRole('tab',{name:'그리퍼 설정'}).click();
@@ -118,6 +122,21 @@ process.chdir(path.resolve(__dirname,'..'));
   assert.equal(await page.locator('#hand-contact-current').inputValue(),'30');assert.equal(contactWrites.length,0);
   await page.locator('#hand-contact-save').click();await page.waitForFunction(()=>document.querySelector('#hand-contact-result').textContent.includes('저장 완료'));assert.equal(contactWrites[0].threshold_ma,30);
   contact={revision:'existing-contact',threshold_ma:45};await page.locator('#hand-contact-reload').click();await page.waitForFunction(()=>document.querySelector('#hand-contact-current').value==='45');
+  // The monitoring shortcut and global control share the same state-aware recovery dialog.
+  host.robot_state='SAFE_OFF';host.servo={token:'b'.repeat(32),message:'서보 꺼짐'};
+  await page.goto('http://gripper.test/robot#manipulator');
+  await page.waitForFunction(()=>document.querySelector('#servo-on')?.textContent==='서보 켜기…');
+  assert.equal(await page.locator('#servo-dialog,#pose-dialog').count(),0);
+  await page.locator('#servo-on').click();await page.locator('#robot-standby-dialog').waitFor({state:'visible'});
+  assert.match(await page.locator('#robot-standby-title').textContent(),/서보/);
+  await page.getByRole('button',{name:'복구 요청 취소',exact:true}).click();
+  host.robot_state='SAFE_STOP';await page.locator('#robot-standby').click();
+  await page.locator('#robot-standby-dialog').waitFor({state:'visible'});
+  assert.match(await page.locator('#robot-standby-description').textContent(),/SAFE_STOP/);
+  await page.getByRole('button',{name:'복구 요청 취소',exact:true}).click();
+  host.robot_state='STANDBY';await page.locator('#robot-standby').click();
+  await page.waitForFunction(()=>document.querySelector('.rail-standby-state')?.textContent.includes('준비 완료'));
+  assert.equal(await page.locator('#robot-standby-dialog').isVisible(),false);
   assert.equal(commands.length,3);assert.deepEqual(errors,[]);
   console.log('PASS: integrated raw/mm move, legacy links, no redundant tabs, preserved direction/work plane, calibration/contact/read, bounds, saved-table conversion, cancel/double click, stale preview after unit switch, stop/lock, desktop/mobile. All network mocked; no devices.');
  }finally{await browser.close();}

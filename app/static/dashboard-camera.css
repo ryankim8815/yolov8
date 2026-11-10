@@ -194,3 +194,9 @@
   .plane-meta { grid-template-columns:repeat(2,minmax(0,1fr)); }
   .plane-meta > div:first-child { grid-column:1/-1; }
 }
+
+.dashboard-preset-launcher { display:flex; align-items:center; flex-wrap:wrap; gap:10px; padding:16px 20px; border-bottom:1px solid var(--border,#33434b); }
+.dashboard-preset-launcher label { display:flex; align-items:center; gap:8px; min-width:0; }
+.dashboard-preset-launcher select { max-width:100%; min-width:120px; }
+.dashboard-preset-launcher p { flex-basis:100%; margin:0; font-size:12px; color:var(--muted,#a3b6bd); }
+@media(max-width:600px) { .dashboard-preset-launcher label { width:100%; }.dashboard-preset-launcher select { flex:1; min-width:0; } }

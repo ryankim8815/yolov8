@@ -358,3 +358,15 @@
 .preset-class-flow { display:flex; flex-wrap:wrap; gap:8px 20px; margin:0; padding-left:20px; color:var(--sub); font-size:12px; }
 .preset-class-flow [data-current=true] { color:var(--ink); font-weight:600; }
 @media(max-width:650px){.preset-player { padding:14px; }.preset-class-gate { padding:12px; }.preset-player .pose-actions { flex-wrap:wrap; }}
+
+/* Editing stays beside the selected preset; execution controls live in one card. */
+.preset-node-menu { position:relative; text-align:left; }
+.preset-node-menu summary { cursor:pointer; padding:4px 7px; border:1px solid var(--border,#33434b); border-radius:6px; font-size:12px; }
+.preset-node-menu[open] > div { display:flex; flex-wrap:wrap; gap:4px; padding:6px 0; }
+.preset-joints-held { text-align:center; color:var(--muted,#a3b6bd); }
+.preset-voice-binding > summary,.preset-command-tests > summary,.plane-view-options > summary { cursor:pointer; font-weight:600; padding:10px 0; }
+.preset-command-tests { margin-top:18px; border-top:1px solid var(--border,#33434b); }
+.plane-view-options { padding:0 20px; }
+[data-view-tabs] { display:flex; flex-wrap:wrap; gap:8px; padding:8px 0; }
+[data-view-tabs] [aria-selected=true] { border-color:#70ddc4; color:#70ddc4; }
+#preset-execution { scroll-margin-top:24px; }

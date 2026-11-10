@@ -1,5 +1,4 @@
 import { watchDetections } from "./detection-feed.js";
-import { connectCameraPick } from "./camera-pick.js";
 
 function createClassSummary(fields, getStation) {
   const buttons = new Map();
@@ -199,7 +198,30 @@ export function connectDashboardCamera(panel, getStation) {
   const fields = Object.fromEntries([...panel.querySelectorAll("[data-camera]")].map(node => [node.dataset.camera, node]));
   const classes = createClassSummary(fields, getStation);
   const source = cameraSource(fields);
-  const pick = connectCameraPick(panel);
+  const launcher=Object.fromEntries([...panel.querySelectorAll('[data-preset-launch]')].map(n=>[n.dataset.presetLaunch,n]));
+  const lifetime=new AbortController();let presets=[];
+  function selection(){
+    const p=presets.find(p=>p.id===launcher.select.value);
+    launcher.open.href='/robot'+(p?'?preset='+encodeURIComponent(p.id):'')+'#work-points-title';
+    launcher.status.textContent=p?p.name+' · '+(p.object_source==='yolo'?'YOLOv8 · 실행 전 음성 클래스 선택':'저장된 객체 좌표')+' · 경로 확인 후 실행 대상을 선택하세요.':'저장된 프리셋이 없습니다. 이동 프리셋에서 추가하세요.';
+    try{if(p)localStorage.setItem('robot-preset-selection',p.id);}catch{}
+  }
+  async function loadPresets(){
+    launcher.refresh.disabled=true;
+    try{
+      const response=await fetch('/api/robot/presets',{cache:'no-store',signal:lifetime.signal});
+      if(!response.ok)throw Error('프리셋 목록을 불러오지 못했습니다.');
+      presets=(await response.json()).presets;
+      let saved=launcher.select.value;try{saved||=localStorage.getItem('robot-preset-selection');}catch{}
+      launcher.select.replaceChildren(...presets.map(p=>new Option(p.name,p.id)));
+      launcher.select.value=presets.some(p=>p.id===saved)?saved:presets[0]?.id||'';
+      launcher.select.disabled=!presets.length;selection();
+    }catch(error){if(!lifetime.signal.aborted)launcher.status.textContent=error.message;}
+    finally{launcher.refresh.disabled=false;}
+  }
+  launcher.select.addEventListener('change',selection,{signal:lifetime.signal});
+  launcher.refresh.addEventListener('click',loadPresets,{signal:lifetime.signal});
+  void loadPresets();
   let stop, disposed = false;
   let displayMode = "detections";
 
@@ -220,14 +242,12 @@ export function connectDashboardCamera(panel, getStation) {
     onStatus(status, label, reset) {
       source.update(status);
       fields.mode.disabled = !status.ready;
-      if (status.ready) {
-        const modes = status.camera?.display_modes || ["detections"];
-        for (const option of fields.mode.options) {
-          option.disabled = !modes.includes(option.value);
-          option.hidden = option.disabled && !status.camera?.mode_note && modes.length <= 2;
-        }
-        if (!modes.includes(displayMode)) queueMicrotask(() => changeMode("detections"));
+      const modes = status.camera?.display_modes?.length ? status.camera.display_modes : ["detections"];
+      for (const option of fields.mode.options) {
+        option.disabled = !status.ready || !modes.includes(option.value);
+        option.hidden = !modes.includes(option.value);
       }
+      if (status.ready && !modes.includes(displayMode)) queueMicrotask(() => changeMode(modes[0]));
       fields.modeNote.textContent = status.camera?.mode_note || "";
       fields.modeNote.hidden = !fields.modeNote.textContent;
       if (fields.state.textContent !== label) fields.state.textContent = label;
@@ -240,7 +260,6 @@ export function connectDashboardCamera(panel, getStation) {
         fields.image.parentElement.style.aspectRatio = size.width + "/" + size.height;
       }
       if (reset) {
-        pick.update(null);
         classes.update(null);
         fields.empty.hidden = false;
         fields.message.textContent = status.last_error || (status.ready ? "첫 영상 프레임 수신 대기" : label);
@@ -251,7 +270,6 @@ export function connectDashboardCamera(panel, getStation) {
     },
     onDetections(packet, jpeg) {
       classes.update(packet);
-      pick.update(packet, jpeg);
       fields.image.parentElement.style.aspectRatio = packet.source_size.width + "/" + packet.source_size.height;
       fields.count.textContent = String(packet.objects.length);
       fields.caption.textContent = [packet.model_version || packet.model, "탐지 #" + packet.frame_id].filter(Boolean).join(" · ");
@@ -261,7 +279,6 @@ export function connectDashboardCamera(panel, getStation) {
       fields.empty.hidden = visible;
       fields.caption.hidden = !visible || !fields.caption.textContent;
       if (!visible) {
-        pick.update(null);
         fields.message.textContent = "영상 연결을 다시 시도합니다.";
         fields.count.textContent = "—";
         classes.update(null);
@@ -275,7 +292,7 @@ export function connectDashboardCamera(panel, getStation) {
     fields.mode.removeEventListener("change", modeChanged);
     source.dispose();
     stop();
-    pick.dispose();
+    lifetime.abort();
     classes.dispose();
   };
 }

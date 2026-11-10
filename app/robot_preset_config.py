@@ -225,15 +225,45 @@ class PresetLibrary:
         if self.value is not None:return self.value
         if self.path.exists():
             data=json.loads(self.path.read_text());data["presets"]=[MotionPreset.model_validate(p).model_dump() for p in data["presets"]]
+            if data.get("schema_version",1)<2:
+                self.backup("ui-cleanup")
+                data=self.import_saved_locations(data)
+                atomic_json(self.path,data)
             self.value=data;return data
-        backup=self.path.parent/"backups"/("preset-migration-"+datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")+"-"+uid()[:8])
-        backup.mkdir(parents=True)
-        for source in self.path.parent.glob("*.json"):shutil.copy2(source,backup/source.name)
+        self.backup("preset-migration")
         cfg=copy.deepcopy(self.robot.scenario.config.value);box=self.robot.work_points.points["box"]["pose"]
         p=MotionPreset(name="기존 이동 경로",context=ScenarioInput.model_validate(cfg),box_pose=box,
                        box_size=self.robot.parcel_box.value["size_mm"],box_center=self.robot.parcel_box.value["center_base_mm"],steps=self.migrate(cfg))
-        p.revision=uid();self.value=dict(schema_version=1,presets=[p.model_dump()]);atomic_json(self.path,self.value)
+        p.revision=uid();self.value=self.import_saved_locations(dict(schema_version=1,presets=[p.model_dump()]));atomic_json(self.path,self.value)
         return self.value
+
+    def backup(self,prefix):
+        backup=self.path.parent/"backups"/(prefix+"-"+datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")+"-"+uid()[:8])
+        backup.mkdir(parents=True)
+        for source in self.path.parent.glob("*.json"):shutil.copy2(source,backup/source.name)
+        return backup
+
+    def import_saved_locations(self,data):
+        """Preserve old editors as independent, non-voice presets; never retarget a saved route."""
+        data=copy.deepcopy(data);imports=[]
+        cfg=ScenarioInput.model_validate(self.robot.scenario.config.value)
+        common=dict(context=cfg,box_size=self.robot.parcel_box.value["size_mm"],box_center=self.robot.parcel_box.value["center_base_mm"])
+        def add(key,name,step,revision):
+            identifier=child_id("ui-cleanup-v2",key)
+            while any(p["id"]==identifier for p in data["presets"]):identifier=uid()
+            p=MotionPreset(id=identifier,name=name,steps=[step],revision=uid(),**common)
+            data["presets"].append(p.model_dump())
+            imports.append(dict(source=key,source_revision=revision,preset_id=identifier))
+        for key,label in (("waypoint","경유점"),("box","박스 놓기 TCP"),("shipping_label","송장 위치")):
+            point=self.robot.work_points.points[key]
+            if point.get("pose") is not None:
+                add("point-"+key,"이관 작업점 · "+label,PresetStep(kind="movej",name=label,space="task",target=point["pose"],percent=50),point.get("revision"))
+        for pose in self.robot.pose_tests.data["poses"]:
+            if pose.get("angles") is not None:
+                name="저장 자세 "+str(pose["slot"])
+                add("pose-"+str(pose["slot"]),name,PresetStep(kind="movej",name=name,target=pose["angles"],percent=100,acceleration=10),pose.get("revision"))
+        data.update(schema_version=2,ui_migration=dict(version=2,imported=imports))
+        return data
 
     def migrate(self,cfg):
         result=[];raw={}

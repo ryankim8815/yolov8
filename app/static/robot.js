@@ -1,7 +1,6 @@
 import {connectWorkPlane} from "./robot-work-plane.js";
 import {currentDestination} from "./station-nav.js";
 import {loadHandTable,renderHand} from "./robot-gripper.js";
-import {renderPoseTests} from "./robot-poses.js";
 import {renderWorkPoints} from "./robot-work-points.js";
 
 const get = id => document.getElementById(id);
@@ -20,8 +19,6 @@ let stopped = false;
 let apiUnavailable = false;
 let reclaimPending = false;
 let teachPending = false;
-let servoSubmitting = false;
-let servoTicket = null;
 let hostAccess = null;
 let hostError = "";
 let confirmation = null;
@@ -101,7 +98,6 @@ function renderTopics(topics) {
 function render(data) {
   if (!data) return;
   renderControl();
-  renderPoseTests(data, {paused, apiUnavailable, teachPending, hostAccess});
   renderWorkPoints(data, {paused, apiUnavailable});
   renderConfig(data.config);
   const joint = data.topics.find(topic => topic.name === data.display_joint_topic) || data.topics[0];
@@ -132,7 +128,7 @@ function render(data) {
       "rosbridge 연결 완료. 관절 토픽의 발행자를 확인하고 있습니다.",
     no_publisher: `rosbridge의 ROS 그래프에서 ${joint.name} 발행자가 0개입니다. 두산 드라이버, ROS 도메인과 네임스페이스를 확인하세요.`,
     live: "ROS 2 관절 데이터를 수신하고 있습니다.",
-    monitoring: `E0509 제어기의 실제 관절각을 ${joint.name}에서 수신하고 있습니다. 자세 테스트는 매니퓰레이터에서 사용할 수 있습니다.`,
+    monitoring: `E0509 제어기의 실제 관절각을 ${joint.name}에서 수신하고 있습니다. 저장 자세는 이동 프리셋에서 사용할 수 있습니다.`,
     stale: "관절 데이터 갱신이 멈췄습니다. 마지막 수신값을 표시합니다.",
     robot_disconnected: "드라이버에서 로봇 연결 끊김 이벤트를 수신했습니다. LAN 케이블과 컨트롤러를 확인하세요."
   };
@@ -191,7 +187,6 @@ function renderOperationMode() {
   get("operation-panel").hidden = !visible;
   selector.value = change?.verified && modeNames[host?.operation_mode] ? host.operation_mode : "";
   selector.disabled = !available;
-  get("pose-mode-select").hidden = !available || (host.operation_mode === "AUTO" && change.verified);
   get("operation-confirm").disabled = !available || modeTicket?.session_id !== host?.session_id ||
     modeTicket?.mode_token !== change?.token;
   const results = {pending:"제어기의 모드 변경 응답 대기", unknown:"결과 미확인 · 제어기 응답 대기",
@@ -202,10 +197,6 @@ function renderOperationMode() {
     !change ? "Mac SDK 서버 업데이트가 필요합니다." :
     available ? `현재 ${modeNames[host.operation_mode] || host.operation_mode}` : "운전 모드 확인 대기");
 }
-get("pose-mode-select").addEventListener("click", () => {
-  get("pose-dialog").close();
-  get("operation-mode").focus();
-});
 get("operation-mode").addEventListener("change", event => {
   if (!hostAccess?.mode_change?.token) return;
   const target = event.target.value;
@@ -241,60 +232,12 @@ get("operation-confirm").addEventListener("click", async () => {
 
 function renderServo() {
   const visible = macMode() && !rosView;
-  const servo = hostAccess?.servo;
-  const available = visible && !paused && !apiUnavailable && !servoSubmitting && !!servo?.token;
   get("servo-panel").hidden = !visible;
-  get("servo-on").disabled = !available;
-  const recovery = hostAccess?.robot_state === "SAFE_STOP";
-  get("servo-on").textContent = recovery ? "STANDBY 복구" : "서보 켜기";
-  get("pose-servo-on").textContent = recovery ? "STANDBY 복구" : "서보 켜기";
-  get("pose-servo-on").hidden = !visible || !["SAFE_OFF", "SAFE_STOP"].includes(hostAccess?.robot_state);
-  get("pose-servo-on").disabled = !available;
-  get("servo-confirm").disabled = !available || servoTicket?.servo_token !== servo?.token ||
-    servoTicket?.session_id !== hostAccess?.session_id;
-  get("servo-status").textContent = hostError || servo?.message ||
-    (hostAccess ? "서보 요청을 지원하는 Mac SDK 서버가 필요합니다." : "SDK 상태 확인 중");
+  get("servo-on").disabled = !visible || paused || apiUnavailable || !hostAccess;
+  get("servo-on").textContent = hostAccess?.robot_state === "SAFE_STOP" ? "STANDBY 복구…" : hostAccess?.robot_state === "SAFE_OFF" ? "서보 켜기…" : "로봇 준비 상태 확인…";
+  get("servo-status").textContent = hostError || hostAccess?.servo?.message || "SDK 상태 확인 중";
 }
-function confirmServo() {
-  if (get("servo-on").disabled) return;
-  servoTicket = {session_id: hostAccess.session_id, servo_token: hostAccess.servo.token};
-  if (get("pose-dialog").open) get("pose-dialog").close();
-  get("servo-error").hidden = true;
-  const recovery = hostAccess.robot_state === "SAFE_STOP";
-  get("servo-title").textContent = recovery ? "STANDBY로 복구할까요?" : "서보를 켤까요?";
-  get("servo-confirm").textContent = recovery ? "STANDBY 전환 요청" : "서보 ON 요청";
-  get("servo-description").textContent = `E0509 (${hostAccess.route.ip}:${hostAccess.route.port}) · Mac 세션 ${hostAccess.session_id.slice(0, 8)}` + (recovery ? " · SAFE_STOP 해제 후 중단된 작업은 자동 재개하지 않습니다." : "");
-  renderServo();
-  get("servo-dialog").showModal();
-}
-get("servo-on").addEventListener("click", confirmServo);
-get("pose-servo-on").addEventListener("click", confirmServo);
-get("servo-cancel").addEventListener("click", () => get("servo-dialog").close());
-get("servo-dialog").addEventListener("close", () => { servoTicket = null; });
-get("servo-confirm").addEventListener("click", async () => {
-  if (get("servo-confirm").disabled || !servoTicket) return;
-  const ticket = servoTicket;
-  get("servo-dialog").close();
-  servoSubmitting = true;
-  renderServo();
-  try {
-    const res = await fetch("/api/robot/host-access/servo-on", {
-      method: "POST", headers: {"Content-Type": "application/json"},
-      body: JSON.stringify(ticket), signal: AbortSignal.timeout(5000)
-    });
-    const state = await res.json();
-    if (!res.ok) throw new Error(typeof state.detail === "string" ? state.detail : "서보 요청을 확인할 수 없습니다.");
-    if (hostAccess?.session_id === ticket.session_id) hostAccess = state;
-  } catch (error) {
-    get("servo-error").textContent = error instanceof TypeError || error instanceof SyntaxError || error.name === "TimeoutError"
-      ? "서보 요청 결과 미확인 · 현재 제어기 상태를 확인하세요." : error.message;
-    get("servo-error").hidden = false;
-  } finally {
-    servoSubmitting = false;
-    renderControl();
-    refresh();
-  }
-});
+get("servo-on").addEventListener("click", () => get("robot-standby").click());
 
 function renderControl() {
   renderHand(latest, !paused && !apiUnavailable ? hostAccess : null);
@@ -479,6 +422,9 @@ async function refresh() {
   }
 }
 function routeRobot() {
+  if (["#pose-title", "#product-grasp-title"].includes(location.hash)) {
+    const url=new URL(location.href); url.hash="work-points-title"; history.replaceState(history.state,"",url);
+  }
   if(location.hash==="#gripper-test"){
     const url=new URL(location.href);url.hash="gripper";history.replaceState(history.state,"",url);
   }
@@ -515,7 +461,6 @@ get("robot-pause").addEventListener("click", () => {
   if (paused) workPlane?.robotStatus(null);
   if (paused) get("robot-notice").textContent = "표시를 일시정지했습니다. 재개하면 최신 수신값을 불러옵니다.";
   else refresh();
-  if (latest) renderPoseTests(latest, {paused, apiUnavailable, teachPending, hostAccess});
   if (latest) renderWorkPoints(latest, {paused, apiUnavailable});
   renderControl();
 });
@@ -524,7 +469,6 @@ function clearHostStatus() {
   hostError = "";
   if (latest) {
     renderControl();
-    renderPoseTests(latest, {paused, apiUnavailable, teachPending, hostAccess});
   }
 }
 window.addEventListener("pagehide", () => { stopped = true; workPlane?.dispose(); workPlane = null; clearHostStatus(); requestController?.abort(); });
