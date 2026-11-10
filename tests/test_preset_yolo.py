@@ -11,6 +11,12 @@ from tests.test_robot_presets import BASE,library
 from app.store import DomainError
 
 
+@pytest.fixture(autouse=True)
+def catalog(monkeypatch):
+    monkeypatch.setattr('app.robot_presets.read_yolo_catalog',lambda:dict(model_version='v1',model_name='테스트 모델',classes=[dict(id=0,name='상품'),dict(id=1,name='다른 상품')]))
+    fake_voice(monkeypatch)
+
+
 def yolo(client,**changes):
     p=library(client)[0]
     p.update(object_source='yolo',yolo=dict(model_version='v1',class_id=0,class_label='상품',min_confidence=.8,selection='unique'))
@@ -26,7 +32,22 @@ def capture(client,p,**body):
     return response.json()
 
 
+def voice_capture(client,p):
+    v=client.app.state.robot.presets.voice
+    async def run():
+        v.session='asr';v.target='hardware'
+        await v.begin_class(p)
+        await v.hear(dict(text=p['yolo']['class_label'],sequence=2))
+        assert v.pending
+        return v.engine.detections.public(v.engine.detections.snapshots[v.pending['binding']['snapshot_id']])
+    return client.portal.call(run)
+
+
 def bound(client,p,snap,path='preview',**extra):
+    v=client.app.state.robot.presets.voice
+    if path=='execution-preview' and v.pending and v.pending.get('binding',{}).get('snapshot_id')==snap['snapshot_id']:
+        target=v.engine.robot.picks.approvals[v.pending['hardware_id']]
+        return dict(approval_id=v.pending['hardware_id'],total_steps=len(target['steps']),steps=copy.deepcopy(target['steps']),detected=copy.deepcopy(v.pending['detected']))
     response=client.post(f'{BASE}/{p["id"]}/{path}',json=dict(revision=p['revision'],snapshot_id=snap['snapshot_id'],candidate_id=snap['selected_id'],**extra))
     assert response.status_code==200,response.text
     return response.json()
@@ -102,7 +123,7 @@ def test_snapshots_are_bound_to_conditions_versions_and_stop_generation(scenario
 
 @pytest.mark.parametrize('change', ['lost','duplicate','model','camera','confidence','wider'])
 def test_camera_changes_after_approval_prevent_any_motion(scenario,change):
-    client,calls,frame,*_=scenario;p=yolo(client);snap=capture(client,p);ticket=bound(client,p,snap,'execution-preview')
+    client,calls,frame,*_=scenario;p=yolo(client);snap=voice_capture(client,p);ticket=bound(client,p,snap,'execution-preview')
     if change=='lost':frame['objects']=[]
     elif change=='duplicate':frame['objects']*=2
     elif change=='model':frame['model_version']='v2'
@@ -116,7 +137,7 @@ def test_camera_changes_after_approval_prevent_any_motion(scenario,change):
 
 
 def test_full_yolo_route_runs_in_order_and_stops_reading_camera_after_grip(scenario,monkeypatch):
-    client,calls,frame,*_=scenario;p=yolo(client);snap=capture(client,p);ticket=bound(client,p,snap,'execution-preview')
+    client,calls,frame,*_=scenario;p=yolo(client);snap=voice_capture(client,p);ticket=bound(client,p,snap,'execution-preview')
     import app.robot_scenario as module
     original=module.request_host
     def host(operation,*args):
@@ -141,7 +162,7 @@ def test_preparation_has_separate_approval_and_does_not_need_detection(scenario)
     ticket=ticket.json();assert ticket['recognition_prepare'] and len(ticket['steps'])==2 and not calls
     client.post(BASE+'/executions/approve',json=dict(approval_id=ticket['approval_id']))
     assert wait_state(client,ticket['approval_id'],{'completed','failed','unknown'})['state']=='completed'
-    assert len(calls)==2 and capture(client,p,hardware=True)['selected_id']
+    assert len(calls)==2 and voice_capture(client,p)['selected_id']
 
 
 def enable_voice(client,p,confirmation='screen'):
@@ -157,7 +178,7 @@ def fake_voice(monkeypatch):
 def test_yolo_sentence_test_cannot_create_or_use_real_approval(scenario,monkeypatch):
     client,calls,*_=scenario;p=enable_voice(client,yolo(client));v=client.app.state.robot.presets.voice
     v.target='hardware';fake_voice(monkeypatch)
-    result=client.post('/api/robot/preset-voice/test',json=dict(text='로봇 탐지 포장'))
+    result=client.post('/api/robot/preset-voice/test',json=dict(text='로봇 탐지 포장',class_name='상품'))
     assert result.status_code==200,result.text
     result=result.json();assert result['simulation_only'] and result['recipe']['detected']
     assert v.pending is None and not calls and not client.app.state.robot.picks.approvals
@@ -172,6 +193,7 @@ def test_voice_manual_choice_requires_selection_then_fresh_voice_confirmation(sc
     async def run():
         v.session='asr';v.target=target;v.ui_seen=time.monotonic()
         await v.hear(dict(text='로봇 탐지 포장',sequence=1))
+        await v.hear(dict(text='상품',sequence=2))
         assert v.pending is None and v.selection and not calls
         with pytest.raises(DomainError):await v.hear(dict(text='로봇 실행',sequence=2))
         choice=v.selection;cid=choice['detection']['candidates'][0]['id']
@@ -180,8 +202,8 @@ def test_voice_manual_choice_requires_selection_then_fresh_voice_confirmation(sc
         assert v.status()['pending']['detected']['candidate_id']==cid
         assert 'recipe' not in v.status()['pending'] and 'binding' not in v.status()['pending']
         with pytest.raises(DomainError):await v.hear(dict(text='로봇 실행',sequence=1))
-        with pytest.raises(DomainError):v.confirm(v.pending['approval_id'])
-        await v.hear(dict(text='로봇 실행',sequence=2))
+        with pytest.raises(DomainError):await v.confirm(v.pending['approval_id'])
+        await v.hear(dict(text='로봇 실행',sequence=3))
         move=copy.deepcopy(v.engine.robot.picks.moves.get(v.engine.robot.picks.active_id))
         assert v.pending is None
         if target=='simulation':assert v.simulation['recipe']['detected']['candidate_id']==cid and not calls
@@ -197,9 +219,10 @@ def test_sentence_manual_choice_remains_isolated_from_voice_pending(scenario,mon
     client,calls,frame,*_=scenario;p=enable_voice(client,yolo(client));p['yolo']['selection']='manual'
     p=client.put(f'{BASE}/{p["id"]}',json=p).json();v=client.app.state.robot.presets.voice;fake_voice(monkeypatch)
     async def begin():
-        v.session='asr';await v.hear(dict(text='로봇 탐지 포장',sequence=1))
+        v.session='asr';await v.hear(dict(text='로봇 탐지 포장',sequence=1));await v.hear(dict(text='상품',sequence=2))
+        await v.hear(dict(text='상품',sequence=2))
     client.portal.call(begin);pending=copy.deepcopy(v.status()['selection'])
-    result=client.post('/api/robot/preset-voice/test',json=dict(text='로봇 탐지 포장')).json()
+    result=client.post('/api/robot/preset-voice/test',json=dict(text='로봇 탐지 포장',class_name='상품')).json()
     assert result['recipe'] is None and result['detection']['state']=='selection_required'
     result=client.post('/api/robot/preset-voice/test',json=dict(text='로봇 탐지 포장',snapshot_id=result['detection']['snapshot_id'],candidate_id=result['detection']['candidates'][0]['id'])).json()
     assert result['recipe']['detected'] and v.status()['selection']==pending and v.pending is None
@@ -213,7 +236,7 @@ def test_stop_during_camera_read_never_publishes_voice_selection(scenario,monkey
     def camera(*args):entered.set();assert release.wait(3);return copy.deepcopy(frame)
     monkeypatch.setattr('app.robot_pick.read_camera',camera)
     async def run():
-        v.session='asr';task=asyncio.create_task(v.hear(dict(text='로봇 탐지 포장',sequence=1)))
+        v.session='asr';await v.begin_class(p);task=asyncio.create_task(v.hear(dict(text='상품',sequence=2)))
         try:
             assert await asyncio.to_thread(entered.wait,2)
             v.engine.robot.scenario.stop_all()
@@ -225,7 +248,7 @@ def test_stop_during_camera_read_never_publishes_voice_selection(scenario,monkey
 
 
 def test_camera_motion_between_preopen_and_descent_sends_no_descent(scenario,monkeypatch):
-    client,calls,frame,*_=scenario;p=yolo(client);snap=capture(client,p);ticket=bound(client,p,snap,'execution-preview')
+    client,calls,frame,*_=scenario;p=yolo(client);snap=voice_capture(client,p);ticket=bound(client,p,snap,'execution-preview')
     import app.robot_scenario as module
     original=module.request_host
     def host(operation,*args):
@@ -241,7 +264,7 @@ def test_camera_motion_between_preopen_and_descent_sends_no_descent(scenario,mon
 def test_partial_range_still_needs_detection_and_never_accepts_client_coordinates(scenario):
     client,calls,*_=scenario;p=yolo(client);grasp=next(s for s in p['steps'] if s['kind']=='grasp')
     p.update(range_start=grasp['id'],range_end=grasp['id']);p=client.put(f'{BASE}/{p["id"]}',json=p).json()
-    snap=capture(client,p);ticket=bound(client,p,snap,'execution-preview')
+    snap=voice_capture(client,p);ticket=bound(client,p,snap,'execution-preview')
     assert ticket['total_steps']==5 and ticket['detected']
     assert client.post(f'{BASE}/{p["id"]}/execution-preview',json=dict(revision=p['revision'],pose=[0]*6)).status_code==422
     assert not calls

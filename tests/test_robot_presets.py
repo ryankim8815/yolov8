@@ -127,7 +127,7 @@ def test_voice_tests_cannot_approve_and_native_event_confirmation(scenario,monke
         v.session='asr';v.ui_seen=time.monotonic()
         await v.hear(dict(text='로봇 대기',sequence=1))
         identifier=v.pending['approval_id']
-        with pytest.raises(DomainError):v.confirm(identifier)
+        with pytest.raises(DomainError):await v.confirm(identifier)
         with pytest.raises(DomainError):await v.hear(dict(text='로봇 실행',sequence=1))
         await v.hear(dict(text='로봇 실행',sequence=2))
         assert v.simulation and not v.pending
@@ -149,9 +149,9 @@ def test_voice_screen_hardware_approval_and_stop_priority(scenario,monkeypatch):
         with pytest.raises(DomainError):await v.hear(dict(text='로봇 실행',sequence=2))
         await v.hear(dict(text='로봇 중단',sequence=3))
         assert v.pending is None
-        with pytest.raises(DomainError):v.confirm(identifier)
+        with pytest.raises(DomainError):await v.confirm(identifier)
         await v.hear(dict(text='로봇 제자리',sequence=4))
-        move=v.confirm(v.pending['approval_id'])
+        move=await v.confirm(v.pending['approval_id'])
         v.session=None
         return move
     move=client.portal.call(test)

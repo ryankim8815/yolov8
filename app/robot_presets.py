@@ -44,6 +44,8 @@ class PresetEngine:
     def compile(self,preset,detected=None):
         return compile_preset(preset,self.robot.hand,self.robot.floor.value["z_mm"],detected=detected)
 
+    async def catalog(self):return await asyncio.to_thread(read_yolo_catalog)
+
     def check_versions(self,target):
         p=self.library.get(target["preset_id"])
         if p["revision"]!=target["preset_revision"] or self.robot.floor.value["revision"]!=target["floor_revision"]:
@@ -72,6 +74,7 @@ class PresetEngine:
             p.update(object_source="saved",steps=[step.model_dump()],range_start=None,range_end=None)
         elif p["object_source"]=="yolo":
             binding=self.detections.bind(p,snapshot_id,candidate_id)
+            await self.detections.current_choice(p,binding.get("voice_choice"),hardware=True,step_id=step_id)
             await self.detections.revalidate(p,binding)
         if step_id:
             selected=next((s for s in p["steps"] if s["id"]==step_id),None)
@@ -120,7 +123,7 @@ class PresetEngine:
             raise DomainError("경로 확인 중 설정이 변경되었습니다.",412)
         target=dict(kind="preset",preset_id=identifier,preset_revision=revision,floor_revision=floor_revision,
                     config=p["context"],status=status,kin=kin,steps=steps,label=p["name"]+(" · 인식 자세 준비" if recognition else ""),cancelled=False,
-                    detection=binding,recognition_prepare=recognition,preset=original)
+                    detection=binding,recognition_prepare=recognition,preset=original,step_id=step_id)
         if binding:self.detections.check(original,binding["snapshot_id"])
         ticket=self.legacy.ticket(target)
         if binding:
@@ -129,13 +132,19 @@ class PresetEngine:
                     name=target["label"],steps=steps,total_steps=len(steps),tcp_name=kin["tcp_name"],recognition_prepare=recognition,
                     detected=copy.deepcopy(binding["resolved"]) if binding else None)
 
-    def approve(self,identifier):
+    async def approve(self,identifier,*,from_voice=False):
         target=self.robot.picks.approvals.pop(identifier,None)
         if target is None or target["deadline"]<=time.monotonic() or target.get("kind")!="preset":
             raise DomainError("승인이 만료되었거나 이미 사용되었습니다.")
+        binding=target.get("detection")
+        if binding:
+            choice=binding.get("voice_choice")
+            await self.detections.current_choice(target["preset"],choice,hardware=True,step_id=target.get("step_id"))
+            if choice["confirmation"]=="voice" and not from_voice:raise DomainError("마이크의 ‘로봇 실행’ 재확인이 필요합니다.")
         self.check_versions(target)
         if target["versions"]!=self.legacy.versions():raise DomainError("장비 또는 작업 설정이 변경되었습니다.",412)
         self.legacy.require_idle()
+        if binding:binding["voice_choice"]["consumed"]=True
         target.update(session_id=target["status"]["session_id"],token=target["status"]["motion_token"],approved=True)
         self.legacy.runtimes[identifier]=target
         move=self.robot.picks.record(identifier,"scenario_running","프리셋 실행 준비 중",scenario=True,preset_id=target["preset_id"],
@@ -236,4 +245,4 @@ async def preview(identifier:str,body:PresetPreview,request:Request):
     return await engine(request).preview(identifier,body.revision,body.step_id,body.snapshot_id,body.candidate_id)
 
 @router.post("/executions/approve",dependencies=[Depends(local_json)],status_code=202)
-async def approve(body:Approval,request:Request):return engine(request).approve(body.approval_id)
+async def approve(body:Approval,request:Request):return await engine(request).approve(body.approval_id)

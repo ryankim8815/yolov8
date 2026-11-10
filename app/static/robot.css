@@ -319,9 +319,16 @@
 .preset-fields { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; margin:12px 0; }
 .preset-coordinates,.preset-extra details { padding:12px; border:1px solid var(--line); border-radius:7px; }
 .preset-coordinates summary,.preset-extra summary { font-size:12px; color:var(--sub); cursor:pointer; }
-.preset-table-scroll { overflow-x:auto; }.preset-table { min-width:860px; }.preset-table th[scope=row] { width:24%; }
+.preset-table-scroll { overflow-x:auto; }.preset-table { min-width:1180px; }.preset-table th[scope=row] { width:200px; min-width:180px; }
 .preset-row-actions { display:flex; flex-wrap:wrap; gap:4px; margin:6px 0; }.preset-row-actions button { padding:4px 6px!important; font-size:11px!important; }
 .preset-table .scenario-stage-joints td:nth-child(n+5) { min-width:62px; }
+.preset-table .preset-hand-source { width:145px; min-width:130px!important; }
+.preset-table .preset-hand-width { width:100px; min-width:100px!important; }
+.preset-table .preset-hand-contact { width:76px; min-width:76px!important; text-align:center; }
+.preset-table .preset-hand-source select { display:block; width:100%; max-width:none; min-height:44px; padding:10px 6px; border:0; border-radius:0; }
+.preset-table .preset-hand-source span,.preset-table .preset-hand-width span,.preset-table .preset-hand-contact span { display:block; padding:10px 8px; color:var(--sub); font-size:12px; }
+.preset-table .preset-hand-check { display:grid; place-items:center; min-height:44px; margin:0; }
+.preset-table .preset-hand-check input[type=checkbox] { position:static; inset:auto; width:18px; height:18px; padding:0; margin:0; appearance:auto; accent-color:var(--mint); }
 .preset-table [data-node-field] { max-width:110px; }.preset-table [data-node-field$='.percent'] { max-width:85px; }
 .preset-extra td { padding:8px; }.preset-extra label { max-width:400px; }.preset-extra .preset-fields label { max-width:none; }
 .preset-table tr[data-current=true] { background:var(--mint-bg); }
@@ -336,3 +343,15 @@
 #scenario-editor [data-p=message][data-error=true] { color:var(--red); }
 @media(max-width:1000px){.preset-layout { grid-template-columns:170px minmax(0,1fr); }.preset-fields { grid-template-columns:repeat(2,minmax(0,1fr)); }}
 @media(max-width:650px){.preset-layout { grid-template-columns:minmax(0,1fr); }.preset-library { position:static; }.preset-library [data-p=list] { grid-template-columns:repeat(2,minmax(0,1fr)); }.preset-fields { grid-template-columns:repeat(2,minmax(0,1fr)); }.preset-edit-head { align-items:end; }.preset-edit-head label { min-width:180px; }.preset-step-add { justify-content:start; }}
+
+/* Runtime voice class selection lives inside the execution card. */
+.preset-player { padding:20px; border:1px solid var(--line); border-radius:10px; background:var(--surface); min-width:0; }
+.preset-player > .preset-voice-console { margin-top:8px; padding-top:16px; }
+.preset-class-gate { display:grid; gap:12px; padding:16px; border:1px solid var(--mint); border-radius:8px; background:var(--mint-bg); min-width:0; }
+.preset-class-gate h4 { margin:0; }.preset-class-gate p { overflow-wrap:anywhere; }
+.preset-class-list { display:flex; flex-wrap:wrap; gap:8px; }
+.preset-class-list span { padding:6px 10px; border:1px solid var(--line); border-radius:5px; background:var(--surface); color:var(--ink); font-size:12px; overflow-wrap:anywhere; }
+.preset-class-list [data-selected=true] { border-color:var(--mint); font-weight:600; }
+.preset-class-flow { display:flex; flex-wrap:wrap; gap:8px 20px; margin:0; padding-left:20px; color:var(--sub); font-size:12px; }
+.preset-class-flow [data-current=true] { color:var(--ink); font-weight:600; }
+@media(max-width:650px){.preset-player { padding:14px; }.preset-class-gate { padding:12px; }.preset-player .pose-actions { flex-wrap:wrap; }}

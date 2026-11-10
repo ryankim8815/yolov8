@@ -139,7 +139,6 @@ def compile_preset(preset, hand, floor_z=0, *, selected_range=True, detected=Non
     width=product["size_mm"][0 if p.region=="floor" else 1];opening=width+10
     if p.object_source=="yolo":
         if not any(s.kind=="grasp" for s in p.steps):errors.append("자동 파지 묶음을 한 개 추가하세요.")
-        if p.yolo.class_id is None or p.yolo.model_version is None:errors.append("현재 YOLO 모델의 대상 클래스를 선택하세요.")
         if detected:
             pose=copy.deepcopy(detected["pose"]);width=detected["width_mm"];opening=detected["opening_mm"]
             product.update(center_base_mm=pose[:3],size_mm=copy.deepcopy(detected["size_mm"]))

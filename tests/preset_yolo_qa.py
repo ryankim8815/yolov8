@@ -20,14 +20,14 @@ def create_qa_app():
         raise RuntimeError('QA requires a temporary state directory and disabled hardware')
     frame=dict(session_id='qa-camera',camera_generation=1,camera_id='isolated-fixture',frame_id=1,model_version='qa-yolo',source_size=dict(width=320,height=240),
                objects=[dict(class_id=0,label='테스트 상품',confidence=.96,xyxy=[60,60,100,100])])
-    scenario='normal';voice_session=None;sequence=0;events=[]
+    scenario='normal';voice_session=None;sequence=0;events=[];model_version='qa-yolo'
     def camera(*args):
         if scenario=='offline':raise DomainError('격리 카메라 연결 단절',503)
-        packet=copy.deepcopy(frame);packet['frame_id']+=1
+        packet=copy.deepcopy(frame);packet['frame_id']+=1;packet['model_version']=model_version
         if scenario=='none':packet['objects']=[]
         elif scenario=='multiple':packet['objects'].append(dict(class_id=0,label='테스트 상품',confidence=.93,xyxy=[110,50,130,70]))
         return packet
-    def catalog():return dict(model_version='qa-yolo',model_name='격리 YOLO 모델',classes=[dict(id=0,name='테스트 상품'),dict(id=1,name='다른 상품')],camera=dict(id='isolated-fixture'),ready=True,state='ready')
+    def catalog():return dict(model_version=model_version,model_name='격리 YOLO 모델',classes=[dict(id=0,name='테스트 상품'),dict(id=1,name='다른 상품')],camera=dict(id='isolated-fixture'),ready=True,state='ready')
     def native(action,after=0,*,session_id=None):
         nonlocal voice_session
         if action=='start':voice_session=voice_session or uid()
@@ -65,10 +65,12 @@ def create_qa_app():
         return await call_next(request)
     @app.post('/__qa/state')
     async def change(request:Request):
-        nonlocal scenario,sequence
+        nonlocal scenario,sequence,model_version
         body=await request.json()
         if 'scenario' in body:
             assert body['scenario'] in {'normal','none','multiple','offline'};scenario=body['scenario']
+        if 'model_version' in body:
+            assert body['model_version'] in {'qa-yolo','qa-yolo-new'};model_version=body['model_version']
         if 'text' in body:
             if not voice_session:raise DomainError('테스트 청취를 먼저 시작하세요.')
             sequence+=1;events.append(dict(session_id=voice_session,sequence=sequence,text=body['text']))

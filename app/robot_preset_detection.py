@@ -11,6 +11,7 @@ from http.client import HTTPConnection, HTTPException
 from . import robot_pick
 from .pick_plane import Calibration, CameraFrame, PickPlane
 from .robot_preset_config import MotionPreset, uid
+from .robot_preset_class import catalog_signature
 from .store import DomainError
 
 
@@ -48,10 +49,29 @@ class PresetDetections:
 
     def criteria(self,p):
         if p["object_source"]!="yolo":raise DomainError("YOLOv8 탐지값을 선택한 프리셋에서 사용하세요.")
-        if p["yolo"]["class_id"] is None or not p["yolo"]["model_version"]:
-            raise DomainError("현재 YOLO 모델의 대상 클래스를 선택하고 저장하세요.")
         if sum(s["kind"]=="grasp" for s in p["steps"])!=1:
             raise DomainError("YOLO 프리셋에 자동 파지 묶음을 한 개 연결하세요.")
+
+    def check_choice(self,p,choice,*,approved=False):
+        if not choice:raise DomainError("실행 전 마이크로 대상 클래스를 먼저 선택하세요.")
+        if approved and choice.get("consumed"):return
+        voice=self.engine.voice
+        if (choice.get("revoked") or choice.get("consumed") or choice["deadline"]<=time.monotonic() or
+                not voice.session or choice["session"]!=voice.session or choice["generation"]!=voice.generation):
+            raise DomainError("음성 클래스 선택이 만료되거나 취소되었습니다. 클래스를 다시 말씀하세요.")
+        if choice["signature"]!=signature(p):raise DomainError("프리셋이 변경되었습니다. 클래스를 다시 선택하세요.",412)
+        if choice["versions"]!=self.engine.legacy.versions() or choice["floor_revision"]!=self.robot.floor.value["revision"]:
+            raise DomainError("장비 또는 설정 변경으로 클래스 선택을 취소했습니다.",412)
+
+    async def current_choice(self,p,choice,*,hardware=False,step_id=None):
+        self.check_choice(p,choice)
+        if hardware and (choice["target"]!="hardware" or choice["step_id"]!=step_id):
+            raise DomainError("실제 실행 대상과 범위를 선택한 뒤 클래스를 다시 말씀하세요.")
+        catalog=await self.engine.catalog()
+        self.check_choice(p,choice)
+        if catalog_signature(catalog)!=choice["catalog_signature"]:
+            self.engine.voice.invalidate("YOLO 모델 또는 클래스 목록이 변경되었습니다. 클래스를 다시 선택하세요.")
+            raise DomainError("YOLO 모델 또는 클래스 목록이 변경되었습니다. 클래스를 다시 선택하세요.")
 
     async def require_ready(self,p,kin=None):
         if kin is None:_,kin=await self.engine.legacy.inspect()
@@ -71,6 +91,7 @@ class PresetDetections:
         if snap is None or (not approved and snap["deadline"]<=time.monotonic()):
             raise DomainError("YOLO 대상 확인이 만료되었습니다. 최신 대상을 다시 확인하세요.")
         if snap["signature"]!=signature(p):raise DomainError("프리셋이 변경되었습니다. 대상을 다시 확인하세요.",412)
+        if snap.get("voice_choice"):self.check_choice(p,snap["voice_choice"],approved=approved)
         if snap["versions"]!=self.engine.legacy.versions() or snap["floor_revision"]!=self.robot.floor.value["revision"]:
             raise DomainError("중단 요청 또는 장비·공통 설정 변경으로 YOLO 확인을 취소했습니다.",412)
         current=self.robot.picks.calibration(snap["camera"],p["region"])
@@ -93,20 +114,25 @@ class PresetDetections:
                     candidates=copy.deepcopy(snap["candidates"]),selected_id=selected,
                     state="no_match" if not valid else "selected" if selected else "selection_required",message=message)
 
-    async def capture(self,p,*,hardware=False,reader=None):
+    async def capture(self,p,*,hardware=False,reader=None,choice=None,criteria=None):
         self.criteria(p);self.engine.legacy.require_idle()
+        if hardware or choice:await self.current_choice(p,choice)
+        selected=choice or criteria or p["yolo"]
+        if selected.get("class_id") is None or not selected.get("model_version"):
+            raise DomainError("실행 전 음성으로 클래스를 선택하세요. 문장 테스트에서는 클래스 이름을 입력하세요.")
+        if hardware and choice["target"]!="hardware":raise DomainError("실제 로봇을 선택한 뒤 클래스를 다시 말씀하세요.")
         versions=self.engine.legacy.versions();floor=self.robot.floor.value["revision"]
         if hardware:await self.require_ready(p)
         reader=reader or robot_pick.read_camera
         packet=await asyncio.to_thread(reader)
         camera=CameraFrame.from_packet(packet)
-        if packet["model_version"]!=p["yolo"]["model_version"]:
-            raise DomainError("현재 YOLO 모델이 프리셋의 모델과 다릅니다. 클래스 목록을 다시 불러와 저장하세요.")
+        if packet["model_version"]!=selected["model_version"]:
+            raise DomainError("탐지 프레임의 YOLO 모델이 선택한 모델과 다릅니다. 최신 모델의 클래스를 다시 선택하세요.")
         calibration=self.robot.picks.calibration(camera,p["region"])
         if not calibration["revision"]:raise DomainError("이 카메라·해상도의 상품 파지 영역을 먼저 보정하세요.")
         plane=PickPlane(Calibration(**calibration));candidates=[];targets={};identifier=uid()
         for index,obj in enumerate(packet["objects"]):
-            if obj["class_id"]!=p["yolo"]["class_id"] or obj["confidence"]<p["yolo"]["min_confidence"]:continue
+            if obj["class_id"]!=selected["class_id"] or obj["confidence"]<p["yolo"]["min_confidence"]:continue
             pixel=robot_pick.center(obj)
             if not plane.contains(pixel):continue
             key=uid();pose=None;estimate={};reason=None
@@ -123,12 +149,12 @@ class PresetDetections:
                     if i!=normal_axis:size[i]=max(.001,spans[i])
                 resolved=dict(pose=pose,normal=list(plane.normal),size_mm=size,width_mm=estimate["width_mm"],opening_mm=estimate["opening_mm"],
                               planar_size_mm=[spans[i] for i in range(3) if i!=normal_axis],camera=camera.model_dump(),
-                              label=obj["label"],confidence=obj["confidence"],candidate_id=key,snapshot_id=identifier,
+                              label=selected.get("class_label") or obj["label"],class_id=obj["class_id"],confidence=obj["confidence"],candidate_id=key,snapshot_id=identifier,
                               frame_id=packet["frame_id"],model_version=packet["model_version"],calibration_revision=calibration["revision"])
                 targets[key]=dict(resolved=resolved,pose=pose,plane=plane,xyxy=copy.deepcopy(obj["xyxy"]),class_id=obj["class_id"],
                                   camera=camera,model=packet["model_version"],revision=calibration["revision"],region=p["region"])
             except DomainError as exc:reason=str(exc)
-            candidates.append(dict(id=key,object_index=index,label=obj["label"],confidence=obj["confidence"],xyxy=copy.deepcopy(obj["xyxy"]),
+            candidates.append(dict(id=key,object_index=index,label=selected.get("class_label") or obj["label"],confidence=obj["confidence"],xyxy=copy.deepcopy(obj["xyxy"]),
                                    pose=pose,width_mm=estimate.get("width_mm"),opening_mm=estimate.get("opening_mm"),
                                    planar_size_mm=targets[key]["resolved"]["planar_size_mm"] if key in targets else None,reason=reason))
         if versions!=self.engine.legacy.versions() or floor!=self.robot.floor.value["revision"]:
@@ -136,12 +162,13 @@ class PresetDetections:
         if self.robot.picks.calibration(camera,p["region"])["revision"]!=calibration["revision"]:
             raise DomainError("대상 확인 중 작업면 보정이 변경되었습니다.",412)
         self.engine.legacy.require_idle()
+        if choice:self.check_choice(p,choice)
         self.snapshots={k:v for k,v in self.snapshots.items() if v["deadline"]>time.monotonic()}
         if len(self.snapshots)>=128:raise DomainError("대기 중인 대상 확인이 많습니다. 잠시 후 다시 확인하세요.")
         snap=dict(id=identifier,preset_id=p["id"],revision=p["revision"],signature=signature(p),versions=versions,floor_revision=floor,
                   deadline=time.monotonic()+30,camera=camera,model=packet["model_version"],frame_id=packet["frame_id"],
                   captured_at=packet.get("captured_at"),region=p["region"],calibration_revision=calibration["revision"],
-                  policy=p["yolo"]["selection"],candidates=candidates,targets=targets,reader=reader)
+                  policy=p["yolo"]["selection"],candidates=candidates,targets=targets,reader=reader,voice_choice=choice)
         self.snapshots[identifier]=snap
         return self.public(snap)
 
@@ -152,7 +179,7 @@ class PresetDetections:
         target=snap["targets"].get(candidate_id)
         if target is None:raise DomainError("선택한 객체를 사용할 수 없습니다. 최신 대상을 다시 확인하세요.")
         return dict(**target,deadline=snap["deadline"],snapshot_id=snapshot_id,candidate_id=candidate_id,reader=snap["reader"],
-                    min_confidence=p["yolo"]["min_confidence"])
+                    min_confidence=p["yolo"]["min_confidence"],voice_choice=snap.get("voice_choice"))
 
     async def revalidate(self,p,binding,*,approved=False):
         self.check(p,binding["snapshot_id"],approved=approved)
