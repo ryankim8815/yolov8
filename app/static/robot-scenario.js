@@ -35,11 +35,10 @@ function build(root){
   root.innerHTML=`<div class="scenario-head"><div><p class="scenario-eyebrow">PICK & PLACE</p><h3>17단계 상품 이송</h3><p class="scenario-caption">상품과 공통 지점을 설정하면 접근부터 대기 복귀까지 하나의 경로로 연결합니다.</p></div><span data-sc="saved" class="scenario-badge">조회 중</span></div>
     <div class="scenario-flow" aria-label="전체 작업 흐름"></div>
     <div class="scenario-summary"><div><span>선택한 가상 상품</span><strong data-sc="product-summary">조회 중</strong></div><div><span>공통 경로</span><strong data-sc="route-summary">조회 중</strong></div><div><span>미리보기 기준</span><strong data-sc="draft-summary">저장된 설정</strong></div></div>
-    <div class="scenario-tabs" role="tablist" aria-label="이송 시나리오 설정"></div>
     <section data-sc-panel="products" role="tabpanel"><div class="scenario-section-head"><div><h4>어디에 놓인 상품을 집나요?</h4><p class="scenario-caption">가상 상품은 시뮬레이션 전용입니다. 실제 위치는 카메라의 파지 영역으로 계산합니다.</p></div><label>가상 상품 선택<select data-sc="region"><option value="floor">바닥 · 수직 파지</option><option value="shelf">선반 · 수평 파지</option></select></label></div><div data-sc="virtual-fields"></div><div class="scenario-regions"></div></section>
     <section data-sc-panel="points" role="tabpanel"><p class="scenario-caption">직접 정할 위치는 대기 자세·1차 경유점·박스 놓기 TCP입니다. 2차 경유점과 박스 위 위치는 자동 계산합니다.</p><div data-sc="joint-fields"></div><section class="scenario-card scenario-auto"><div class="scenario-card-top"><h4>2차 경유점</h4><span class="scenario-badge">자동 계산 · 9·14단계</span></div><label>J1 왕복 방향<select data-config="turn_degrees"><option value="180">갈 때 +180° / 돌아올 때 −180°</option><option value="-180">갈 때 −180° / 돌아올 때 +180°</option></select></label><p data-sc="waypoint2" class="scenario-coordinate"></p><p class="scenario-caption">1차 경유점의 J2~J6는 그대로 유지합니다.</p></section><section class="scenario-card"><div class="scenario-card-top"><h4>박스 놓기 위치와 상부 간격</h4><span class="scenario-badge">10–13단계</span></div><div data-sc="box-mount"></div><div class="pose-fields"><label>박스 위까지의 간격 (mm)<input data-config="box_clearance_mm" type="number" step="any" min="0.001"></label></div><p data-sc="above-box" class="scenario-coordinate"></p><p class="scenario-caption">박스 TCP는 아래 좌표 저장으로, 상부 간격은 시나리오 저장으로 저장합니다. 박스 외형은 택배 박스 위치 설정 탭에서 변경합니다.</p></section></section>
     <div data-motion-build><div data-sc="stage-motions"></div></div>
-    <section data-sc-panel="simulation" role="tabpanel"><div class="scenario-section-head"><div><h4>가상 경로를 순서대로 확인하세요</h4><p class="scenario-caption">실제 장치 명령 없음 · 가상 접촉 표시 · 충돌 검증 아님</p></div><span data-sc="simulation-badge" class="scenario-badge">대기</span></div><div class="scenario-player"><div class="pose-actions"><button type="button" data-sc="play">시뮬레이션 시작</button><button type="button" data-sc="hardware-test">실제 매니퓰레이터 테스트</button><button type="button" data-sc="pause" disabled>일시정지</button><button type="button" data-sc="stop" disabled>종료</button><label>재생 배속<select data-sc="rate"><option value="1">1×</option><option value="2">2×</option><option value="5">5×</option><option value="10" selected>10×</option><option value="20">20×</option></select></label></div><label class="simulation-progress">전체 진행<input data-sc="progress" type="range" min="0" max="1000" value="0" disabled><output data-sc="percent">0%</output></label><p data-sc="simulation-state" role="status">시뮬레이션 대기</p><div class="scenario-confirm" data-sc="confirm-box" hidden><strong data-sc="confirm-title"></strong><p data-sc="confirm-help"></p><button type="button" data-sc="confirm">가상 파지 확인 후 이송</button></div><p data-sc="preview-warning" class="scenario-caption"></p></div><div class="scenario-inspector"><div data-sc="stages" class="scenario-stages" aria-label="17단계 경로"></div><aside class="scenario-step-detail" aria-label="선택한 단계 정보"><div class="scenario-card-top"><span data-sc="step-number" class="scenario-badge"></span><span data-sc="step-kind" class="scenario-kind"></span></div><h4 data-sc="step-title"></h4><p data-sc="step-help"></p><dl data-sc="step-values"></dl><div class="pose-actions"><button type="button" data-sc="jump" disabled>3D에서 이 단계 보기</button><button type="button" data-sc="previous" disabled>이전 단계</button><button type="button" data-sc="next" disabled>다음 단계</button></div><p class="scenario-caption">단계 보기와 진행 막대는 가상 위치를 확인하며 일시정지합니다. 실제 작업 승인과는 별개입니다.</p></aside></div></section>
+    <section id="scenario-simulation" aria-labelledby="scenario-simulation-title"><div class="scenario-section-head"><div><h4 id="scenario-simulation-title">가상 경로를 순서대로 확인하세요</h4><p class="scenario-caption">실제 장치 명령 없음 · 가상 접촉 표시 · 충돌 검증 아님</p></div><span data-sc="simulation-badge" class="scenario-badge">대기</span></div><div class="scenario-player"><div class="pose-actions"><button type="button" data-sc="play">시뮬레이션 시작</button><button type="button" data-sc="hardware-test">실제 매니퓰레이터 테스트</button><button type="button" data-sc="pause" disabled>일시정지</button><button type="button" data-sc="stop" disabled>종료</button><label>재생 배속<select data-sc="rate"><option value="1">1×</option><option value="2">2×</option><option value="5">5×</option><option value="10" selected>10×</option><option value="20">20×</option></select></label></div><label class="simulation-progress">전체 진행<input data-sc="progress" type="range" min="0" max="1000" value="0" disabled><output data-sc="percent">0%</output></label><p data-sc="simulation-state" role="status">시뮬레이션 대기</p><div class="scenario-confirm" data-sc="confirm-box" hidden><strong data-sc="confirm-title"></strong><p data-sc="confirm-help"></p><button type="button" data-sc="confirm">가상 파지 확인 후 이송</button></div><p data-sc="preview-warning" class="scenario-caption"></p></div><div class="scenario-inspector"><div data-sc="stages" class="scenario-stages" aria-label="17단계 경로"></div><aside class="scenario-step-detail" aria-label="선택한 단계 정보"><div class="scenario-card-top"><span data-sc="step-number" class="scenario-badge"></span><span data-sc="step-kind" class="scenario-kind"></span></div><h4 data-sc="step-title"></h4><p data-sc="step-help"></p><dl data-sc="step-values"></dl><div class="pose-actions"><button type="button" data-sc="jump" disabled>3D에서 이 단계 보기</button><button type="button" data-sc="previous" disabled>이전 단계</button><button type="button" data-sc="next" disabled>다음 단계</button></div><p class="scenario-caption">단계 보기와 진행 막대는 가상 위치를 확인하며 일시정지합니다. 실제 작업 승인과는 별개입니다.</p></aside></div></section>
     <div class="pose-actions scenario-save"><button type="button" data-sc="save" disabled>시나리오 저장</button><button type="button" data-sc="cancel" disabled>변경 취소</button><button type="button" data-sc="reload">최신 설정 불러오기</button></div><p data-sc="message" role="status"></p>
     <details class="scenario-real"><summary><strong>실제 로봇 작업</strong><span data-sc="ready">준비 상태 조회 중</span></summary><p>저장한 설정으로만 준비합니다. 실제 상품은 대시보드에서 선택하고 경로를 승인하세요.</p><div class="pose-actions"><button type="button" data-sc="prepare">대기 상태로 준비</button><a href="/#dashboard">대시보드에서 실제 상품 선택</a><a href="/robot#gripper">접촉 전류·실측 벌림표 설정</a></div><p data-sc="real-stage" role="status"></p><div class="pose-actions"><button type="button" data-sc="real-grip" hidden>파지 확인 후 이송</button><button type="button" data-sc="real-open" hidden>박스에서 열기</button><button type="button" data-sc="real-stop" hidden>실제 작업 중단</button></div></details>
     <dialog data-sc="dialog" aria-labelledby="scenario-prepare-title"><h3 id="scenario-prepare-title">대기 상태 준비 승인</h3><p data-sc="prepare-detail"></p><p data-sc="prepare-state" role="status"></p><div class="pose-actions"><button type="button" data-sc="prepare-cancel">취소</button><button type="button" data-sc="prepare-approve">승인 후 대기 준비</button></div></dialog>`;
@@ -76,9 +75,6 @@ function build(root){
       motions.append(motionRow);
 
     }
-  }
-  for(const [id,title]of [['products','상품·파지 영역'],['simulation','시뮬레이션']]){
-    const tab=node('button',title);tab.type='button';tab.role='tab';tab.id='scenario-tab-'+id;tab.dataset.scTab=id;tab.setAttribute('aria-controls','scenario-panel-'+id);root.querySelector('.scenario-tabs').append(tab);const panel=root.querySelector(`[data-sc-panel="${id}"]`);panel.id='scenario-panel-'+id;panel.setAttribute('aria-labelledby',tab.id);
   }
   for(const region of ['floor','shelf']){
     const widthAxis=region==='floor'?0:1;
@@ -232,7 +228,25 @@ function build(root){
 export function connectScenario(root,arm,signal){
   if(!root.dataset.built){build(root);root.dataset.built='true';}
   const ui=Object.fromEntries([...root.querySelectorAll('[data-sc]')].map(n=>[n.dataset.sc,n]));
-  const inputs=[...root.querySelectorAll('[data-config]')],on=(n,e,fn)=>n.addEventListener(e,fn,{signal});
+  const productPanel=root.querySelector('[data-sc-panel="products"]');
+  const inputs=[...root.querySelectorAll('[data-config]')];
+  const on=(n,e,fn)=>{
+    n.addEventListener(e,fn,{signal});
+    // The product controls share this draft after moving to a sibling workspace tab.
+    if(n===root)productPanel.addEventListener(e,fn,{signal});
+  };
+  productPanel.removeAttribute('role');productPanel.removeAttribute('data-sc-panel');
+  const productMount=document.querySelector('[data-product-mount]');
+  const productSource=ui.source.closest('.scenario-source').cloneNode(true);
+  for(const control of productSource.querySelectorAll('[data-sc]')){control.dataset.productControl=control.dataset.sc;delete control.dataset.sc;}
+  const productActions=node('div',null,'pose-actions'),productSave=node('button','시나리오 저장'),productCancel=node('button','변경 취소'),productLink=node('a','시뮬레이션에서 확인');
+  productSave.type=productCancel.type='button';productLink.href='#work-points-title';
+  productActions.append(productSave,productCancel,productLink);
+  const productMessage=node('p');productMessage.setAttribute('role','status');
+  productMount.replaceChildren(productSource,productPanel,productActions,productMessage);
+  signal.addEventListener('abort',()=>{
+    productPanel.dataset.scPanel='products';root.append(productPanel);
+  },{once:true});
   let jointTargets=new Map();
   let hardwareTicket=null,hardwareVersion=0,hardwareMessage='',hardwareTimer,hardwareIssues=[];
   let epoch=0,previewTimer,pollTimer,pending=false,previewBusy=false,approval=null,previewController,realBusy=false,selectedStep=3,follow=true,simulation={state:'idle',step:0,progress:0};
@@ -244,10 +258,7 @@ export function connectScenario(root,arm,signal){
   const isExample=()=>previewSource==='example';
   const boxFields=()=>isExample()?[...root.querySelectorAll('[data-example-box-axis]')]:[...boxForm?.querySelectorAll('.pose-fields input')||[]];
   const boxDirty=()=>!isExample()&&boxForm?.querySelector('[data-state]')?.textContent.startsWith('저장 전');
-  const message=(text,error=false)=>{ui.message.textContent=text;ui.message.dataset.error=error;};
-  function tab(id){for(const button of root.querySelectorAll('[data-sc-tab]')){const selected=button.dataset.scTab===id;button.setAttribute('aria-selected',selected);button.tabIndex=selected?0:-1;root.querySelector('#'+button.getAttribute('aria-controls')).hidden=!selected;}}
-  for(const button of root.querySelectorAll('[data-sc-tab]')){on(button,'click',()=>tab(button.dataset.scTab));on(button,'keydown',e=>{const all=[...root.querySelectorAll('[data-sc-tab]')],i=all.indexOf(button),next={ArrowRight:(i+1)%all.length,ArrowLeft:(i+all.length-1)%all.length,Home:0,End:all.length-1}[e.key];if(next!==undefined){e.preventDefault();tab(all[next].dataset.scTab);all[next].focus();}});}
-  tab('simulation');
+  const message=(text,error=false)=>{ui.message.textContent=productMessage.textContent=text;ui.message.dataset.error=productMessage.dataset.error=error;};
   function motionFor(number){return armSteps.has(number)?draft?.stages[number]?.motion||(stages[number-1][0]==='line'?'movel':'movej'):null;}
   function speedKind(number){const motion=motionFor(number);return motion==='movej'?'joint':motion?'line':stages[number-1][0];}
   function resolvedSpeed(number){const kind=speedKind(number),s=draft?.stages[number];return s&&(s.override||draft.profiles[s.profile][kind]);}
@@ -279,6 +290,7 @@ export function connectScenario(root,arm,signal){
     ui['hardware-setup'].hidden=!hardwareIssues.length;
     ui['hardware-test'].title=blockedReason||'현재 입력값으로 실제 테스트 경로 확인';
     ui.source.disabled=pending||realBusy;
+    productSource.querySelector('select').disabled=ui.source.disabled;
     ui.play.disabled=realBusy||pending||previewBusy||!recipe||recipe.errors.length>0||activeSimulation(simulation.state);
     ui.play.textContent=simulation.state==='complete'?'처음부터 다시 재생':'시뮬레이션 시작';ui.pause.disabled=!['running','paused'].includes(simulation.state);ui.pause.textContent=simulation.state==='paused'?'계속 재생':'일시정지';ui.stop.disabled=simulation.state==='idle';ui.progress.disabled=['idle','planning','error'].includes(simulation.state);
     ui.prepare.disabled=isExample()||pending||dirty||conflict||Boolean(boxDirty())||realBusy;
@@ -291,6 +303,10 @@ export function connectScenario(root,arm,signal){
     ui.saved.textContent=isExample()?dirty?'예시 편집 중':'예시값':conflict?'다른 화면에서 변경됨':dirty?'저장 전':saved?.revision?'저장됨':saved?'기본값':'조회 필요';ui.saved.dataset.state=dirty||conflict?'warning':'saved';ui.save.disabled=isExample()||pending||!draft||!dirty||conflict;ui.cancel.disabled=pending||!dirty;
     ui.source.value=previewSource||'saved';ui.source.disabled=pending||realBusy;ui['example-box'].hidden=!isExample();if(boxForm)boxForm.hidden=isExample();
     ui['source-note'].textContent=isExample()?'대기·경유·박스·벌림·속도가 모두 채워져 있습니다. 바로 시뮬레이션을 시작하세요. 실제 작업 설정은 내 설정에서 교시·저장합니다.':'저장된 설정과 편집값을 사용합니다. 예시 경로로 전환해도 내 설정은 유지됩니다.';
+    productSource.querySelector('select').value=ui.source.value;
+    productSource.querySelector('p').textContent=ui['source-note'].textContent;
+    document.querySelector('[data-product-saved]').textContent=ui.saved.textContent;
+    productSave.disabled=ui.save.disabled;productCancel.disabled=ui.cancel.disabled;
     ui['box-hint'].textContent=isExample()?'예시 박스와 TCP는 시뮬레이션에만 사용합니다. 실제 박스 좌표는 내 설정에서 별도로 교시하세요.':'박스 TCP는 좌표 저장으로, 상부 간격은 시나리오 저장으로 저장합니다. 박스 외형은 택배 박스 위치 설정 탭에서 변경합니다.';
     ui.reload.textContent=isExample()?'예시값 다시 채우기':'최신 설정 불러오기';
     for(const group of root.querySelectorAll('[data-virtual-region]'))group.hidden=group.dataset.virtualRegion!==ui.region.value;
@@ -350,7 +366,7 @@ export function connectScenario(root,arm,signal){
   async function load(){pending=true;stopAndInvalidate();update();try{
     const [config,status,example]=await Promise.all([api('pick-scenario','GET',undefined,signal),api('status','GET',undefined,signal),api('pick/scenario/preview','POST',{example:true},signal)]);
     saved=config;exampleDefaults=example;previewSource??=(realBusy||status.pick_active)?'saved':(!config.waypoint1_joints||!status.work_points?.box?.pose)?'example':'saved';
-    draft=structuredClone(isExample()?exampleDefaults.config:saved);exampleBox=structuredClone(exampleDefaults.box_pose);ownCache=exampleCache=null;dirty=conflict=false;fill();if(isExample())tab('simulation');await preview();message(isExample()?'예시값을 채웠습니다. 저장이나 장치 연결 없이 바로 재생할 수 있습니다.':'시나리오를 불러왔습니다.');
+    draft=structuredClone(isExample()?exampleDefaults.config:saved);exampleBox=structuredClone(exampleDefaults.box_pose);ownCache=exampleCache=null;dirty=conflict=false;fill();await preview();message(isExample()?'예시값을 채웠습니다. 저장이나 장치 연결 없이 바로 재생할 수 있습니다.':'시나리오를 불러왔습니다.');
   }catch(error){message(error.message,true);}finally{pending=false;update();}}
   async function switchSource(value,forced=false){if(pending||realBusy&&!forced||!exampleDefaults||value===previewSource)return;
     const cache={draft:structuredClone(draft),dirty,conflict,box:isExample()?boxFields().map(i=>Number.isFinite(i.valueAsNumber)?i.valueAsNumber:null):null};if(isExample())exampleCache=cache;else ownCache=cache;
@@ -363,6 +379,8 @@ export function connectScenario(root,arm,signal){
     fill();changed();
   });
   on(ui.source,'change',()=>void switchSource(ui.source.value));
+  on(productSource.querySelector('select'),'change',event=>void switchSource(event.target.value));
+  on(productSave,'click',()=>ui.save.click());on(productCancel,'click',()=>ui.cancel.click());
   on(root,'input',event=>{const input=event.target;if(input.dataset.exampleBoxAxis===undefined||!isExample())return;exampleBox=boxFields().map(i=>Number.isFinite(i.valueAsNumber)?i.valueAsNumber:null);changed();});
   on(root,'input',event=>{const input=event.target;if(!input.dataset.config||!draft)return;const value=input.type==='checkbox'?input.checked:input.tagName==='SELECT'?(input.dataset.config==='turn_degrees'?Number(input.value):input.value):Number.isFinite(input.valueAsNumber)?input.valueAsNumber:null;const previousSpeed=input.dataset.config.endsWith('.motion')?resolvedSpeed(Number(input.dataset.config.split('.')[1]))?.speed:null;if(input.dataset.config.startsWith('waypoint1_joints.')&&!draft.waypoint1_joints)draft.waypoint1_joints=Array(6).fill(null);put(draft,input.dataset.config,value);if(input.dataset.config.endsWith('.motion')){const n=input.dataset.config.split('.')[1];draft.stages[n].override={...resolvedSpeed(Number(n)),speed:previousSpeed};fill();if(input.value==='movec')showStageOptions(n,true);}changed();});
   on(root,'change',event=>{
@@ -375,8 +393,8 @@ export function connectScenario(root,arm,signal){
   on(ui.region,'change',()=>{stopAndInvalidate();update();void preview();});
   function restoreDraft(){draft=structuredClone(isExample()?exampleDefaults.config:saved);if(isExample())exampleBox=structuredClone(exampleDefaults.box_pose);dirty=conflict=false;stopAndInvalidate();fill();void preview();message(isExample()?'예시 기본값을 복원했습니다.':'저장값을 복원했습니다.');}
   on(ui.reload,'click',()=>{if(isExample())restoreDraft();else void load();});on(ui.cancel,'click',restoreDraft);
-  on(ui.save,'click',async()=>{if(isExample()||pending||!draft)return;const invalid=inputs.find(i=>!i.disabled&&!i.validity.valid);if(invalid){tab(invalid.closest('[data-sc-panel]').dataset.scPanel);const options=invalid.closest('[data-stage-options]');if(options)showStageOptions(options.dataset.stageOptions,true);const collapsed=invalid.closest('details');if(collapsed)collapsed.open=true;invalid.reportValidity();invalid.focus();message('표시한 입력값과 허용 범위를 확인하세요.',true);return;}pending=true;update();try{saved=await api('pick-scenario','PUT',draft,signal);draft=structuredClone(saved);dirty=conflict=false;fill();message('시나리오 저장 완료.');}catch(error){if(error.status===409)conflict=true;message(error.message,true);}finally{pending=false;update();}});
-  on(root,'click',async event=>{const button=event.target.closest('button');if(!button)return;if(button.dataset.phaseStart){selectedStep=Number(button.dataset.phaseStart);follow=false;tab('simulation');detail();}if(button.dataset.stage){selectedStep=Number(button.dataset.stage);follow=false;detail();if(innerWidth<=620)root.querySelector('.scenario-step-detail').scrollIntoView({block:'nearest',behavior:'smooth'});}const key=button.dataset.capture;if(!key||!draft)return;try{const status=await api('status','GET',undefined,signal),sample=armTelemetry(status);draft[key]=sample.live?sample.angles:(await api('pick/scenario/current','GET',undefined,signal)).current_joints;fill();changed();message('현재 관절값을 불러왔습니다. 확인 후 저장하세요.');}catch(error){message(error.message,true);}});
+  on(ui.save,'click',async()=>{if(isExample()||pending||!draft)return;const invalid=inputs.find(i=>!i.disabled&&!i.validity.valid);if(invalid){const panel=invalid.closest('[data-manipulator-panel]');document.querySelector('.plane-tabs [aria-controls="'+panel.id+'"]')?.click();const options=invalid.closest('[data-stage-options]');if(options)showStageOptions(options.dataset.stageOptions,true);const collapsed=invalid.closest('details');if(collapsed)collapsed.open=true;invalid.reportValidity();invalid.focus();message('표시한 입력값과 허용 범위를 확인하세요.',true);return;}pending=true;update();try{saved=await api('pick-scenario','PUT',draft,signal);draft=structuredClone(saved);dirty=conflict=false;fill();message('시나리오 저장 완료.');}catch(error){if(error.status===409)conflict=true;message(error.message,true);}finally{pending=false;update();}});
+  on(root,'click',async event=>{const button=event.target.closest('button');if(!button)return;if(button.dataset.phaseStart){selectedStep=Number(button.dataset.phaseStart);follow=false;detail();}if(button.dataset.stage){selectedStep=Number(button.dataset.stage);follow=false;detail();if(innerWidth<=620)root.querySelector('.scenario-step-detail').scrollIntoView({block:'nearest',behavior:'smooth'});}const key=button.dataset.capture;if(!key||!draft)return;try{const status=await api('status','GET',undefined,signal),sample=armTelemetry(status);draft[key]=sample.live?sample.angles:(await api('pick/scenario/current','GET',undefined,signal)).current_joints;fill();changed();message('현재 관절값을 불러왔습니다. 확인 후 저장하세요.');}catch(error){message(error.message,true);}});
   const unsubscribe=arm.observeSimulation(next=>{simulation=next;if(follow&&next.step)selectedStep=next.step;if(ui['simulation-state'].textContent!==next.message)ui['simulation-state'].textContent=next.message;ui.progress.value=Math.round((next.progress||0)*1000);ui.percent.textContent=Math.round((next.progress||0)*100)+'%';
     for(const button of root.querySelectorAll('[data-stage]')){const n=Number(button.dataset.stage),current=n===next.step&&next.state!=='idle';button.dataset.current=current;button.dataset.done=next.state==='complete'||Boolean(next.step&&n<next.step);button.querySelector('.scenario-step-state').textContent=current?['awaiting_grip','awaiting_open'].includes(next.state)?'확인':'현재':next.step&&n<next.step?'✓':'';}
     for(const [i,phase]of phases.entries()){const current=next.step>=phase[1]&&next.step<=phase[2]&&next.state!=='idle';root.querySelector(`[data-phase="${i}"]`).dataset.current=current;root.querySelector(`[data-phase-start="${phase[1]}"]`).dataset.current=current;}controls();});
@@ -395,7 +413,7 @@ export function connectScenario(root,arm,signal){
       const box=boxFields().map(input=>input.valueAsNumber);
       const target=await api('pick/scenario/'+action+'/preview','POST',{region:ui.region.value,revision:saved.revision,config:structuredClone(draft),box_pose:box.length===6&&box.every(Number.isFinite)?box:null,...(step?{step}: {})},signal);
       target.action=action;
-      if(version!==hardwareVersion||signal.aborted||root.closest('[data-manipulator-panel]').hidden||ui['hardware-test'].closest('[data-sc-panel]').hidden){void api('pick/cancel','POST',{approval_id:target.approval_id}).catch(()=>{});return;}
+      if(version!==hardwareVersion||signal.aborted||root.closest('[data-manipulator-panel]').hidden){void api('pick/cancel','POST',{approval_id:target.approval_id}).catch(()=>{});return;}
       hardwareTicket=target;
       const gripperAction=step&&target.steps.some(action=>action.kind==='gripper');
       root.querySelector('#hardware-test-title').textContent=step?step+(gripperAction?'단계 이동·그리퍼 승인':'단계 위치 이동 승인'):'실제 17단계 테스트 승인';
@@ -433,7 +451,7 @@ export function connectScenario(root,arm,signal){
     row.hidden=!open;button.setAttribute('aria-expanded',String(open));
   }
   on(root,'click',event=>{const button=event.target.closest('[data-open-stage]');if(button)showStageOptions(button.dataset.openStage,button.getAttribute('aria-expanded')!=='true');});
-  on(ui['edit-motion'],'click',()=>{tab('simulation');const row=root.querySelector(`[data-stage="${selectedStep}"]`).closest('tr');row.scrollIntoView({block:'center',behavior:'smooth'});const select=row.querySelector('[data-config$=".motion"]');if(select&&!select.disabled)select.focus();});
+  on(ui['edit-motion'],'click',()=>{const row=root.querySelector(`[data-stage="${selectedStep}"]`).closest('tr');row.scrollIntoView({block:'center',behavior:'smooth'});const select=row.querySelector('[data-config$=".motion"]');if(select&&!select.disabled)select.focus();});
   const cancelApproval=()=>{if(approval){const id=approval;approval=null;void api('pick/cancel','POST',{approval_id:id}).catch(()=>{});}};
   on(ui.prepare,'click',async()=>{if(ui.prepare.disabled)return;arm.simulationAction('stop');pending=true;controls();try{cancelApproval();const target=await api('pick/prepare/preview','POST',{},signal);approval=target.approval_id;ui['prepare-detail'].textContent=`${target.motion} · 대기 J1~J6 [${target.joints.join(', ')}]° · 벌림 ${target.opening_mm} mm · 명령 위치 ${target.hand_position} · 속도 ${target.speed.speed}${target.motion==='movej'?'°/s':' mm/s'}${target.motion==='movec'?' · 원호 경유 TCP ['+target.via_pose.join(', ')+']':''}`;ui['prepare-state'].textContent='30초 일회용 승인 · 실제 로봇과 그리퍼가 움직입니다.';ui['prepare-approve'].disabled=false;ui.dialog.showModal();}catch(error){message(error.message,true);}finally{pending=false;controls();}});
   on(ui['prepare-cancel'],'click',()=>ui.dialog.close());on(ui.dialog,'close',cancelApproval);on(ui['prepare-approve'],'click',async()=>{if(!approval)return;const id=approval;approval=null;ui['prepare-approve'].disabled=true;try{await api('pick/prepare/approve','POST',{approval_id:id},signal);ui.dialog.close();void poll();}catch(error){ui['prepare-state'].textContent=error.message;}});

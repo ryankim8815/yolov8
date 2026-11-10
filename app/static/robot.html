@@ -192,6 +192,10 @@ docker compose run --rm --no-deps doosan-driver timeout 15 check-e0509</pre>
             <p id="parcel-box-feedback" class="work-point-feedback" role="status"></p>
           </form>
         </section>
+        <section id="manipulator-products" data-manipulator-panel hidden class="panel" role="tabpanel" aria-labelledby="manipulator-products-tab" tabindex="0">
+          <div class="panel-head"><h2 id="product-grasp-title">상품·파지 영역</h2><span data-product-saved class="meta">조회 중</span></div>
+          <div class="pose-body" data-product-mount></div>
+        </section>
         <section id="manipulator-pose-tests" data-manipulator-panel hidden class="panel" role="tabpanel" aria-labelledby="manipulator-poses-tab" tabindex="0">
           <div class="panel-head"><h2 id="pose-title">자세 테스트</h2><span class="meta" id="pose-bridge">rosbridge 확인 중</span></div>
           <div class="pose-body">
@@ -300,6 +304,7 @@ docker compose run --rm --no-deps doosan-driver timeout 15 check-e0509</pre>
                   <button type="button" role="tab" id="manipulator-control-tab" data-manipulator-tab="#manipulator" aria-selected="false" aria-controls="manipulator-control" tabindex="-1" hidden>로봇 제어</button>
                   <button type="button" role="tab" id="manipulator-points-tab" data-manipulator-tab="#work-points-title" aria-selected="false" aria-controls="manipulator-work-points" tabindex="-1" hidden>경유 지점 설정</button>
                   <button type="button" role="tab" id="manipulator-box-tab" data-manipulator-tab="#parcel-box-title" aria-selected="false" aria-controls="manipulator-parcel-box" tabindex="-1" hidden>택배 박스 위치 설정</button>
+                  <button type="button" role="tab" id="manipulator-products-tab" data-manipulator-tab="#product-grasp-title" aria-selected="false" aria-controls="manipulator-products" tabindex="-1" hidden>상품·파지 영역</button>
                   <button type="button" role="tab" id="manipulator-poses-tab" data-manipulator-tab="#pose-title" aria-selected="false" aria-controls="manipulator-pose-tests" tabindex="-1" hidden>자세 테스트</button>
                   <button type="button" role="tab" id="plane-camera-tab" aria-selected="true" aria-controls="plane-camera-settings">카메라 좌표 설정</button>
                   <button type="button" role="tab" id="plane-surface-tab" aria-selected="false" aria-controls="plane-surface-settings" tabindex="-1">작업면 설정</button>
