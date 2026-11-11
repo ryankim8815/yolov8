@@ -10,7 +10,7 @@ from pydantic import Field
 from .pick_plane import Input
 from .robot_access_protocol import local_json
 from .robot_arc import validate_arc
-from .robot_preset_config import MotionPreset, PresetStep, PresetLibrary, compile_preset, uid, child_id
+from .robot_preset_config import MotionPreset, PresetStep, PresetLibrary, compile_preset, compile_simulation, uid, child_id
 from .robot_preset_detection import PresetDetections, read_yolo_catalog
 from .robot_pick import frame_reader
 from .store import DomainError
@@ -26,6 +26,10 @@ class PresetPreview(Input):
 
 class DetectionRequest(PresetPreview):
     hardware: bool = False
+
+
+class PresetSimulation(PresetPreview):
+    simulation_object: bool = False
 
 
 class Approval(Input):
@@ -229,10 +233,13 @@ async def duplicate(identifier:str,body:CopyPreset,request:Request):
     return e.save(MotionPreset.model_validate(p),True)
 
 @router.post("/{identifier}/preview",dependencies=[Depends(local_json)])
-async def simulation(identifier:str,body:PresetPreview,request:Request):
+async def simulation(identifier:str,body:PresetSimulation,request:Request):
     e=engine(request);p=body.preset or e.library.get(identifier)
     if isinstance(p,MotionPreset) and p.id!=identifier:raise DomainError("프리셋 ID가 다릅니다.")
     p=p.model_dump() if isinstance(p,MotionPreset) else p
+    if body.simulation_object:
+        if body.snapshot_id:raise DomainError("모의 객체와 탐지 스냅샷을 함께 사용할 수 없습니다.",422)
+        return compile_simulation(p,e.robot.hand,e.robot.floor.value["z_mm"])
     binding=e.detections.bind(p,body.snapshot_id,body.candidate_id) if body.snapshot_id else None
     if binding:await e.detections.revalidate(p,binding)
     return e.compile(p,binding["resolved"] if binding else None)

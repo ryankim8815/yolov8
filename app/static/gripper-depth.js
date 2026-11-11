@@ -1,5 +1,4 @@
 import { describeGripper } from "./gripper-measurement.js";
-import { constrainExample, exampleGuide } from "./gripper-example.js";
 import { connectRobotArm } from "./robot-arm-view.js";
 import { cameraPointToBase } from "./robot-arm.js";
 
@@ -288,206 +287,90 @@ function drawScene(el, settings, model, anglesText, {wall,floor}) {
 
 const dimensions = [
   ["distance","카메라 → 벽",300,700,"depthFields"],
-  ["protrusion","탐지 객체 돌출 깊이",10,120,"jawPanel"],
+  ["protrusion","참고 객체 돌출 깊이",10,120,"depthFields"],
   ["tcpDepth","카메라 → TCP",0,1000,"depthFields"],
   ["length","손가락 길이",25,110,"jawPanel"]
 ];
-const choices = {view:["oblique","side"],panel:["angles","jaws"]};
-const exampleKey = "vision-work-plane-example-v1";
-const exampleLimit = 1e6; // Same mm range as BASE teaching coordinates.
-
-function validExampleValue(name, value) {
-  return Number.isFinite(value) && Math.abs(value) <= exampleLimit && (!name.startsWith("size") || value > 0);
-}
-
-function restoredExample() {
-  const example = {...defaultExample};
+const fallbackKey='vision-robot-view-guides-v1:default',legacyDefault='vision-gripper-preview-v1:default',geometryKey='vision-gripper-model-v1';
+function restoredSettings(key,legacyKey=null) {
+  const result={...defaultScene};
   try {
-    const saved = JSON.parse(localStorage.getItem(exampleKey));
-    for (const name of Object.keys(example)) {
-      if (typeof example[name] === "number" && validExampleValue(name,saved?.[name])) example[name] = saved[name];
-    }
-    if (typeof saved?.showWhenMissing === "boolean") example.showWhenMissing = saved.showWhenMissing;
-  } catch { /* Storage is optional. */ }
-  return example;
-}
-
-function restoredSettings(key) {
-  const result = {...defaultScene};
-  if (!key) return result;
-  try {
-    const saved = JSON.parse(localStorage.getItem(key));
-    for (const [name,,min,max] of dimensions) {
-      if (Number.isFinite(saved?.[name]) && saved[name] >= min && saved[name] <= max) result[name] = saved[name];
-    }
-    for (const [name, allowed] of Object.entries(choices)) if (allowed.includes(saved?.[name])) result[name] = saved[name];
-  } catch { /* Storage is optional. */ }
+    const saved=JSON.parse(localStorage.getItem(key)??(legacyKey?localStorage.getItem(legacyKey):null));
+    for(const [name,,min,max] of dimensions)if(Number.isFinite(saved?.[name])&&saved[name]>=min&&saved[name]<=max)result[name]=saved[name];
+    if(['oblique','side'].includes(saved?.view))result.view=saved.view;
+  }catch{/* Keep defaults if storage is unavailable. */}
   return result;
 }
 
-export function connectDepthPreview(el, signal) {
-  let key, settings = {...defaultScene}, pose, estimate = null, floorZ = null;
-  const example = restoredExample();
-  let editingExample = false, manipulator = false;
-  let fit;
-  const controls = [...el.calibration.querySelectorAll("[data-example]")].map(number => {
-    const name = number.dataset.example;
-    const slider = el.calibration.querySelector('[data-example-range="'+name+'"]');
-    return {name,number,slider,limits:slider.nextElementSibling};
-  });
-  const fields = {};
-  const arm = connectRobotArm(el,signal,() => syncView());
-  const on = (node, type, fn) => node.addEventListener(type, fn, {signal});
-  function syncView() {
-    for (const button of el.calibration.querySelectorAll("[data-depth-view]"))
-      button.setAttribute("aria-pressed",String(button.dataset.depthView===(manipulator?arm.getView():settings.view)));
-  }
-  function remember() {
-    try { if (key) localStorage.setItem(key,JSON.stringify(settings)); } catch { /* Private browsing. */ }
-  }
-  function draw(typing) {
-    if (!pose) return;
-    const tcpZ = pose.xyz[2];
-    const height = Number.isFinite(floorZ) && Number.isFinite(tcpZ) ? tcpZ-floorZ : null;
-    const describe = h => h === 0 ? "바닥면 0 mm" :
-      (h < 0 ? "바닥 아래 " : "바닥 위 ") + Number(h.toFixed(2)) + " mm";
-    const base = pose.basis ?? identity;
-    const surfaces = workSurfaces(base,settings.distance-settings.tcpDepth,floorZ,tcpZ,manipulator?armGuides:defaultGuides);
-    fit = constrainExample(exampleGuide(base,pose.xyz,surfaces),example);
-    const shown = fit?.value;
-    for (const {name,number,slider,limits} of controls) {
-      number.disabled = slider.disabled = !fit;
-      if (!fit) { number.value = ""; limits.textContent = "—"; continue; }
-      const {min,max} = fit.ranges[name];
-      number.min = slider.min = min; number.max = slider.max = max;
-      slider.value = shown[name];
-      slider.disabled = max-min < 1e-7;
-      if (number !== typing) {
-        number.value = Math.max(min,Math.min(max,Number(shown[name].toFixed(6))));
-        number.removeAttribute("aria-invalid");
-      }
-      limits.textContent = Number(min.toFixed(1))+" ~ "+Number(max.toFixed(1))+" mm";
-    }
-    const adjusted = fit && controls.some(({name}) => Math.abs(shown[name]-example[name])>1e-6);
-    el.exampleError.textContent = !fit ? (surfaces.floor ? "현재 벽과 바닥 사이에 객체를 놓을 공간이 없습니다." : "바닥 Z를 입력하면 예시 객체를 조절할 수 있습니다.") :
-      adjusted ? "현재 가이드 범위에 맞춰 예시 객체를 표시합니다." : "";
-    el.tcpHeight.textContent = floorZ === null ? "바닥 Z를 입력하세요." :
-      "모서리 "+'ABCD'[pose.corner]+" TCP · "+(height === null ? "Z 미교시 · 높이는 BASE 원점 기준입니다." : describe(height));
-    const z = estimate?.center_base_mm?.[2];
-    if (editingExample) {
-      el.objectHeight.textContent = shown ? "예시 중심 · BASE ("+[shown.x,shown.y,shown.z].map(v=>Number(v.toFixed(2))).join(", ")+") mm" : "";
-    } else {
-      el.objectHeight.textContent = floorZ === null ? "" : "탐지 물체 중심 · "+
-        (Number.isFinite(z) ? describe(z-floorZ) : estimate?.center_reason || estimate?.reason || "탐지 객체를 선택하세요.");
-    }
-    const model = depthModel({...settings,example:shown ?? null,editingExample}, pose.axes, base, estimate, pose.xyz);
-    const sizing = editingExample && shown ? "예시 크기 (X × Y × Z) · "+[shown.sizeX,shown.sizeY,shown.sizeZ].map(v=>Number(v.toFixed(2))).join(" × ")+" mm"+
-      (model.opening === null ? "" : " · 탐지 기준 손가락 벌림 "+model.opening.toFixed(1)+" mm") :
-      editingExample ? el.exampleError.textContent : describeGripper(estimate);
-    if (el.sizing.textContent !== sizing) el.sizing.textContent = sizing;
-    if (manipulator) {
-      const convert = p => cameraPointToBase(p,base,pose.xyz);
-      const surface = s => s && {...s,points:s.points.map(convert),lines:s.lines.map(points=>points.map(convert))};
-      arm.setGuides({wall:surface(surfaces.wall),floor:surface(surfaces.floor),lens:convert(model.lens),camera:base,
-        target:pose.xyz.every(Number.isFinite)?pose.xyz:null,objectPoints:model.objectPoints.map(convert),exampleObject:model.exampleObject});
+export function connectDepthPreview(el,signal){
+  let key=fallbackKey,settings=restoredSettings(key,legacyDefault),pose,estimate=null,floorZ=null,manipulator=false;
+  const arm=connectRobotArm(el,signal,()=>syncView()),fields={};
+  const on=(node,type,fn)=>node.addEventListener(type,fn,{signal});
+  function applyGeometry(){try{const value=JSON.parse(localStorage.getItem(geometryKey));if(Number.isFinite(value?.length)&&value.length>=25&&value.length<=110)settings.length=value.length;}catch{/* Optional. */}}
+  applyGeometry();
+  function syncView(){for(const button of el.calibration.querySelectorAll('[data-depth-view]'))button.setAttribute('aria-pressed',String(button.dataset.depthView===(manipulator?arm.getView():settings.view)));}
+  function remember(geometry=false){try{localStorage.setItem(key,JSON.stringify(settings));if(geometry)localStorage.setItem(geometryKey,JSON.stringify({length:settings.length}));}catch{/* Optional. */}}
+  function draw(){
+    if(!pose)return;
+    const tcpZ=pose.xyz[2],height=Number.isFinite(floorZ)&&Number.isFinite(tcpZ)?tcpZ-floorZ:null;
+    const describe=h=>h===0?'바닥면 0 mm':(h<0?'바닥 아래 ':'바닥 위 ')+Number(h.toFixed(2))+' mm';
+    const base=pose.basis??identity,surfaces=workSurfaces(base,settings.distance-settings.tcpDepth,floorZ,tcpZ,manipulator?armGuides:defaultGuides);
+    el.tcpHeight.textContent=floorZ===null?'바닥 Z를 입력하세요.':'모서리 '+'ABCD'[pose.corner]+' TCP · '+(height===null?'Z 미교시 · 높이는 BASE 원점 기준입니다.':describe(height));
+    const z=estimate?.center_base_mm?.[2];
+    el.objectHeight.textContent=floorZ===null?'':'탐지 물체 중심 · '+(Number.isFinite(z)?describe(z-floorZ):estimate?.center_reason||estimate?.reason||'탐지 객체를 선택하세요.');
+    // Synthetic objects are now owned by the selected motion preset.
+    const model=depthModel({...settings,example:null},pose.axes,base,estimate,pose.xyz);
+    el.sizing.textContent=describeGripper(estimate);
+    if(manipulator){
+      const convert=p=>cameraPointToBase(p,base,pose.xyz),surface=s=>s&&{...s,points:s.points.map(convert),lines:s.lines.map(points=>points.map(convert))};
+      arm.setGuides({wall:surface(surfaces.wall),floor:surface(surfaces.floor),lens:convert(model.lens),camera:base,target:pose.xyz.every(Number.isFinite)?pose.xyz:null,objectPoints:model.objectPoints.map(convert),exampleObject:false});
       drawRuler(el.ruler,settings,model.frontDepth,Boolean(model.objectPoints.length));
-    } else drawScene(el, settings, model, pose.anglesText, surfaces);
+    }else drawScene(el,settings,model,pose.anglesText,surfaces);
   }
-  function sync() {
-    for (const [name,buttons] of Object.entries(groups)) {
-      for (const button of buttons) button.setAttribute("aria-pressed",String(button.getAttribute("data-depth-"+name) === settings[name]));
-    }
-    el.anglePanel.hidden = settings.panel !== "angles";
-    el.jawPanel.hidden = settings.panel !== "jaws";
-    for (const [name,{range,number}] of Object.entries(fields)) range.value = number.value = settings[name];
-    syncView();
-    draw();
+  function sync(){for(const [name,{range,number}] of Object.entries(fields))range.value=number.value=settings[name];syncView();draw();}
+  for(const button of el.calibration.querySelectorAll('[data-depth-view]'))on(button,'click',()=>{
+    if(manipulator){arm.setView(button.dataset.depthView);syncView();return;}
+    settings.view=button.dataset.depthView;sync();remember();
+  });
+  for(const [name,caption,min,max,group] of dimensions){
+    const row=document.createElement('div'),head=document.createElement('div'),lab=document.createElement('label'),value=document.createElement('span'),number=document.createElement('input'),range=document.createElement('input');
+    row.className='pick-angle-row';head.className='pick-angle-label';value.className='pick-angle-value';
+    range.type='range';range.id='pick-depth-'+name;number.type='number';range.step='.1';number.step='any';number.required=true;
+    range.min=number.min=min;range.max=number.max=max;number.title=min+'–'+max+' mm';lab.htmlFor=range.id;lab.textContent=caption;
+    number.setAttribute('aria-label',caption+' 직접 입력 (mm)');value.append(number,'mm');head.append(lab,value);row.append(head,range);el[group].append(row);fields[name]={row,number,range};
+    on(range,'input',()=>{settings[name]=range.valueAsNumber;number.value=settings[name];draw();});
+    on(range,'change',()=>remember(name==='length'));
+    on(number,'input',()=>{if(number.validity.valid){settings[name]=number.valueAsNumber;range.value=settings[name];draw();}});
+    on(number,'change',()=>{number.value=settings[name];remember(name==='length');});on(number,'blur',()=>number.value=settings[name]);
   }
-  function rememberExample(typing) {
-    try { localStorage.setItem(exampleKey,JSON.stringify(example)); } catch { /* Storage is optional. */ }
-    draw(typing);
+  function previousSettings(node,geometry){
+    const label=document.createElement('label'),select=document.createElement('select'),button=document.createElement('button'),message=document.createElement('p');
+    label.textContent='이전 카메라별 설정 ';button.type='button';button.textContent=geometry?'기존 손가락 치수 불러오기':'기존 거리 가이드 불러오기';message.className='meta';message.setAttribute('role','status');
+    const values=[];
+    try{for(let i=0;i<localStorage.length;i++){const stored=localStorage.key(i);if(!stored?.startsWith('vision-gripper-preview-v1:'))continue;
+      if(stored===legacyDefault){values.push([stored,'이전 기본 보기']);continue;}
+      try{const [id,w,h]=JSON.parse(stored.slice('vision-gripper-preview-v1:'.length));if(typeof id==='string')values.push([stored,`${id.slice(0,36)} · ${w}×${h}`]);}catch{/* Unrelated key. */}
+    }}catch{/* Storage is optional. */}
+    select.append(new Option(values.length?'설정을 선택하세요':'이전 설정 없음',''),...values.map(([v,t])=>new Option(t,v)));button.disabled=true;select.disabled=!values.length;
+    on(select,'change',()=>button.disabled=!select.value);
+    on(button,'click',()=>{if(!select.value)return;const old=restoredSettings(select.value);for(const name of geometry?['length']:['distance','tcpDepth','protrusion'])settings[name]=old[name];remember(geometry);sync();message.textContent='기존 설정을 불러왔습니다. 이전 카메라별 원본 값은 유지됩니다.';});
+    label.append(select);node.append(label,button,message);
   }
-  for (const {name,number,slider,limits} of controls) {
-    function apply(value, typing) {
-      if (!fit || !Number.isFinite(value)) return;
-      const {min,max} = fit.ranges[name];
-      Object.assign(example,fit.value,{[name]:Math.max(min,Math.min(max,value))});
-      number.removeAttribute("aria-invalid");
-      rememberExample(typing);
-    }
-    on(slider,"input",() => {
-      const value = slider.valueAsNumber;
-      apply(value === Number(slider.min) || value === Number(slider.max) ? value : Math.round(value*10)/10);
-    });
-    on(number,"input",() => {
-      if (number.validity.valid) apply(number.valueAsNumber,number);
-      else {
-        number.setAttribute("aria-invalid","true");
-        el.exampleError.textContent = "입력 범위 · "+limits.textContent;
-      }
-    });
-    on(number,"blur",() => {
-      if (number.getAttribute("aria-invalid") === "true" && Number.isFinite(number.valueAsNumber)) apply(number.valueAsNumber);
-      else draw();
-    });
+  previousSettings(el.viewImport,false);previousSettings(el.geometryImport,true);
+  const observer=new ResizeObserver(()=>draw());observer.observe(el.scene);observer.observe(el.ruler);signal.addEventListener('abort',()=>observer.disconnect(),{once:true});
+  function render(corners,axes,anglesText,camera,corner){
+    const suffix=camera?.camera_id?JSON.stringify([camera.camera_id,camera.width,camera.height]):null;
+    const next=suffix?'vision-robot-view-guides-v1:'+suffix:fallbackKey,legacy=suffix?'vision-gripper-preview-v1:'+suffix:legacyDefault;
+    pose={basis:cameraBasis(corners),axes,anglesText,corner,xyz:corners[corner].pose.slice(0,3)};
+    el.basisHint.textContent=pose.basis?'시선: 네 모서리의 작업면에 수직.':'예시 시선: BASE +X (유효한 네 점을 교시하기 전).';
+    if(next!==key){key=next;settings=restoredSettings(key,legacy);applyGeometry();}sync();
   }
-  el.showExample.checked = example.showWhenMissing;
-  on(el.showExample,"change",() => { example.showWhenMissing = el.showExample.checked; rememberExample(); });
-  const groups = {};
-  for (const name of Object.keys(choices)) {
-    groups[name] = el.calibration.querySelectorAll("[data-depth-"+name+"]");
-    for (const button of groups[name]) on(button,"click",() => {
-      if (name==="view" && manipulator) {arm.setView(button.dataset.depthView);syncView();return;}
-      settings[name] = button.getAttribute("data-depth-"+name);
-      sync(); remember();
-    });
-  }
-  for (const [name,caption,min,max,group] of dimensions) {
-    const row = document.createElement("div"), head = document.createElement("div"), lab = document.createElement("label");
-    const value = document.createElement("span"), number = document.createElement("input"), range = document.createElement("input");
-    row.className = "pick-angle-row"; head.className = "pick-angle-label"; value.className = "pick-angle-value";
-    range.type = "range"; range.id = "pick-depth-"+name; number.type = "number";
-    range.step = ".1"; number.step = "any"; number.required = true;
-    range.min = number.min = min; range.max = number.max = max;
-    number.title = min+"–"+max+" mm";
-    lab.htmlFor = range.id; lab.textContent = caption; number.setAttribute("aria-label", caption+" 직접 입력 (mm)");
-    value.append(number,"mm"); head.append(lab,value); row.append(head,range); el[group].append(row);
-    fields[name] = {row,number,range};
-    on(range,"input",() => {settings[name] = range.valueAsNumber; number.value = settings[name]; draw();});
-    on(range,"change",remember);
-    on(number,"input",() => {
-      if (number.validity.valid) {settings[name] = number.valueAsNumber; range.value = settings[name]; draw();}
-    });
-    on(number,"change",() => {number.value = settings[name]; remember();});
-    on(number,"blur",() => {number.value = settings[name];});
-  }
-  const observer = new ResizeObserver(draw);
-  observer.observe(el.scene);
-  observer.observe(el.ruler);
-  signal.addEventListener("abort",() => observer.disconnect(),{once:true});
-  function render(corners, axes, anglesText, camera, corner) {
-    const next = camera?.camera_id ? "vision-gripper-preview-v1:"+JSON.stringify([camera.camera_id,camera.width,camera.height]) : null;
-    pose = {basis:cameraBasis(corners), axes, anglesText, corner, xyz:corners[corner].pose.slice(0,3)};
-    el.basisHint.textContent = pose.basis ? "시선: 네 모서리의 작업면에 수직." : "예시 시선: BASE +X (유효한 네 점을 교시하기 전).";
-    if (next !== key) {
-      key = next; settings = restoredSettings(key); sync();
-    } else draw();
-  }
-  return {render, setEstimate(result) { estimate = result; draw(); }, setFloor(z) { floorZ = z; draw(); },
-    editExample(active) { editingExample = active; draw(); },
-    robotStatus:arm.robotStatus,
+  sync();
+  return {render,setEstimate(value){estimate=value;draw();},setFloor(z){floorZ=z;draw();},robotStatus:arm.robotStatus,
     setGripperAttached:arm.setAttached,gripperStatus:arm.gripperStatus,setParcelBox:arm.setParcelBox,
     simulate:arm.simulate,simulationAction:arm.simulationAction,observeSimulation:arm.observeSimulation,
     simulateRecipe:arm.simulateRecipe,setScenarioPreview:arm.setScenarioPreview,setScenarioVisible:arm.setScenarioVisible,
-    setManipulator(active) {
-      manipulator = active;
-      el.modelTitle.textContent = active ? "E0509 자세" : "그리퍼 방향";
-      el.modelHint.hidden = !active;
-      el.scene.hidden = el.gripperFoot.hidden = active;
-      el.calibration.closest(".plane-editor").dataset.armActive = active;
-      for (const node of el.calibration.querySelectorAll("[data-arm-only]")) node.hidden=!active;
-      arm.active(active);syncView();
-      el.surfaceNote.textContent = (active ? "TCP" : "손끝")+"과 앞면의 깊이 차이는 충돌 판정이 아닙니다.";
-      draw();
-    }};
+    setManipulator(active){manipulator=active;el.modelTitle.textContent=active?'E0509 자세':'그리퍼 방향';el.modelHint.hidden=!active;el.scene.hidden=el.gripperFoot.hidden=active;
+      el.calibration.closest('.plane-editor').dataset.armActive=active;for(const node of el.calibration.querySelectorAll('[data-arm-only]'))node.hidden=!active;
+      arm.active(active);syncView();el.surfaceNote.textContent=(active?'TCP':'손끝')+'과 앞면의 깊이 차이는 충돌 판정이 아닙니다.';draw();}}
 }

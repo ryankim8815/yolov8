@@ -12,6 +12,7 @@ from . import robot_pick
 from .pick_plane import Calibration, CameraFrame, PickPlane
 from .robot_preset_config import MotionPreset, uid
 from .robot_preset_class import catalog_signature
+from .robot_grasp_pose import grasp_abc,tool_x
 from .store import DomainError
 
 
@@ -57,7 +58,7 @@ class PresetDetections:
         xyz=value["surface_base_mm"];region=p["region"]
         normal=[0,0,1] if region=="floor" else [-1,0,0]
         if region=="shelf" and sum(a*b for a,b in zip(normal,xyz))>0:normal=[-n for n in normal]
-        abc=[0,180,0] if region=="floor" else [180,90,90]
+        abc=grasp_abc(p)
         size=copy.deepcopy(p["context"]["virtual"][region]["size_mm"])
         normal_axis=max(range(3),key=lambda i:abs(normal[i]))
         # Depth measures a visible surface. The preset supplies the hidden thickness.
@@ -66,16 +67,27 @@ class PresetDetections:
         spans=[max(pt[i] for pt in points)-min(pt[i] for pt in points) for i in range(3)]
         for i in range(3):
             if i!=normal_axis:size[i]=max(.001,spans[i])
-        a,b,c=map(math.radians,abc)
-        tool_x=[math.cos(a)*math.cos(b)*math.cos(c)-math.sin(a)*math.sin(c),
-                math.sin(a)*math.cos(b)*math.cos(c)+math.cos(a)*math.sin(c),-math.sin(b)*math.cos(c)]
+        axis=tool_x(abc)
+        if p.get("grasp_abc",{}).get(region) is not None:
+            # A tilted opening axis can see its largest extent on the hidden face.
+            points=points+[[point[i]-normal[i]*size[normal_axis] for i in range(3)] for point in points]
         # Conservative bbox spans about the TCP, with the existing 5 mm per-side clearance.
         opening_center=center if tcp is None else tcp
-        width=2*max(abs(sum((point[i]-opening_center[i])*tool_x[i] for i in range(3))) for point in points)
+        width=2*max(abs(sum((point[i]-opening_center[i])*axis[i] for i in range(3))) for point in points)
         return dict(pose=center+abc,normal=normal,size_mm=size,width_mm=width,opening_mm=width+10,
                     planar_size_mm=[spans[i] for i in range(3) if i!=normal_axis],surface_base_mm=xyz,
                     coordinate_source="marker_depth",depth_mm=value["depth_mm"],thickness_source="preset",
                     calibration_revision=self.spatial.value["revision"])
+
+    def plane_estimate(self,p,plane,xyxy,tcp):
+        result=plane.gripper_estimate(xyxy,tcp=tcp)
+        if result.get("reason") or p.get("grasp_abc",{}).get(p["region"]) is None:return result
+        axis=tool_x(plane.abc);normal_component=abs(sum(a*n for a,n in zip(axis,plane.normal)))
+        thickness=p["context"]["virtual"][p["region"]]["size_mm"][max(range(3),key=lambda i:abs(plane.normal[i]))]
+        extents=[sum(a*x for a,x in zip(axis,point)) for point in result["footprint_base_mm"]]
+        result.update(width_mm=max(extents)-min(extents)+normal_component*thickness,
+                      opening_mm=2*max(map(abs,extents))+normal_component*thickness+2*plane.clearance)
+        return result
 
     def criteria(self,p):
         if p["object_source"]!="yolo":raise DomainError("YOLOv8 탐지값을 선택한 프리셋에서 사용하세요.")
@@ -167,7 +179,7 @@ class PresetDetections:
         else:
             calibration=self.robot.picks.calibration(camera,p["region"])
             if not calibration["revision"]:raise DomainError("이 카메라·해상도의 상품 파지 영역을 먼저 보정하세요.")
-            plane=PickPlane(Calibration(**calibration))
+            plane=PickPlane(Calibration(**calibration),orientation=grasp_abc(p,calibration["corners"][0]["pose"][3:]))
         candidates=[];targets={};identifier=uid()
         for index,obj in enumerate(packet["objects"]):
             if obj["class_id"]!=selected["class_id"] or obj["confidence"]<p["yolo"]["min_confidence"]:continue
@@ -180,7 +192,7 @@ class PresetDetections:
                 else:
                     region,_,_=self.robot.picks.region_for(camera,pixel)
                     if region!=p["region"]:continue
-                    pose=plane.target(pixel);estimate=plane.gripper_estimate(obj["xyxy"],tcp=pose[:3])
+                    pose=plane.target(pixel);estimate=self.plane_estimate(p,plane,obj["xyxy"],pose[:3])
                     if estimate.get("reason"):raise DomainError(estimate["reason"])
                     normal_axis=max(range(3),key=lambda axis:abs(plane.normal[axis]))
                     spans=[max(pt[i] for pt in estimate["footprint_base_mm"])-min(pt[i] for pt in estimate["footprint_base_mm"]) for i in range(3)]
@@ -243,7 +255,7 @@ class PresetDetections:
             return obj
         obj=self.robot.picks.revalidate({**binding,"approved":approved},frame)
         if obj["confidence"]<binding["min_confidence"]:raise DomainError("대상의 신뢰도가 낮아졌습니다. YOLO 대상을 다시 확인하세요.")
-        estimate=binding["plane"].gripper_estimate(obj["xyxy"],tcp=binding["pose"][:3])
+        estimate=self.plane_estimate(p,binding["plane"],obj["xyxy"],binding["pose"][:3])
         if estimate.get("reason"):raise DomainError(estimate["reason"])
         if estimate["opening_mm"]>binding["resolved"]["opening_mm"]+1e-8:
             raise DomainError("대상에 필요한 벌림이 달라졌습니다. 경로를 다시 확인하고 승인하세요.")

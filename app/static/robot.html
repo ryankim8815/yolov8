@@ -233,13 +233,17 @@ docker compose run --rm --no-deps doosan-driver timeout 15 check-e0509</pre>
                   <button type="button" role="tab" id="manipulator-points-tab" data-manipulator-tab="#work-points-title" aria-selected="false" aria-controls="manipulator-work-points" tabindex="-1" hidden>이동 프리셋</button>
                   <button type="button" role="tab" id="manipulator-box-tab" data-manipulator-tab="#parcel-box-title" aria-selected="false" aria-controls="manipulator-parcel-box" tabindex="-1" hidden>공통 박스 외형·설치 위치</button>
                   <button type="button" role="tab" id="plane-camera-tab" aria-selected="true" aria-controls="plane-camera-settings">카메라 좌표 설정</button>
-                  <button type="button" role="tab" id="plane-surface-tab" hidden aria-selected="false" aria-controls="plane-surface-settings" tabindex="-1">3D 거리 설정</button>
                   <button type="button" role="tab" id="plane-floor-tab" aria-selected="false" aria-controls="plane-floor-settings" tabindex="-1">바닥 기준</button>
-                  <button type="button" role="tab" id="plane-example-tab" hidden aria-selected="false" aria-controls="plane-example-settings" tabindex="-1">예시 객체 설정</button>
-                  <button type="button" role="tab" id="plane-gripper-tab" aria-selected="false" aria-controls="plane-gripper-settings" tabindex="-1" hidden>그리퍼 설정</button>
                   <button type="button" role="tab" id="plane-hand-table-tab" data-gripper-tab="#gripper" aria-selected="false" aria-controls="plane-hand-table" tabindex="-1" hidden>캘리브레이션</button>
                 </div>
-                <details class="plane-view-options"><summary>고급 3D 보기 설정</summary><div data-view-tabs></div><p class="meta">거리 가이드와 예시 객체는 이 브라우저의 보기 설정입니다. 실제 작업 좌표는 이동 프리셋에 저장합니다.</p></details>
+                <details class="plane-view-options" hidden><summary>3D 보기 옵션</summary>
+                  <div data-pick="surfaceGeometry"><h3>거리 표시 가이드</h3>
+                    <p class="meta">이 브라우저의 3D 표시만 조정합니다. 카메라·BASE 보정값과 실제 로봇 목표는 변경하지 않습니다.</p>
+                    <svg class="gripper-ruler" data-pick="ruler" role="img" aria-label="카메라 기준 깊이 눈금"></svg>
+                    <div data-pick="depthFields"></div><div data-pick="viewImport"></div>
+                    <p class="pick-depth-note"><span data-pick="surfaceNote">TCP와 앞면의 깊이 차이는 충돌 판정이 아닙니다.</span></p>
+                  </div>
+                </details>
                 <section id="plane-camera-settings" role="tabpanel" aria-labelledby="plane-camera-tab" tabindex="0">
                   <section id="camera-calibration" class="marker-calibration" aria-labelledby="camera-calibration-title">
                     <h3 id="camera-calibration-title">카메라 · BASE 캘리브레이션</h3>
@@ -267,19 +271,17 @@ docker compose run --rm --no-deps doosan-driver timeout 15 check-e0509</pre>
                   <div class="pick-steps" data-pick="steps" role="group" aria-label="교시할 모서리"></div>
                   <h3 data-pick="positionTitle">모서리 A 위치</h3>
                   <div class="pick-position-body">
-                    <div class="plane-pose-fields"><h4>TCP 위치 <small>· BASE 기준</small></h4><div class="pick-fields" data-pick="fields"></div><div class="pick-fields" data-pick="regionAngles" hidden></div>
+                    <div class="plane-pose-fields"><h4>TCP 위치 <small>· BASE 기준</small></h4><div class="pick-fields" data-pick="fields"></div>
                       <button type="button" data-pick="read">현재 위치 불러오기</button>
                     </div>
                     <div class="plane-corner-frame"><span class="pick-subtitle" data-pick="frameSize"></span><canvas data-pick="photo" aria-label="교시할 원본 영상"></canvas><p data-pick="pixel"></p></div>
                   </div>
-                  </div>
-                </section>
-                <section id="plane-surface-settings" role="tabpanel" aria-labelledby="plane-surface-tab" tabindex="0" hidden>
-                  <div data-pick="surfaceGeometry">
-                    <svg class="gripper-ruler" data-pick="ruler" role="img" aria-label="카메라 기준 깊이 눈금"></svg>
-                    <div data-pick="depthFields"></div>
-                    <p class="pick-depth-note">거리는 카메라 시선 방향으로 잰 값을 입력하세요. 벽 거리는 이 브라우저에서 기억합니다.
-                      <span data-pick="surfaceNote">TCP와 앞면의 깊이 차이는 충돌 판정이 아닙니다.</span></p>
+                  <details class="plane-projection-check"><summary>영역 투영 확인</summary>
+                    <label class="pick-measure-object">측정할 탐지 객체 <select data-pick="measureObject"></select></label>
+                    <canvas data-pick="measurePhoto" aria-label="고정된 영상에서 측정할 탐지 상자"></canvas>
+                    <label>한쪽 여유 (mm) <input data-pick="clearance" type="number" min="0" step="any" required></label>
+                    <p class="meta">영역 투영과 여유 값을 확인합니다. 작업별 공구 방향은 이동 프리셋의 파지 자세에서 설정하세요.</p>
+                  </details>
                   </div>
                 </section>
                 <section id="plane-floor-settings" role="tabpanel" aria-labelledby="plane-floor-tab" tabindex="0" hidden>
@@ -296,52 +298,9 @@ docker compose run --rm --no-deps doosan-driver timeout 15 check-e0509</pre>
                     <p data-pick="floorStatus" role="status">바닥 기준 조회 중</p>
                   </fieldset>
                 </section>
-                <section id="plane-example-settings" role="tabpanel" aria-labelledby="plane-example-tab" tabindex="0" hidden>
-                  <p>크기와 중심 위치는 로봇 BASE 축을 따릅니다. 그림의 TCP는 선택한 모서리 좌표를 사용하며 미교시 축은 0 mm로 표시합니다.</p>
-                  <fieldset class="example-fields">
-                    <legend>객체 크기 (mm)</legend>
-                    <div class="pick-fields">
-                      <div><label>X 길이<input type="number" data-example="sizeX" step="any" required></label>
-                        <input type="range" data-example-range="sizeX" aria-label="X 길이 슬라이더" step="any"><small></small></div>
-                      <div><label>Y 너비<input type="number" data-example="sizeY" step="any" required></label>
-                        <input type="range" data-example-range="sizeY" aria-label="Y 너비 슬라이더" step="any"><small></small></div>
-                      <div><label>Z 높이<input type="number" data-example="sizeZ" step="any" required></label>
-                        <input type="range" data-example-range="sizeZ" aria-label="Z 높이 슬라이더" step="any"><small></small></div>
-                    </div>
-                  </fieldset>
-                  <fieldset class="example-fields">
-                    <legend>중심 위치 · BASE (mm)</legend>
-                    <div class="pick-fields">
-                      <div><label>중심 X<input type="number" data-example="x" step="any" required></label>
-                        <input type="range" data-example-range="x" aria-label="중심 X 슬라이더" step="any"><small></small></div>
-                      <div><label>중심 Y<input type="number" data-example="y" step="any" required></label>
-                        <input type="range" data-example-range="y" aria-label="중심 Y 슬라이더" step="any"><small></small></div>
-                      <div><label>중심 Z<input type="number" data-example="z" step="any" required></label>
-                        <input type="range" data-example-range="z" aria-label="중심 Z 슬라이더" step="any"><small></small></div>
-                    </div>
-                  </fieldset>
-                  <p data-pick="exampleError" role="status"></p>
-                  <label><input type="checkbox" data-pick="showExample"> 다른 탭에서도 탐지 상자가 없을 때 예시 객체 표시</label>
-                  <p class="pick-depth-note">슬라이더 범위는 객체 전체가 바닥과 벽 가이드 안에 들어오도록 갱신됩니다. 입력값은 이 브라우저에 저장됩니다.</p>
-                </section>
-                <section id="plane-gripper-settings" class="pick-angle-panel" role="tabpanel" aria-labelledby="plane-gripper-tab" tabindex="0" hidden>
-                  <div class="pick-segments" role="group" aria-label="그리퍼 설정">
-                    <button type="button" data-depth-panel="angles" aria-pressed="true">공구 방향</button>
-                    <button type="button" data-depth-panel="jaws" aria-pressed="false">손가락 치수</button>
-                  </div>
-                  <div data-pick="anglePanel">
-                    <p data-pick="angleHint"></p>
-                    <div data-pick="angles"></div>
-                  </div>
-                  <div data-pick="jawPanel" hidden>
-                    <label class="pick-measure-object">측정할 탐지 객체 <select data-pick="measureObject"></select></label>
-                    <canvas data-pick="measurePhoto" aria-label="고정된 영상에서 측정할 탐지 상자"></canvas>
-                    <label class="pick-angle-label">한쪽 여유 (mm)
-                      <span class="pick-angle-value"><input data-pick="clearance" type="number" min="0" step="any" required></span>
-                    </label>
-                    <p>탐지 상자가 비스듬한 물체의 주변 공간을 포함하면 추정 폭이 커질 수 있습니다.</p>
-                    <p>한쪽 여유는 작업 평면과 함께 저장됩니다. 손가락 길이는 이 브라우저에서 기억합니다.</p>
-                  </div>
+                <section class="gripper-model-settings" data-gripper-geometry hidden aria-labelledby="gripper-model-title">
+                  <h3 id="gripper-model-title">손가락 치수 · 모형</h3><p class="meta">이 브라우저의 그리퍼 모형에 적용합니다. 실제 TCP 오프셋과 실측 벌림표는 별도로 설정하세요. 파지 방향은 이동 프리셋에서 설정합니다.</p>
+                  <div data-pick="jawPanel"></div><div data-pick="geometryImport"></div>
                 </section>
               </section>
               <footer class="pick-footer">

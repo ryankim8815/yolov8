@@ -28,7 +28,13 @@ class CameraFrame(Input):
 
 class Corner(Input):
     pixel: list[FiniteFloat] = Field(min_length=2, max_length=2)
-    pose: list[FiniteFloat] = Field(min_length=6, max_length=6)
+    pose: list[FiniteFloat|None] = Field(min_length=6, max_length=6)
+
+    @field_validator("pose")
+    @classmethod
+    def require_xyz(cls,pose):
+        if None in pose[:3]:raise ValueError("네 모서리의 BASE XYZ를 입력하세요.")
+        return pose
 
 
 class Calibration(Input):
@@ -76,7 +82,7 @@ def triangle_weights(vertices, point):
 
 
 class PickPlane:
-    def __init__(self, calibration):
+    def __init__(self, calibration,*,orientation=None):
         self.camera = camera = calibration.camera
         self.clearance = calibration.clearance_per_side_mm
         self.pixels = [p.pixel for p in calibration.corners]
@@ -86,7 +92,7 @@ class PickPlane:
         self.xyz = [p.pose[:3] for p in calibration.corners]
         if any(abs(v) > 1e6 for p in calibration.corners for v in p.pose if v is not None):
             raise DomainError("BASE 좌표와 공구 방향의 단위를 확인하세요.", 422)
-        self.abc = calibration.corners[0].pose[3:]
+        self.abc = list(orientation) if orientation is not None else calibration.corners[0].pose[3:]
         a, b, c, d = self.xyz
         x, y, z = (v - u for v, u in zip(b, a))
         i, j, k = (v - u for v, u in zip(c, a))
@@ -122,6 +128,7 @@ class PickPlane:
         xyz = self.project(pixel) if self.contains(pixel) else None
         if xyz is None:
             raise DomainError("선택한 중심이 보정한 작업 영역 밖에 있습니다.")
+        if None in self.abc:raise DomainError("이 작업면의 파지 자세는 이동 프리셋에서 설정하세요.")
         return xyz + self.abc
 
     def gripper_estimate(self, xyxy, *, tcp=None):

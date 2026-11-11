@@ -1,4 +1,11 @@
 #robot-workspace { min-width: 0; }
+.gripper-model-settings,.preset-simulation-settings { margin:16px 0;padding:16px;border:1px solid var(--line);border-radius:9px; }
+.gripper-model-settings h3 { margin-bottom:8px; }.gripper-model-settings .meta { margin-block:8px; }
+.gripper-model-settings select,.plane-view-options select { max-width:100%;min-width:0;padding:7px;font:inherit;color:var(--ink);background:var(--surface);border:1px solid var(--line);border-radius:6px; }
+.preset-simulation-settings > summary { cursor:pointer;font-weight:600; }.preset-simulation-settings [data-p=simulation-settings] { display:grid;grid-template-columns:minmax(0,1fr);gap:12px;margin-top:12px; }
+.preset-simulation-settings label { display:grid;gap:6px;min-width:0;font-size:12px;color:var(--sub); }.preset-simulation-settings input:not([type=checkbox]) { width:100%;min-width:0;padding:10px 11px;border:1px solid var(--line);border-radius:6px;background:var(--surface);color:var(--ink);font:13px var(--mono); }
+.plane-view-options [data-pick=viewImport],.gripper-model-settings [data-pick=geometryImport] { display:grid;gap:8px;margin-top:12px; }
+.plane-projection-check { margin:14px 0; }.plane-projection-check summary { cursor:pointer; }.plane-projection-check select { max-width:100%; }
 .robot-stack { display: grid; gap: 15px; }
 .robot-hero { display: grid; grid-template-columns: 1fr 1.2fr; align-items: center; gap: 30px; padding: 28px 32px; color: #f0fff8; background-color: #153331; background-image: radial-gradient(circle at 74% 45%, #24544775, transparent 60%), radial-gradient(#92ceb830 .8px, transparent .8px); background-size: auto, 12px 12px; }
 .robot-identity > p { color: #bad8cc; font: 11px var(--mono); letter-spacing: .12em; }

@@ -10,7 +10,8 @@ from uuid import uuid4, uuid5, NAMESPACE_URL
 from pydantic import Field, FiniteFloat, model_validator
 
 from .pick_plane import Input
-from .robot_scenario_config import ScenarioInput, Six, HandSpeed, check_joints, speed_for
+from .robot_scenario_config import ScenarioInput, Six, Three, VirtualProduct, HandSpeed, check_joints, speed_for
+from .robot_grasp_pose import grasp_abc,tool_x
 from .robot_scenario import approach_pose, compile_steps
 from .store import DomainError, atomic_json
 from .voice_commands import normalized
@@ -88,6 +89,9 @@ class MotionPreset(Input):
     region: Literal["floor", "shelf"] = "floor"
     object_source: Literal["saved", "yolo"] = "saved"
     yolo: PresetYolo = Field(default_factory=PresetYolo)
+    # None preserves existing saved-path defaults / legacy taught YOLO orientation.
+    grasp_abc: dict[Literal["floor","shelf"],Three|None] = Field(default_factory=lambda:dict(floor=None,shelf=None))
+    simulation_objects: dict[Literal["floor","shelf"],VirtualProduct|None] = Field(default_factory=lambda:dict(floor=None,shelf=None))
     context: ScenarioInput = Field(default_factory=ScenarioInput)
     box_pose: Six | None = None
     box_size: list[FiniteFloat] = Field(default_factory=lambda:[400,300,250], min_length=3, max_length=3)
@@ -121,6 +125,9 @@ class MotionPreset(Input):
         if self.range_start and all(s.kind=="checkpoint" for s in self.steps[ids.index(self.range_start):ids.index(self.range_end)+1]):
             raise ValueError("실행 구간에 동작이 한 개 이상 있어야 합니다.")
         if any(v<=0 for v in self.box_size):raise ValueError("박스 크기는 양수여야 합니다.")
+        if set(self.grasp_abc)!={"floor","shelf"}:raise ValueError("바닥·선반 파지 자세를 모두 제공하세요.")
+        if set(self.simulation_objects)!={"floor","shelf"}:raise ValueError("바닥·선반 시뮬레이션 객체 설정을 모두 제공하세요.")
+        if any(abs(v)>1e6 for abc in self.grasp_abc.values() if abc for v in abc):raise ValueError("파지 자세 각도의 단위를 확인하세요.")
         if self.object_source=="yolo" and sum(s.kind=="grasp" for s in self.steps)>1:
             raise ValueError("YOLO 프리셋은 자동 파지 묶음을 한 개만 연결할 수 있습니다.")
         return self
@@ -134,9 +141,9 @@ def compile_preset(preset, hand, floor_z=0, *, selected_range=True, detected=Non
     """No SDK traffic; incomplete drafts return diagnostics rather than guessed targets."""
     p=MotionPreset.model_validate(preset) if isinstance(preset,dict) else preset
     cfg=p.context.model_dump();product=copy.deepcopy(cfg["virtual"][p.region]);errors=[]
-    pose=[*product["center_base_mm"],*([0,180,0] if p.region=="floor" else [180,90,90])]
+    pose=[*product["center_base_mm"],*grasp_abc(p.model_dump())]
     approach=approach_pose(cfg,p.region,pose)
-    width=product["size_mm"][0 if p.region=="floor" else 1];opening=width+10
+    width=(sum(abs(a)*s for a,s in zip(tool_x(pose[3:]),product["size_mm"])) if p.grasp_abc[p.region] is not None else product["size_mm"][0 if p.region=="floor" else 1]);opening=width+10
     if p.object_source=="yolo":
         if not any(s.kind=="grasp" for s in p.steps):errors.append("자동 파지 묶음을 한 개 추가하세요.")
         if detected:
@@ -215,6 +222,17 @@ def compile_preset(preset, hand, floor_z=0, *, selected_range=True, detected=Non
                 box=dict(size_mm=p.box_size,center_base_mm=p.box_center),floor_z_mm=floor_z,
                 opening_mm=opening,width_mm=width,idle_opening_mm=idle,object_source=p.object_source,
                 detected=copy.deepcopy(detected))
+
+
+def compile_simulation(preset,hand,floor_z=0):
+    """Explicit preview-only override. Hardware always calls compile_preset."""
+    p=MotionPreset.model_validate(preset) if isinstance(preset,dict) else preset
+    obj=p.simulation_objects[p.region]
+    if obj is None:return compile_preset(p,hand,floor_z)
+    draft=p.model_copy(deep=True);draft.object_source="saved";draft.context.virtual[p.region]=obj.model_copy(deep=True)
+    recipe=compile_preset(draft,hand,floor_z)
+    recipe.update(example=True,name="모의 객체 · "+p.name,object_source=p.object_source)
+    return recipe
 
 
 class PresetLibrary:
