@@ -372,7 +372,7 @@ export function connectDepthPreview(el, signal) {
     el.exampleError.textContent = !fit ? (surfaces.floor ? "현재 벽과 바닥 사이에 객체를 놓을 공간이 없습니다." : "바닥 Z를 입력하면 예시 객체를 조절할 수 있습니다.") :
       adjusted ? "현재 가이드 범위에 맞춰 예시 객체를 표시합니다." : "";
     el.tcpHeight.textContent = floorZ === null ? "바닥 Z를 입력하세요." :
-      (pose.corner+1)+"번 모서리 TCP · "+(height === null ? "Z 미교시 · 높이는 BASE 원점 기준입니다." : describe(height));
+      "모서리 "+'ABCD'[pose.corner]+" TCP · "+(height === null ? "Z 미교시 · 높이는 BASE 원점 기준입니다." : describe(height));
     const z = estimate?.center_base_mm?.[2];
     if (editingExample) {
       el.objectHeight.textContent = shown ? "예시 중심 · BASE ("+[shown.x,shown.y,shown.z].map(v=>Number(v.toFixed(2))).join(", ")+") mm" : "";

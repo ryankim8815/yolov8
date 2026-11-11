@@ -176,12 +176,12 @@ export function connectCameraPick(panel) {
   let badgeInput = null, nextLookup = 0, badgeRequest;
   function badge(label) {
     if (el.planeLink.textContent !== label) el.planeLink.textContent = label;
-    el.planeLink.setAttribute("aria-label", "작업 평면 보정 · "+label);
+    el.planeLink.setAttribute("aria-label", "캘리브레이션 · "+label);
   }
   function updateBadge(packet) {
     if (!packet?.camera_id) {
       badgeRequest?.abort(); badgeInput = null; nextLookup = 0;
-      badge("영상 대기 · 작업 평면 보정");
+      badge("영상 대기 · 캘리브레이션");
       return;
     }
     if (!sameInput(packet,badgeInput)) {

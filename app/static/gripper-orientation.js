@@ -48,7 +48,7 @@ export function connectOrientation(el, onAngle, signal) {
     const illustrated = angles.map((angle, i) => Number.isFinite(angle) ? angle : exampleAngles[i]);
     depth.render(corners, toolAxes(illustrated),
       illustrated.map((v, i) => "ABC"[i] + " " + v + "도").join(", ") + (complete ? "" : " (미입력 각도는 예시)"), camera, corner);
-    el.angleHint.textContent = "A·B·C는 1번 모서리에 저장되고 네 모서리에 공통으로 적용됩니다." +
+    el.angleHint.textContent = "공구 회전각 A·B·C(°)는 모서리 A에 저장되고 네 모서리에 공통으로 적용됩니다." +
       (complete ? "" : " 빈 각도는 예시로 표시합니다.");
     controls.forEach(({slider, number}, i) => {
       const value = illustrated[i];

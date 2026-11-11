@@ -28,7 +28,7 @@ class MarkerConfig(Input):
         for i in range(4):
             if abs(math.dist(p[i],p[(i+1)%4])-s)>tolerance:raise ValueError("모서리 간 거리가 마커의 검은 사각형 한 변과 다릅니다.")
         if any(abs(math.dist(p[i],p[i+2])-s*math.sqrt(2))>tolerance for i in (0,1)):
-            raise ValueError("마커의 0→1→2→3 순서와 정사각형 대각선 길이를 확인하세요.")
+            raise ValueError("마커의 A→B→C→D 순서와 정사각형 대각선 길이를 확인하세요.")
         midpoint=[(p[0][i]+p[2][i]-p[1][i]-p[3][i])/2 for i in range(3)]
         if math.hypot(*midpoint)>tolerance:raise ValueError("네 모서리는 같은 평면의 정사각형이어야 합니다.")
         return self

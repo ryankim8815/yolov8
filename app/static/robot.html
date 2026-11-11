@@ -228,7 +228,7 @@ docker compose run --rm --no-deps doosan-driver timeout 15 check-e0509</pre>
                     <span data-pick="tcpHeight"></span><span data-pick="objectHeight"></span>
                   </div>
                 </div>
-                <div class="plane-tabs" role="tablist" aria-label="작업 평면 보정 설정">
+                <div class="plane-tabs" role="tablist" aria-label="캘리브레이션 설정">
                   <button type="button" role="tab" id="manipulator-control-tab" data-manipulator-tab="#manipulator" aria-selected="false" aria-controls="manipulator-control" tabindex="-1" hidden>로봇 제어</button>
                   <button type="button" role="tab" id="manipulator-points-tab" data-manipulator-tab="#work-points-title" aria-selected="false" aria-controls="manipulator-work-points" tabindex="-1" hidden>이동 프리셋</button>
                   <button type="button" role="tab" id="manipulator-box-tab" data-manipulator-tab="#parcel-box-title" aria-selected="false" aria-controls="manipulator-parcel-box" tabindex="-1" hidden>공통 박스 외형·설치 위치</button>
@@ -253,7 +253,7 @@ docker compose run --rm --no-deps doosan-driver timeout 15 check-e0509</pre>
                         <a data-marker="print" href="/api/camera/marker/marker.svg?marker_id=0&amp;side_mm=100" download="robot-marker.svg">출력용 마커 받기</a>
                       </div>
                       <details data-marker="registration" open><summary>고정 마커의 BASE 좌표 등록</summary>
-                        <p>SVG를 배율 100%로 출력하고 검은 사각형의 실제 길이를 확인하세요. 인쇄물의 0→1→2→3 모서리에 해당하는 BASE XYZ(mm)를 입력하세요. 흰 여백은 길이에 포함하지 않습니다. ‘현재 TCP’는 끝점이 보정된 공구로 해당 모서리를 정확히 교시했을 때만 사용하세요.</p>
+                        <p>SVG를 배율 100%로 출력하고 검은 사각형의 실제 길이를 확인하세요. 인쇄물의 A→B→C→D 모서리에 해당하는 BASE XYZ(mm)를 입력하세요. 흰 여백은 길이에 포함하지 않습니다. ‘현재 TCP’는 끝점이 보정된 공구로 해당 모서리를 정확히 교시했을 때만 사용하세요.</p>
                         <div class="marker-table-wrap"><table class="marker-table"><thead><tr><th scope="col">모서리</th><th scope="col">X (mm)</th><th scope="col">Y (mm)</th><th scope="col">Z (mm)</th><th scope="col">좌표 읽기</th></tr></thead><tbody data-marker="corners"></tbody></table></div>
                         <button type="submit" data-marker="save">마커 좌표 저장</button>
                       </details>
@@ -265,7 +265,7 @@ docker compose run --rm --no-deps doosan-driver timeout 15 check-e0509</pre>
                   </section>
                   <div data-pick="legacyCamera">
                   <div class="pick-steps" data-pick="steps" role="group" aria-label="교시할 모서리"></div>
-                  <h3 data-pick="positionTitle">1번 모서리 위치</h3>
+                  <h3 data-pick="positionTitle">모서리 A 위치</h3>
                   <div class="pick-position-body">
                     <div class="plane-pose-fields"><h4>TCP 위치 <small>· BASE 기준</small></h4><div class="pick-fields" data-pick="fields"></div><div class="pick-fields" data-pick="regionAngles" hidden></div>
                       <button type="button" data-pick="read">현재 위치 불러오기</button>

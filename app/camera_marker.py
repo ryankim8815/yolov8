@@ -237,7 +237,7 @@ class MarkerService:
 def marker_svg(marker_id=0,side_mm=100):
     bits=cv2.aruco.generateImageMarker(DICTIONARY,marker_id,6)
     rects=''.join(f'<rect x="{x+2}" y="{y+2}" width="1" height="1"/>' for y in range(6) for x in range(6) if bits[y,x]==0)
-    labels=''.join(f'<text x="{x}" y="{y}" font-size=".45" text-anchor="middle">{i}</text>' for i,(x,y) in enumerate([(1,1.5),(9,1.5),(9,8.7),(1,8.7)]))
+    labels=''.join(f'<text x="{x}" y="{y}" font-size=".45" text-anchor="middle">{name}</text>' for name,(x,y) in zip('ABCD',[(1,1.5),(9,1.5),(9,8.7),(1,8.7)]))
     # Black square is exactly side_mm; the 2-cell quiet border is outside it.
     size=side_mm*10/6
     return f'<svg xmlns="http://www.w3.org/2000/svg" width="{size}mm" height="{size}mm" viewBox="0 0 10 10"><rect width="10" height="10" fill="white"/><g fill="black">{rects}{labels}<text x="5" y="9.6" font-size=".3" text-anchor="middle">4X4_50 ID {marker_id} / black square {side_mm} mm / print 100%</text></g></svg>'

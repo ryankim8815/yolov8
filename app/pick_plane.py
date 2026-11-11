@@ -97,7 +97,7 @@ class PickPlane:
         self.normal = tuple(n / length for n in normal)
         residual = abs(sum(n*(v-u) for n, v, u in zip(normal, d, a))) / length
         if residual > 2:
-            raise DomainError("네 번째 TCP가 교시 평면에서 2 mm 넘게 벗어났습니다.", 422)
+            raise DomainError("모서리 D의 TCP가 교시 평면에서 2 mm 넘게 벗어났습니다.", 422)
         # Drop the most normal axis for a well-conditioned 2D basis on the BASE plane.
         drop = max(range(3), key=lambda axis: abs(normal[axis]))
         plane = [[v for axis, v in enumerate(p) if axis != drop] for p in self.xyz]

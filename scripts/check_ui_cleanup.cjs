@@ -23,6 +23,8 @@ process.chdir(path.resolve(__dirname,'..'));
    throw Error('Unexpected read: '+url.pathname);
   });
   await page.goto('http://cleanup.test/');
+  assert.equal(await page.locator('[data-pick=planeLink]').textContent(),'캘리브레이션');
+  assert.equal(await page.locator('[data-pick=planeLink]').getAttribute('aria-label'),'캘리브레이션');
   const select=page.locator('[data-preset-launch=select]'),link=page.locator('[data-preset-launch=open]');
   await select.waitFor();await page.waitForFunction(()=>!document.querySelector('[data-preset-launch=select]').disabled);
   assert.equal(await page.locator('[data-pick=dialog],[data-pick=select],[data-pick=job]').count(),0);

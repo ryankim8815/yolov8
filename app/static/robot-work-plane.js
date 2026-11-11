@@ -160,7 +160,7 @@ export function connectWorkPlane(root) {
     let reason = null;
     if (!calibration) reason = "카메라 영상과 작업면 보정이 필요합니다.";
     else if (!objects.length) reason = "고정된 영상에 탐지된 객체가 없습니다.";
-    else if (!object) reason = "작업 평면 보정 → 그리퍼 설정 → 손가락 치수에서 측정할 객체를 선택하세요.";
+    else if (!object) reason = "캘리브레이션 → 그리퍼 설정 → 손가락 치수에서 측정할 객체를 선택하세요.";
     else if (!draft) reason = "네 모서리의 영상·BASE 좌표를 입력하세요.";
     measurement.update(draft, object, measureIndex, reason);
   }
@@ -192,7 +192,7 @@ export function connectWorkPlane(root) {
       marker(ctx, x, y, radius, i === corner ? "#ffcf61" : "#a0ffcf");
       ctx.font = "bold " + Math.max(16, radius * 3) + "px sans-serif";
       ctx.lineWidth = 4; ctx.strokeStyle = "#18302b"; ctx.fillStyle = "white";
-      ctx.strokeText(String(i + 1), x + radius, y); ctx.fillText(String(i + 1), x + radius, y);
+      ctx.strokeText('ABCD'[i], x + radius, y); ctx.fillText('ABCD'[i], x + radius, y);
     });
     const index = measureIndex;
     const highlight = context => {
@@ -232,14 +232,14 @@ export function connectWorkPlane(root) {
 
   function showPosition() {
     const point = corners[corner];
-    el.positionTitle.textContent = (corner + 1) + "번 모서리 위치";
+    el.positionTitle.textContent = "모서리 " + 'ABCD'[corner] + " 위치";
     el.pixel.textContent = point.pixel ? "영상 위치　" + point.pixel.map(n => n.toFixed(1)).join(", ") + " px" :
-      (corner + 1) + "번 모서리를 영상에서 짚으세요.";
+      "영상에서 모서리 " + 'ABCD'[corner] + "를 짚으세요.";
   }
 
   function showCorner() {
     steps.forEach((step, i) => {
-      step.textContent = (i + 1) + "번 모서리" + (corners[i].pixel ? " ✓" : "");
+      step.textContent = "모서리 " + 'ABCD'[i] + (corners[i].pixel ? " ✓" : "");
       step.setAttribute("aria-pressed", String(i === corner));
       step.disabled = locked();
     });
@@ -449,7 +449,7 @@ export function connectWorkPlane(root) {
       selectTab(current ?? visibleTabs[0]);
       const tablist=editor.querySelector('[role="tablist"]');
       tablist.hidden=gripperWorkspace;
-      tablist.setAttribute("aria-label", gripperWorkspace ? "그리퍼" : manipulatorWorkspace ? "매니퓰레이터 설정" : "작업 평면 보정 설정");
+      tablist.setAttribute("aria-label", gripperWorkspace ? "그리퍼" : manipulatorWorkspace ? "매니퓰레이터 설정" : "캘리브레이션 설정");
       root.querySelector(".plane-summary").hidden = id !== "work-plane";
       availability();
     },

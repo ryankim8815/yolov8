@@ -18,12 +18,12 @@ export function connectCameraCalibration(root,signal){
   let state=null,dirty=false,busy=false,preview=false,timer,parts,operation=0,disposed=false;
   const corners=get('corners');
   for(let i=0;i<4;i++){
-    const row=document.createElement('tr'),label=document.createElement('th');label.scope='row';label.textContent=i;row.append(label);
+    const name='ABCD'[i],row=document.createElement('tr'),label=document.createElement('th');label.scope='row';label.textContent=name;row.append(label);
     for(const axis of ['X','Y','Z']){
       const td=document.createElement('td'),input=document.createElement('input');input.type='number';input.step='any';input.required=true;
-      input.min='-5000';input.max='5000';input.setAttribute('aria-label',`마커 ${i}번 모서리 BASE ${axis}`);td.append(input);row.append(td);
+      input.min='-5000';input.max='5000';input.setAttribute('aria-label',`마커 모서리 ${name} BASE ${axis}`);td.append(input);row.append(td);
     }
-    const td=document.createElement('td'),read=document.createElement('button');read.type='button';read.textContent='현재 TCP';read.setAttribute('aria-label',`${i}번 모서리에 현재 TCP 좌표 입력`);
+    const td=document.createElement('td'),read=document.createElement('button');read.type='button';read.textContent='현재 TCP';read.setAttribute('aria-label',`모서리 ${name}에 현재 TCP 좌표 입력`);
     read.addEventListener('click',()=>action(async()=>{const data=await api('work-points/current?monitor_only=true');row.querySelectorAll('input').forEach((input,j)=>input.value=data.pose[j]);changed();}));td.append(read);row.append(td);corners.append(row);
   }
   function message(value,error=false){get('status').textContent=value;get('status').dataset.state=error?'error':state?.state||'required';}

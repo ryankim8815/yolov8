@@ -120,12 +120,12 @@ def test_depth_discontinuity_and_cropped_boxes_are_not_valid_grasp_targets(monke
     with pytest.raises(DomainError,match='경계'):value.object(token,'session',20,0)
 
 
-def test_marker_svg_physical_square_and_canonical_corner_numbers():
+def test_marker_svg_physical_square_and_canonical_corner_letters():
     svg=marker_svg(3,120)
     assert 'width="200.0mm"' in svg and 'black square 120 mm' in svg
     import xml.etree.ElementTree as ET
     tree=ET.fromstring(svg)
-    assert [n.text for n in tree.iter('{http://www.w3.org/2000/svg}text')][:4]==['0','1','2','3']
+    assert [n.text for n in tree.iter('{http://www.w3.org/2000/svg}text')][:4]==list('ABCD')
 
 
 def test_metric_depth_noise_still_recovers_nearby_base_points():
