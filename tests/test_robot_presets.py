@@ -77,7 +77,7 @@ def test_group_lock_ranges_and_stable_references(scenario):
     p['range_start']=p['range_end']=grasp['id']
     result=client.post(f'{BASE}/{p["id"]}/preview',json={'preset':p}).json()
     assert len(result['steps'])==5 and [s['number'] for s in result['steps']]==[1,2,3,4,5]
-    bad=copy.deepcopy(p);bad['steps']=[s for s in bad['steps'] if s['source']!='waypoint1']
+    bad=copy.deepcopy(p);bad['steps'][3]['reference_id']='deleted-step'
     assert client.put(f'{BASE}/{p["id"]}',json=bad).status_code==422
 
 
@@ -177,7 +177,7 @@ def test_continuous_native_voice_is_domain_isolated():
     asyncio.run(run())
 
 
-def test_migration_preserves_manual_drop_and_separate_preparation_speeds(scenario):
+def test_migration_uses_automatic_box_targets_and_preserves_preparation_speeds(scenario):
     client,*_=scenario
     cfg=client.get('/api/robot/pick-scenario').json()
     cfg['stages']['1'].update(motion='movel',profile='medium',override=dict(speed=3,acceleration=3))
@@ -187,8 +187,9 @@ def test_migration_preserves_manual_drop_and_separate_preparation_speeds(scenari
     assert not recipe['errors']
     assert recipe['steps'][0]['kind']=='line' and recipe['steps'][0]['speed']['speed']==3
     assert recipe['steps'][1]['speed']['speed']==5
-    assert recipe['steps'][9]['target']==[10,0,70,0,110,0]
-    assert recipe['steps'][8]['j1_only'] and recipe['steps'][14]['j1_only']
+    assert recipe['steps'][9]['target']==[450,0,220,0,180,0]
+    assert recipe['steps'][9]['calculation_source']=='box'
+    assert not recipe['steps'][8]['j1_only'] and not recipe['steps'][14]['j1_only']
 
 
 def test_controller_session_loss_never_dispatches(scenario):
@@ -250,7 +251,7 @@ def test_ui_cleanup_imports_all_saved_locations_once_without_changing_routes(sce
     robot.pose_tests.write(robot.pose_tests.data)
     before={path:path.read_bytes() for path in lib.path.parent.glob('*.json') if path!=lib.path}
     migrated=PresetLibrary(lib.path.parent,robot).load()
-    assert migrated['schema_version']==2 and migrated['presets'][0]==original
+    assert migrated['schema_version']==3 and migrated['presets'][0]==original
     imports=migrated['ui_migration']['imported'];assert len(imports)==6
     presets={p['id']:p for p in migrated['presets']}
     for source in imports:

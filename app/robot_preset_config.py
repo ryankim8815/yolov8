@@ -130,6 +130,35 @@ class MotionPreset(Input):
         if any(abs(v)>1e6 for abc in self.grasp_abc.values() if abc for v in abc):raise ValueError("파지 자세 각도의 단위를 확인하세요.")
         if self.object_source=="yolo" and sum(s.kind=="grasp" for s in self.steps)>1:
             raise ValueError("YOLO 프리셋은 자동 파지 묶음을 한 개만 연결할 수 있습니다.")
+        # The original 17-stage template reserves preparation/return for standby.
+        # Transfers are independent taught targets, never live references to another row.
+        if len(self.steps)==10 and [self.steps[i].kind for i in (0,1,2,5,9)]==["prepare","checkpoint","grasp","place","gripper"] and all(self.steps[i].kind in {"movej","movel","movec"} for i in (3,4,6,7,8)):
+            self.steps[8].source="standby";self.steps[8].space="joint";self.steps[8].reference_id=None;self.steps[8].target=None;self.steps[8].j1_only=False
+            self.steps[9].source="standby";self.steps[9].opening_source="idle";self.steps[9].opening_mm=None;self.steps[9].contact=False
+        elif len(self.steps)==13 and [self.steps[i].kind for i in (0,1,2,7,12)]==["prepare","checkpoint","grasp","gripper","gripper"] and all(self.steps[i].kind in {"movej","movel","movec"} for i in (3,4,5,6,8,9,10,11)):
+            for index,source in ((5,"above_box"),(6,"box"),(8,"above_box"),(11,"standby")):
+                self.steps[index].source=source;self.steps[index].space="joint" if source=="standby" else "task";self.steps[index].target=None;self.steps[index].reference_id=None;self.steps[index].j1_only=False
+            self.steps[7].source="box";self.steps[7].opening_source="object";self.steps[7].contact=False
+            self.steps[12].source="standby";self.steps[12].opening_source="idle";self.steps[12].opening_mm=None;self.steps[12].contact=False
+        for s in self.steps:
+            if s.kind=="prepare":s.source="standby";s.target=None;s.reference_id=None;s.space="joint";s.j1_only=False
+        old={s.id:s.model_copy(deep=True) for s in self.steps}
+        def saved_target(s,trail=()):
+            if s.id in trail:raise ValueError("단계 참조가 순환합니다.")
+            if s.reference_id:
+                other=old[s.reference_id]
+                if other.space!="joint":raise ValueError("관절 참조는 관절 목표 단계만 사용할 수 있습니다.")
+                value=saved_target(other,(*trail,s.id))
+                return [value[0]+s.j1_delta,*value[1:]] if value else None
+            if s.source=="standby":return self.context.standby_joints
+            if s.source in {"waypoint1","waypoint2"}:
+                value=self.context.waypoint1_joints
+                return [value[0]+self.context.turn_degrees,*value[1:]] if value and s.source=="waypoint2" else value
+            return s.target if s.source=="explicit" else None
+        for s in self.steps:
+            if s.reference_id or s.source in {"waypoint1","waypoint2"}:
+                s.target=copy.deepcopy(saved_target(old[s.id]));s.source="explicit";s.reference_id=None;s.j1_delta=0;s.j1_only=False
+                if s.space=="joint":check_joints(s.target)
         return self
 
 
@@ -139,7 +168,7 @@ def physical_speed(step, hand=False):
 
 def compile_preset(preset, hand, floor_z=0, *, selected_range=True, detected=None):
     """No SDK traffic; incomplete drafts return diagnostics rather than guessed targets."""
-    p=MotionPreset.model_validate(preset) if isinstance(preset,dict) else preset
+    p=MotionPreset.model_validate(preset.model_dump() if isinstance(preset,MotionPreset) else preset)
     cfg=p.context.model_dump();product=copy.deepcopy(cfg["virtual"][p.region]);errors=[]
     pose=[*product["center_base_mm"],*grasp_abc(p.model_dump())]
     approach=approach_pose(cfg,p.region,pose)
@@ -179,7 +208,7 @@ def compile_preset(preset, hand, floor_z=0, *, selected_range=True, detected=Non
         kind=s.kind
         if kind=="checkpoint":return
         if kind=="prepare":
-            movement=s.model_copy(update={"kind":s.prepare_motion})
+            movement=s.model_copy(update={"kind":s.prepare_motion,"source":"standby","target":None,"reference_id":None,"space":"joint","j1_only":False})
             append(movement, s.id)
             h=PresetStep(id=child_id(s.id,"hand"),kind="gripper",name="대기 벌림 복원",opening_mm=idle,percent=s.percent,acceleration=3000,legacy_speed=s.prepare_hand_speed)
             append(h,s.id);return
@@ -197,12 +226,17 @@ def compile_preset(preset, hand, floor_z=0, *, selected_range=True, detected=Non
                 if kind=="grasp":
                     result[-1]["object_role"]=("approach","preopen","descent","grip","retreat")[i]
             return
-        out=dict(id=s.id,group_id=group,kind={"movej":"joint","movel":"line","movec":"circle"}.get(kind,kind),
+        group_kind=by_id[group].kind if group else None
+        calculation=("standby" if group_kind=="prepare" or s.source=="standby" or kind=="gripper" and s.opening_source=="idle" else
+                     "object" if group_kind=="grasp" or s.source in {"object","object_approach"} else
+                     "box" if group_kind=="place" or s.source in {"box","above_box"} else
+                     "object" if kind=="gripper" and s.opening_source=="object" else None)
+        out=dict(id=s.id,group_id=group,kind={"movej":"joint","movel":"line","movec":"circle"}.get(kind,kind),calculation_source=calculation,computed=bool(calculation),
                  motion=kind if kind in {"movej","movel","movec"} else None,title=s.name or kind,speed=physical_speed(s,kind=="gripper"))
         if kind in {"movej","movel","movec"}:
             target=resolve(s)
             if target is None:errors.append((s.name or kind)+"의 목표 좌표를 입력하세요.")
-            out.update(target=target,space=s.space,via_pose=s.via_pose,computed=bool(group or s.source!="explicit" or s.reference_id))
+            out.update(target=target,space=s.space,via_pose=s.via_pose)
             out["j1_only"]=s.j1_only
             if kind=="movec" and s.via_pose is None:errors.append((s.name or kind)+"의 원호 경유 TCP를 입력하세요.")
         elif kind=="gripper":
@@ -226,7 +260,7 @@ def compile_preset(preset, hand, floor_z=0, *, selected_range=True, detected=Non
 
 def compile_simulation(preset,hand,floor_z=0,*,box=None,defaults=False,simulation_object=True,detected=None):
     """Explicit preview-only override. Hardware always calls compile_preset."""
-    p=MotionPreset.model_validate(preset) if isinstance(preset,dict) else preset
+    p=MotionPreset.model_validate(preset.model_dump() if isinstance(preset,MotionPreset) else preset)
     draft=p.model_copy(deep=True);virtual_defaults=[]
     if box:
         draft.box_size=copy.deepcopy(box["size_mm"]);draft.box_center=copy.deepcopy(box["center_base_mm"])
@@ -244,9 +278,6 @@ def compile_simulation(preset,hand,floor_z=0,*,box=None,defaults=False,simulatio
             seen=set()
             while step.reference_id and step.reference_id not in seen:
                 seen.add(step.reference_id);step=by_id[step.reference_id];nodes.append(step)
-        if draft.context.waypoint1_joints is None and any(step.source in {"waypoint1","waypoint2"} for step in nodes):
-            draft.context.waypoint1_joints=[-180,0,60,0,120,0]
-            virtual_defaults.append(dict(field="context.waypoint1_joints",label="1차 경유 관절각",value=list(draft.context.waypoint1_joints)))
         if draft.box_pose is None and any(step.kind=="place" or step.source in {"box","above_box"} for step in nodes):
             geometry=dict(size_mm=draft.box_size,center_base_mm=draft.box_center)
             draft.box_pose=simulation_box_pose(geometry)
@@ -266,17 +297,26 @@ class PresetLibrary:
     def load(self):
         if self.value is not None:return self.value
         if self.path.exists():
-            data=json.loads(self.path.read_text());data["presets"]=[MotionPreset.model_validate(p).model_dump() for p in data["presets"]]
+            data=json.loads(self.path.read_text())
             if data.get("schema_version",1)<2:
                 self.backup("ui-cleanup")
                 data=self.import_saved_locations(data)
+            if data.get("schema_version",1)<3:
+                self.backup("manual-stages-v3")
+                normalized=[];changed=[]
+                for previous in data["presets"]:
+                    p=MotionPreset.model_validate(previous).model_dump()
+                    if p!=previous:p["revision"]=uid();changed.append(p["id"])
+                    normalized.append(p)
+                data.update(schema_version=3,presets=normalized,manual_stage_migration=dict(version=3,changed_presets=changed))
                 atomic_json(self.path,data)
+            else:data["presets"]=[MotionPreset.model_validate(p).model_dump() for p in data["presets"]]
             self.value=data;return data
         self.backup("preset-migration")
         cfg=copy.deepcopy(self.robot.scenario.config.value);box=self.robot.work_points.points["box"]["pose"]
         p=MotionPreset(name="기존 이동 경로",context=ScenarioInput.model_validate(cfg),box_pose=box,
                        box_size=self.robot.parcel_box.value["size_mm"],box_center=self.robot.parcel_box.value["center_base_mm"],steps=self.migrate(cfg))
-        p.revision=uid();self.value=self.import_saved_locations(dict(schema_version=1,presets=[p.model_dump()]));atomic_json(self.path,self.value)
+        p.revision=uid();self.value=self.import_saved_locations(dict(schema_version=1,presets=[p.model_dump()]));self.value["schema_version"]=3;atomic_json(self.path,self.value)
         return self.value
 
     def backup(self,prefix):

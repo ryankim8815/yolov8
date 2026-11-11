@@ -73,12 +73,13 @@ export function connectWorkPlane(root) {
   let gripperWorkspace = false;
   let manipulatorWorkspace = false;
   function selectTab(active, navigate = false) {
-    viewOptions.hidden = !manipulatorWorkspace || active.id === "manipulator-box-tab";
+    viewOptions.hidden = !manipulatorWorkspace || ["manipulator-box-tab","manipulator-standby-tab"].includes(active.id);
     const presetView=manipulatorWorkspace&&active.id==='manipulator-points-tab';
+    const routeView=presetView||manipulatorWorkspace&&active.id==='manipulator-standby-tab';
     editor.querySelector('[data-preset-controls]').hidden=!presetView;
-    el.sizing.hidden=presetView;
-    el.basisHint.hidden=presetView;
-    editor.querySelector('.plane-heights').hidden=presetView;
+    el.sizing.hidden=routeView;
+    el.basisHint.hidden=routeView;
+    editor.querySelector('.plane-heights').hidden=routeView;
     orientation.setManipulator(!gripperWorkspace);
     orientation.setScenarioVisible(active.id==='manipulator-points-tab'&&manipulatorWorkspace);
     if(active.id!=="manipulator-points-tab")orientation.simulationAction("stop");
@@ -425,7 +426,7 @@ export function connectWorkPlane(root) {
       gripperWorkspace = id === "gripper";
       manipulatorWorkspace = id === "manipulator";
       if (manipulatorWorkspace && !manipulatorConnected) {
-        connectPresets(editor.querySelector("#scenario-editor"),orientation,lifetime.signal,editor.querySelector("[data-preset-controls]"));
+        connectPresets(editor.querySelector("#scenario-editor"),orientation,lifetime.signal,editor.querySelector("[data-preset-controls]"),editor.querySelector("[data-preset-standby]"));
         manipulatorConnected = true;
       }
       editor.querySelector("[data-gripper-geometry]").hidden=!gripperWorkspace;

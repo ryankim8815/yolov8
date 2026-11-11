@@ -46,6 +46,7 @@ const assert=require('node:assert/strict');
   // Copy common geometry only; the legacy box TCP must never become this preset's drop target.
   const presetId=new URL(page.url()).searchParams.get('preset');
   const beforeImport=await(await page.request.get(base+'/api/robot/presets/'+presetId)).json();
+  await page.locator('#preset-work-settings > summary').click();
   await action('import-box').click();await action('save').click();
   await page.waitForFunction(()=>document.querySelector('[data-p=saved]')?.textContent==='저장됨');
   const afterImport=await(await page.request.get(base+'/api/robot/presets/'+presetId)).json();

@@ -53,7 +53,7 @@ def test_missing_teaching_uses_explicit_simulation_defaults_and_never_saves_them
     assert preview(client,p)['errors']
     recipe=preview(client,p,simulation_defaults=True)
     assert not recipe['errors'] and len(recipe['steps'])==17 and 'approval_id' not in recipe
-    assert {item['field'] for item in recipe['simulation_defaults']}=={'context.waypoint1_joints','box_pose'}
+    assert {item['field'] for item in recipe['simulation_defaults']}=={'box_pose'}
     assert recipe['box_pose']==[-500,0,120,0,180,0]
     assert recipe['steps'][9]['target'][:3]==[-500,0,300]
     # A scoped standby action does not depend on either missing coordinate.
@@ -84,4 +84,18 @@ def test_voice_and_text_simulation_use_common_box_hardware_keeps_saved_targets(s
     assert tested['simulation_only'] and tested['recipe']['box']['center_base_mm']==common['center_base_mm']
     ticket=ready(client,p)
     assert ticket['steps'][10]['target']==p['box_pose']
+    assert not calls
+
+
+def test_manual_transfer_targets_are_independent_in_simulation_and_hardware(scenario):
+    client,calls,*_=scenario;p=library(client)[0]
+    first=p['steps'][3];other_ids={p['steps'][i]['id']:copy.deepcopy(p['steps'][i]['target']) for i in (4,6,7)}
+    first.update(source='explicit',target=[-170,0,65,0,120,0])
+    p['context']['waypoint1_joints']=None
+    recipe=preview(client,p,simulation_defaults=True)
+    assert not recipe['errors'] and not recipe['simulation_defaults']
+    for identifier,target in other_ids.items():assert next(s for s in recipe['steps'] if s['id']==identifier)['target']==target
+    saved=client.put(BASE+'/'+p['id'],json=p);assert saved.status_code==200
+    physical=ready(client,saved.json())
+    for identifier,target in other_ids.items():assert next(s for s in physical['steps'] if s['id']==identifier)['target']==target
     assert not calls

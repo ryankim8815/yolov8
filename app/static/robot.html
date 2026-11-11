@@ -127,6 +127,10 @@ docker compose run --rm --no-deps doosan-driver timeout 15 check-e0509</pre>
             <section id="scenario-editor" aria-label="이동 프리셋 편집과 실행"></section>
           </div>
         </section>
+        <section id="manipulator-standby" data-manipulator-panel hidden class="panel" role="tabpanel" aria-labelledby="manipulator-standby-tab" tabindex="0">
+          <div class="panel-head"><h2 id="standby-title">대기 자세</h2><span class="meta">관절각 · °</span></div>
+          <div class="pose-body" data-preset-standby></div>
+        </section>
         <section id="manipulator-parcel-box" data-manipulator-panel hidden class="panel" role="tabpanel" aria-labelledby="manipulator-box-tab" tabindex="0">
           <div class="panel-head"><h2 id="parcel-box-title">택배 박스 설정</h2><span id="parcel-box-state" class="meta">조회 중</span></div>
           <form id="parcel-box-form" class="pose-body">
@@ -232,6 +236,7 @@ docker compose run --rm --no-deps doosan-driver timeout 15 check-e0509</pre>
                 <div class="plane-tabs" role="tablist" aria-label="캘리브레이션 설정">
                   <button type="button" role="tab" id="manipulator-control-tab" data-manipulator-tab="#manipulator" aria-selected="false" aria-controls="manipulator-control" tabindex="-1" hidden>로봇 제어</button>
                   <button type="button" role="tab" id="manipulator-points-tab" data-manipulator-tab="#work-points-title" aria-selected="false" aria-controls="manipulator-work-points" tabindex="-1" hidden>이동 프리셋</button>
+                  <button type="button" role="tab" id="manipulator-standby-tab" data-manipulator-tab="#standby-title" aria-selected="false" aria-controls="manipulator-standby" tabindex="-1" hidden>대기 자세</button>
                   <button type="button" role="tab" id="manipulator-box-tab" data-manipulator-tab="#parcel-box-title" aria-selected="false" aria-controls="manipulator-parcel-box" tabindex="-1" hidden>택배 박스 설정</button>
                   <button type="button" role="tab" id="plane-camera-tab" aria-selected="true" aria-controls="plane-camera-settings">카메라 좌표 설정</button>
                   <button type="button" role="tab" id="plane-floor-tab" aria-selected="false" aria-controls="plane-floor-settings" tabindex="-1">바닥 기준</button>

@@ -60,6 +60,8 @@ def test_saved_default_and_yolo_capture_never_overwrite_saved_coordinates(scenar
     snapshot=capture(client,p);assert snapshot['state']=='selected' and not calls
     recipe=bound(client,p,snapshot)
     assert not recipe['errors'] and len(recipe['steps'])==17
+    assert [s['calculation_source'] for s in recipe['steps']]==['standby']*2+['object']*5+[None]*2+['box']*4+[None]*2+['standby']*2
+    assert [s['number'] for s in recipe['steps'] if not s['computed']]==[8,9,14,15]
     assert recipe['pose']==[-440,0,20,0,180,0]
     assert recipe['steps'][2]['target']==recipe['approach']
     assert recipe['steps'][4]['target']==recipe['pose']

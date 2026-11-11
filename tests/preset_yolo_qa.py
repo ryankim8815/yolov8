@@ -52,6 +52,7 @@ def create_qa_app():
                 corners=[dict(pixel=point,pose=[*xyz,0,180,0]) for point,xyz in zip([[10,10],[150,10],[150,150],[10,150]],[[-520,-70,20],[-380,-70,20],[-380,70,20],[-520,70,20]])])
             robot.picks.planes={robot_pick.camera_key(camera_info)+':floor':plane};atomic_json(robot.picks.path,robot.picks.planes)
             p=copy.deepcopy(robot.presets.library.load()['presets'][0]);p['context']['waypoint1_joints']=[-180,0,60,0,120,0];p['context']['box_clearance_mm']=200;p['box_pose']=[450,0,120,0,180,0]
+            p['steps']=[s.model_dump() for s in robot.presets.library.migrate(p['context'])]
             robot.presets.save(MotionPreset.model_validate(p))
             yield
     app.router.lifespan_context=lifespan
