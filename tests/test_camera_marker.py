@@ -34,6 +34,57 @@ def scene(offset=(20,-15,700),rotation=(3.0,.15,.1),distortion=(0.,0.,0.,0.,0.))
     return sensor,config,base
 
 
+def multi_scene(*,observed_ids=(3,7,11,15),moved=None):
+    k=np.array([[600,0,320],[0,602,240],[0,0,1.]],float)
+    centers=np.array([[-140,-90,800],[140,-90,800],[140,90,800],[-140,90,800]],float)
+    observed=centers.copy()
+    if moved is not None:observed[0]+=moved
+    image=np.full((480,640),255,np.uint8)
+    for i,(identifier,center) in enumerate(zip(observed_ids,observed)):
+        rz=cv2.Rodrigues(np.array([0.,0.,i*.17]))[0];rotation=rz@np.diag([1.,-1.,-1.])
+        pixel=cv2.projectPoints(local_corners(100),cv2.Rodrigues(rotation)[0],center,k,np.zeros(5))[0].reshape(4,2)
+        pattern=cv2.aruco.generateImageMarker(DICTIONARY,identifier,240)
+        h=cv2.getPerspectiveTransform(np.array([[0,0],[239,0],[239,239],[0,239]],np.float32),pixel.astype(np.float32))
+        image=np.minimum(image,cv2.warpPerspective(pattern,h,(640,480),borderValue=255))
+    color=cv2.cvtColor(image,cv2.COLOR_GRAY2BGR);depth=np.full((480,640),.8,np.float32)
+    base=np.eye(4);base[:3,:3]=cv2.Rodrigues(np.array([.2,-.4,.1]))[0];base[:3,3]=[-300,100,500]
+    config=dict(marker_ids=[3,7,11,15],side_mm=100.,corners_base_mm=transform(base,centers).tolist())
+    sensor=SensorFrame(color,depth,None,(600,602,320,240),dict(model='Brown Conrady',coeffs=[0.]*5,depth_coordinates='color_z',serial='fixture'))
+    return sensor,config,base
+
+
+def test_four_marker_centers_recover_base_transform_with_independent_ids_and_rotations():
+    sensor,config,expected=multi_scene();assert MarkerConfig.model_validate(config).payload()==config
+    value=detect(sensor,config)
+    assert value['reprojection_px']<1.5 and value['depth_rms_mm']<5
+    assert np.linalg.norm(transform(value['base_from_camera'],[[0,0,800]])-transform(expected,[[0,0,800]]))<3
+
+
+@pytest.mark.parametrize('failure',['missing','duplicate','wrong_base','scale','depth'])
+def test_four_marker_failures_do_not_produce_a_transform(failure):
+    observed=(3,7,11,16) if failure=='missing' else (3,3,11,15) if failure=='duplicate' else (3,7,11,15)
+    sensor,config,_=multi_scene(observed_ids=observed)
+    if failure=='wrong_base':config['corners_base_mm'][0][0]+=20
+    if failure=='scale':config['side_mm']=120
+    if failure=='depth':sensor.depth[:]=0
+    with pytest.raises(DomainError):detect(sensor,config)
+
+
+def test_four_marker_service_invalidates_if_one_reference_moves(monkeypatch):
+    sensor,config,_=multi_scene();value,pipeline=service(sensor)
+    monkeypatch.setattr('app.camera_marker.time.sleep',lambda _:None)
+    token=value.solve(config)['token'];value.checked(token)
+    pipeline.sensor=multi_scene(moved=[15,0,0])[0]
+    with pytest.raises(DomainError):value.checked(token)
+    assert token not in value.tokens
+
+
+def test_point_marker_print_identifies_its_center_without_legacy_corner_labels():
+    svg=marker_svg(7,100,point='B')
+    assert 'B / ID 7 / BASE at CENTER' in svg and '4X4_50 ID 7' in svg
+    assert '>A</text>' not in svg and '>C</text>' not in svg
+
+
 def test_marker_recovers_base_camera_with_depth_and_reprojects_registered_corners():
     sensor,config,expected=scene()
     MarkerConfig.model_validate(config)

@@ -13,6 +13,7 @@ from tests.test_preset_yolo import yolo,capture,bound,fake_voice,voice_capture
 
 BASE='/api/robot/camera-calibration'
 CONFIG=dict(marker_id=0,side_mm=100.,corners_base_mm=[[0.,100.,0.],[100.,100.,0.],[100.,0.,0.],[0.,0.,0.]])
+MULTI=dict(marker_ids=[0,1,2,3],side_mm=100.,corners_base_mm=[[0.,200.,0.],[300.,200.,0.],[300.,0.,0.],[0.,0.,0.]])
 
 
 def register(client,**changes):
@@ -40,6 +41,30 @@ def test_registration_conflict_geometry_and_existing_state_preserved(scenario):
     bad=copy.deepcopy(CONFIG);bad['corners_base_mm'][2][2]=10
     assert client.put(BASE,json=dict(revision=value['revision'],config=bad)).status_code==422
     assert [robot.presets.library.load(),robot.work_points.points,robot.hand.table]==original and not calls
+
+
+def test_four_ids_and_center_coordinates_persist_and_reach_native_solver(scenario,monkeypatch):
+    client,calls,*_=scenario;received=[]
+    monkeypatch.setattr('app.robot_camera_calibration.joints',lambda _: [0.,0.,90.,0.,90.,0.])
+    def native(action,body):received.append((action,body));return dict(token='a'*32)
+    monkeypatch.setattr('app.robot_camera_calibration.native_call',native)
+    response=client.put(BASE,json=dict(enabled=True,config=MULTI));assert response.status_code==200,response.text
+    assert response.json()['config']==MULTI
+    assert client.post(BASE+'/run',json=dict(revision=response.json()['revision'])).status_code==200
+    assert received==[('solve',MULTI)] and not calls
+    robot=client.app.state.robot;restored=CameraCalibration(robot,robot.pose_tests.path.parent)
+    assert restored.status()['config']==MULTI and restored.status()['state']=='required'
+
+
+@pytest.mark.parametrize('changes',[
+    dict(marker_ids=[0,0,2,3]),dict(marker_ids=[0,1,2,50]),dict(marker_ids=[0,1,2]),dict(marker_id=1),
+    dict(corners_base_mm=[[0.,0.,0.],[100.,0.,0.],[200.,0.,0.],[300.,0.,0.]]),
+    dict(corners_base_mm=[[0.,0.,0.],[0.,0.,0.],[300.,0.,0.],[0.,200.,0.]])])
+def test_invalid_multi_marker_registration_leaves_original_state_untouched(scenario,changes):
+    client,calls,*_=scenario;before=client.get(BASE).json();config=copy.deepcopy(MULTI);config.update(changes)
+    response=client.put(BASE,json=dict(config=config))
+    assert response.status_code==422,response.text
+    assert client.get(BASE).json()==before and not calls
 
 
 def test_new_registration_revokes_hardware_and_voice_approvals(scenario):

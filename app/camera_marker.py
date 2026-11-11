@@ -52,11 +52,38 @@ def rays(pixels,k,d):
     return np.column_stack((xy,np.ones(len(xy))))
 
 
-def detect(sensors,config):
-    k,d=optics(sensors)
+def observations(sensors):
     parameters=cv2.aruco.DetectorParameters();parameters.cornerRefinementMethod=cv2.aruco.CORNER_REFINE_SUBPIX
     detector=cv2.aruco.ArucoDetector(DICTIONARY,parameters)
-    corners,ids,_=detector.detectMarkers(sensors.color)
+    return detector.detectMarkers(sensors.color)
+
+
+def detect(sensors,config):
+    optics(sensors)
+    found=observations(sensors)
+    if config.get("marker_ids") is None:return detect_single(sensors,config,found)
+    values=[];centers=[];pixels=[]
+    for name,identifier in zip('ABCD',config['marker_ids']):
+        try:
+            value=detect_single(sensors,dict(marker_id=identifier,side_mm=config['side_mm'],corners_base_mm=local_corners(config['side_mm']).tolist()),found)
+        except DomainError as exc:raise DomainError(f"모서리 {name} · 마커 ID {identifier}: {exc}",exc.status) from exc
+        values.append(value);centers.append(np.linalg.inv(value['base_from_camera'])[:3,3])
+        h=cv2.getPerspectiveTransform(np.array([[0,0],[1,0],[1,1],[0,1]],np.float32),value['pixels'].astype(np.float32))
+        pixels.append(cv2.perspectiveTransform(np.array([[[.5,.5]]],np.float32),h)[0,0])
+    matrix,error=rigid(centers,config['corners_base_mm']);pixel=np.array(pixels,float)
+    k,d=values[0]['k'],values[0]['d']
+    points=transform(np.linalg.inv(matrix),config['corners_base_mm'])
+    if np.any(points[:,2]<=0):raise DomainError("등록한 마커 중심점이 카메라 뒤에 있습니다. BASE 좌표를 확인하세요.")
+    projected=cv2.projectPoints(points,np.zeros(3),np.zeros(3),k,d)[0].reshape(4,2)
+    reproj=float(np.sqrt(np.mean(np.sum((projected-pixel)**2,axis=1))))
+    if error>2 or reproj>1.5:raise DomainError("네 마커의 중심점과 BASE 등록값이 일치하지 않습니다. 각 ID·중심 좌표·출력 크기를 확인하세요.")
+    return dict(base_from_camera=matrix,pixels=pixel,reprojection_px=max(reproj,*(v['reprojection_px'] for v in values)),
+                depth_rms_mm=max(v['depth_rms_mm'] for v in values),k=k,d=d)
+
+
+def detect_single(sensors,config,found):
+    k,d=optics(sensors)
+    corners,ids,_=found
     matches=[] if ids is None else [c.reshape(4,2) for c,i in zip(corners,ids.ravel()) if i==config["marker_id"]]
     if len(matches)!=1:raise DomainError("등록한 마커가 정확히 한 개 보여야 합니다. 가림·반사·마커 ID를 확인하세요.")
     pixel=matches[0].astype(np.float64)
@@ -234,10 +261,12 @@ class MarkerService:
                     frame_id=frame,token=token,valid_fraction=float(good.mean()))
 
 
-def marker_svg(marker_id=0,side_mm=100):
+def marker_svg(marker_id=0,side_mm=100,*,point=None):
     bits=cv2.aruco.generateImageMarker(DICTIONARY,marker_id,6)
     rects=''.join(f'<rect x="{x+2}" y="{y+2}" width="1" height="1"/>' for y in range(6) for x in range(6) if bits[y,x]==0)
     labels=''.join(f'<text x="{x}" y="{y}" font-size=".45" text-anchor="middle">{name}</text>' for name,(x,y) in zip('ABCD',[(1,1.5),(9,1.5),(9,8.7),(1,8.7)]))
+    if point:
+        labels=f'<text x="5" y=".65" font-size=".3" text-anchor="middle">{point} / ID {marker_id} / BASE at CENTER</text><path d="M5 .9v.1M5 9v.1M.7 5h.3M9 5h.3" fill="none" stroke="black" stroke-width=".035"/>'
     # Black square is exactly side_mm; the 2-cell quiet border is outside it.
     size=side_mm*10/6
     return f'<svg xmlns="http://www.w3.org/2000/svg" width="{size}mm" height="{size}mm" viewBox="0 0 10 10"><rect width="10" height="10" fill="white"/><g fill="black">{rects}{labels}<text x="5" y="9.6" font-size=".3" text-anchor="middle">4X4_50 ID {marker_id} / black square {side_mm} mm / print 100%</text></g></svg>'

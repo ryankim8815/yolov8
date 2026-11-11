@@ -253,10 +253,10 @@ docker compose run --rm --no-deps doosan-driver timeout 15 check-e0509</pre>
                       <div class="marker-settings">
                         <label><input type="checkbox" data-marker="enabled"> 마커·깊이 BASE 좌표 사용</label>
                         <label>검은 사각형 한 변 (mm) <input type="number" data-marker="side" min="40" max="400" step="any" value="100" required></label>
-                        <a data-marker="print" href="/api/camera/marker/marker.svg?marker_id=0&amp;side_mm=100" download="robot-marker.svg">출력용 마커 받기</a>
                       </div>
+                      <div data-marker="legacy" hidden><p>저장된 값은 마커 하나의 네 모서리를 등록한 기존 방식입니다. 모서리별 마커로 전환하면 좌표를 각 마커의 중심점에서 새로 등록해야 합니다. 저장 전에는 기존 등록값이 유지됩니다.</p><button type="button" data-marker="convert">모서리별 마커 4개로 전환</button></div>
                       <details data-marker="registration" open><summary>고정 마커의 BASE 좌표 등록</summary>
-                        <p>SVG를 배율 100%로 출력하고 검은 사각형의 실제 길이를 확인하세요. 표의 마커 ID는 네 모서리에 공통으로 적용됩니다. 인쇄물의 A→B→C→D 모서리에 해당하는 BASE XYZ(mm)를 입력하세요. 흰 여백은 길이에 포함하지 않습니다. ‘현재 TCP’는 끝점이 보정된 공구로 해당 모서리를 정확히 교시했을 때만 사용하세요.</p>
+                        <p data-marker="help">A~D에 서로 다른 마커 ID(0~49)를 지정하고 각 행의 ‘출력’으로 마커를 받으세요. 배율 100%로 출력한 검은 사각형의 한 변을 확인하고, 각 마커 중심점의 BASE XYZ(mm)를 입력하세요. 네 마커가 모두 보이도록 고정하세요. ‘현재 TCP’는 공구 끝점 TCP를 보정한 후 해당 중심점을 정확히 교시했을 때만 사용하세요.</p>
                         <div class="marker-table-wrap"><table class="marker-table"><thead><tr><th scope="col">마커 ID</th><th scope="col">모서리</th><th scope="col">X (mm)</th><th scope="col">Y (mm)</th><th scope="col">Z (mm)</th><th scope="col">좌표 읽기</th></tr></thead><tbody data-marker="corners"></tbody></table></div>
                         <button type="submit" data-marker="save">마커 좌표 저장</button>
                       </details>

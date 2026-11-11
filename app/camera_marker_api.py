@@ -1,4 +1,5 @@
 import asyncio
+from typing import Literal
 
 from fastapi import APIRouter,Depends,Query,Request
 from fastapi.responses import Response
@@ -27,7 +28,7 @@ class ObjectRequest(Token):
     object_index: int=Field(ge=0,le=999)
 
 @router.post("/solve",dependencies=[Depends(local_json)])
-async def solve(body:MarkerConfig,request:Request):return await asyncio.to_thread(service(request).solve,body.model_dump())
+async def solve(body:MarkerConfig,request:Request):return await asyncio.to_thread(service(request).solve,body.payload())
 
 @router.post("/view",dependencies=[Depends(local_json)])
 async def view(body:Token,request:Request):return await asyncio.to_thread(service(request).view,body.token)
@@ -37,6 +38,6 @@ async def object_point(body:ObjectRequest,request:Request):
     return await asyncio.to_thread(service(request).object,body.token,body.session_id,body.frame_id,body.object_index)
 
 @router.get("/marker.svg")
-async def marker(marker_id:int=Query(default=0,ge=0,le=49),side_mm:float=Query(default=100,ge=40,le=400)):
+async def marker(marker_id:int=Query(default=0,ge=0,le=49),side_mm:float=Query(default=100,ge=40,le=400),point:Literal['A','B','C','D']|None=None):
     from .camera_marker import marker_svg
-    return Response(marker_svg(marker_id,side_mm),media_type="image/svg+xml",headers={"Content-Disposition":"attachment; filename=robot-marker.svg"})
+    return Response(marker_svg(marker_id,side_mm,point=point),media_type="image/svg+xml",headers={"Content-Disposition":f"attachment; filename=robot-marker-{point or 'single'}-{marker_id}.svg"})

@@ -5,6 +5,8 @@ import json
 import math
 import os
 from http.client import HTTPConnection,HTTPException
+from itertools import combinations
+from typing import Annotated
 from uuid import uuid4
 
 from fastapi import APIRouter,Depends,Request
@@ -17,6 +19,7 @@ from .store import DomainError,atomic_json,now
 
 class MarkerConfig(Input):
     marker_id: int=Field(default=0,ge=0,le=49)
+    marker_ids: list[Annotated[int,Field(ge=0,le=49)]]|None=Field(default=None,min_length=4,max_length=4)
     side_mm: FiniteFloat=Field(default=100.,ge=40,le=400)
     corners_base_mm: list[list[FiniteFloat]]=Field(min_length=4,max_length=4)
 
@@ -24,6 +27,17 @@ class MarkerConfig(Input):
     def square(self):
         p=self.corners_base_mm;s=self.side_mm
         if any(len(v)!=3 or any(abs(x)>5000 for x in v) for v in p):raise ValueError("각 모서리의 BASE XYZ(mm)를 입력하세요.")
+        if self.marker_ids is not None:
+            if "marker_id" in self.model_fields_set:raise ValueError("단일 마커 ID와 모서리별 마커 ID를 함께 제공할 수 없습니다.")
+            if len(set(self.marker_ids))!=4:raise ValueError("A~D에 서로 다른 마커 ID를 입력하세요.")
+            distances=[math.dist(a,b) for a,b in combinations(p,2)]
+            if min(distances)<10:raise ValueError("마커 중심점은 서로 10 mm 이상 떨어져야 합니다.")
+            areas=[]
+            for a,b,c in combinations(p,3):
+                u=[x-y for x,y in zip(b,a)];v=[x-y for x,y in zip(c,a)]
+                areas.append(math.hypot(u[1]*v[2]-u[2]*v[1],u[2]*v[0]-u[0]*v[2],u[0]*v[1]-u[1]*v[0]))
+            if max(areas)/max(distances)<10:raise ValueError("네 마커를 한 직선에 모으지 말고 작업 영역에 넓게 배치하세요.")
+            return self
         tolerance=min(1.,s*.01)
         for i in range(4):
             if abs(math.dist(p[i],p[(i+1)%4])-s)>tolerance:raise ValueError("모서리 간 거리가 마커의 검은 사각형 한 변과 다릅니다.")
@@ -32,6 +46,9 @@ class MarkerConfig(Input):
         midpoint=[(p[0][i]+p[2][i]-p[1][i]-p[3][i])/2 for i in range(3)]
         if math.hypot(*midpoint)>tolerance:raise ValueError("네 모서리는 같은 평면의 정사각형이어야 합니다.")
         return self
+
+    def payload(self):
+        return self.model_dump(exclude_none=True,exclude={"marker_id"} if self.marker_ids is not None else set())
 
 
 class Registration(Input):
@@ -100,7 +117,7 @@ class CameraCalibration:
     def save(self,body):
         self.robot.scenario.require_idle()
         if body.revision!=self.value["revision"]:raise DomainError("다른 화면에서 보정이 변경되었습니다. 다시 불러오세요.",412)
-        self.value.update(enabled=body.enabled,config=body.config.model_dump())
+        self.value.update(enabled=body.enabled,config=body.config.payload())
         self.invalidate("마커 좌표를 저장했습니다. 카메라와 로봇을 고정하고 캘리브레이션하세요." if body.enabled else "마커 BASE 보정 사용을 껐습니다. 기존 작업면 보정을 사용합니다.")
         return self.status()
 

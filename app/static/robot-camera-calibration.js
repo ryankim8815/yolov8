@@ -15,15 +15,15 @@ export function projectBase(point,calibration){
 
 export function connectCameraCalibration(root,signal){
   const get=key=>root.querySelector(`[data-marker="${key}"]`);
-  let state=null,dirty=false,busy=false,preview=false,timer,parts,operation=0,disposed=false;
+  let state=null,dirty=false,busy=false,preview=false,timer,parts,operation=0,disposed=false,legacy=false;
   const corners=get('corners');
   for(let i=0;i<4;i++){
     const name='ABCD'[i],row=document.createElement('tr'),label=document.createElement('th');
-    if(i===0){
-      const td=document.createElement('td'),input=document.createElement('input');td.rowSpan=4;td.className='marker-id-cell';
-      input.type='number';input.step='1';input.min='0';input.max='49';input.value='0';input.required=true;
-      input.dataset.marker='id';input.setAttribute('aria-label','마커 ID');td.append(input);row.append(td);
-    }
+    const idCell=document.createElement('td'),id=document.createElement('input'),print=document.createElement('a');idCell.className='marker-id-cell';
+    id.type='number';id.step='1';id.min='0';id.max='49';id.value=String(i);id.required=true;
+    id.dataset.marker='id';id.setAttribute('aria-label',`모서리 ${name} 마커 ID`);
+    print.dataset.markerPrint=name;print.textContent='출력';print.setAttribute('aria-label',`모서리 ${name} 마커 출력`);
+    idCell.append(id,print);row.append(idCell);
     label.scope='row';label.textContent=name;row.append(label);
     for(const axis of ['X','Y','Z']){
       const td=document.createElement('td'),input=document.createElement('input');input.type='number';input.step='any';input.required=true;
@@ -44,9 +44,29 @@ export function connectCameraCalibration(root,signal){
     get('quality').textContent=q?`${data.state==='ready'?'':'이전 보정 · '}${q.frames}장 · 영상 오차 ${q.reprojection_px.toFixed(2)} px · 깊이 오차 ${q.depth_rms_mm.toFixed(1)} mm · 위치 흔들림 ${q.translation_jitter_mm.toFixed(1)} mm · 회전 흔들림 ${q.rotation_jitter_deg.toFixed(2)}° · 보정 ${new Date(data.calibrated_at).toLocaleString('ko-KR')}`:'검증 기준: 영상 ≤1.5 px · 깊이 ≤10 mm · 위치 흔들림 ≤5 mm · 회전 흔들림 ≤1°';
     buttons();
   }
-  function printLink(){get('print').href=`/api/camera/marker/marker.svg?marker_id=${encodeURIComponent(get('id').value)}&side_mm=${encodeURIComponent(get('side').value)}`;}
-  function changed(){dirty=true;printLink();buttons();message('변경한 마커 좌표를 저장한 뒤 캘리브레이션하세요.');}
+  const ids=[...corners.querySelectorAll('[data-marker=id]')];
+  function markerFields(){
+    if(legacy)ids.slice(1).forEach(input=>input.value=ids[0].value);
+    ids.forEach((input,i)=>{
+      input.readOnly=legacy&&i>0;
+      input.setCustomValidity(!legacy&&ids.some((other,j)=>i!==j&&input.value!==''&&other.value!==''&&other.valueAsNumber===input.valueAsNumber)?'A~D에 서로 다른 마커 ID를 입력하세요.':'');
+      const print=corners.querySelectorAll('[data-marker-print]')[i];
+      print.href=`/api/camera/marker/marker.svg?marker_id=${encodeURIComponent(input.value)}&side_mm=${encodeURIComponent(get('side').value)}`+(legacy?'':`&point=${'ABCD'[i]}`);
+      print.download=`robot-marker-${legacy?'single':'ABCD'[i]}-${input.value}.svg`;
+      const row=corners.rows[i],name='ABCD'[i];
+      row.querySelectorAll('[data-marker-coordinate]').forEach(coordinate=>coordinate.setAttribute('aria-label',legacy?`마커 모서리 ${name} BASE ${coordinate.dataset.markerCoordinate}`:`모서리 ${name} 마커 중심 BASE ${coordinate.dataset.markerCoordinate}`));
+      row.querySelector('button').setAttribute('aria-label',legacy?`모서리 ${name}에 현재 TCP 좌표 입력`:`모서리 ${name} 마커 중심에 현재 TCP 좌표 입력`);
+    });
+    get('legacy').hidden=!legacy;
+    get('help').textContent=legacy?'기존 단일 마커 방식입니다. 인쇄물의 A→B→C→D 모서리에 해당하는 BASE XYZ(mm)를 입력하세요. 동일한 마커 ID가 네 행에 적용됩니다.':'A~D에 서로 다른 마커 ID(0~49)를 지정하고 각 행의 ‘출력’으로 마커를 받으세요. 배율 100%로 출력한 검은 사각형의 한 변을 확인하고, 각 마커 중심점의 BASE XYZ(mm)를 입력하세요. 네 마커가 모두 보이도록 고정하세요. ‘현재 TCP’는 공구 끝점 TCP를 보정한 후 해당 중심점을 정확히 교시했을 때만 사용하세요.';
+  }
+  function changed(){dirty=true;markerFields();buttons();message('변경한 마커 좌표를 저장한 뒤 캘리브레이션하세요.');}
   get('form').addEventListener('input',changed);
+  get('convert').addEventListener('click',()=>{
+    legacy=false;ids.forEach((input,i)=>input.value=String(i));
+    corners.querySelectorAll('[data-marker-coordinate]').forEach(input=>input.value='');changed();
+    message('각 마커의 중심점 BASE XYZ를 새로 입력하고 저장하세요. 저장 전에는 기존 등록값이 유지됩니다.');
+  });
   async function action(fn){
     if(busy||disposed)return;operation++;clearTimeout(timer);busy=true;buttons();
     try{await fn();}catch(error){message(error.message,true);}finally{busy=false;buttons();if(preview&&!disposed){clearTimeout(timer);timer=setTimeout(tick,0);}}
@@ -54,13 +74,14 @@ export function connectCameraCalibration(root,signal){
   async function load(){
     const data=await api('camera-calibration');
     get('enabled').checked=data.enabled;
-    get('id').value=data.config?.marker_id??0;get('side').value=data.config?.side_mm??100;
+    legacy=Boolean(data.config&&!data.config.marker_ids);
+    ids.forEach((input,i)=>input.value=data.config?.marker_ids?.[i]??(legacy?data.config.marker_id:i));get('side').value=data.config?.side_mm??100;
     corners.querySelectorAll('tr').forEach((row,i)=>row.querySelectorAll('[data-marker-coordinate]').forEach((input,j)=>input.value=data.config?.corners_base_mm[i][j]??''));
-    dirty=false;printLink();showStatus(data);
+    dirty=false;markerFields();showStatus(data);
   }
   get('reload').addEventListener('click',()=>action(load));
   get('form').addEventListener('submit',event=>{event.preventDefault();action(async()=>{
-    const config={marker_id:Number(get('id').value),side_mm:Number(get('side').value),corners_base_mm:[...corners.rows].map(row=>[...row.querySelectorAll('[data-marker-coordinate]')].map(input=>Number(input.value)))};
+    const config={...(legacy?{marker_id:Number(ids[0].value)}:{marker_ids:ids.map(input=>Number(input.value))}),side_mm:Number(get('side').value),corners_base_mm:[...corners.rows].map(row=>[...row.querySelectorAll('[data-marker-coordinate]')].map(input=>Number(input.value)))};
     const data=await api('camera-calibration','PUT',{revision:state.revision,enabled:get('enabled').checked,config});dirty=false;showStatus(data);
   });});
   get('run').addEventListener('click',()=>action(async()=>{
