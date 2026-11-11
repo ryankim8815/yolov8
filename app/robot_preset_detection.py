@@ -52,7 +52,7 @@ class PresetDetections:
         value=getattr(self.robot,"camera_calibration",None)
         return value if value and value.enabled else None
 
-    async def depth_target(self,p,packet,index):
+    async def depth_target(self,p,packet,index,*,tcp=None):
         value=await self.spatial.object(packet,index)
         xyz=value["surface_base_mm"];region=p["region"]
         normal=[0,0,1] if region=="floor" else [-1,0,0]
@@ -70,7 +70,8 @@ class PresetDetections:
         tool_x=[math.cos(a)*math.cos(b)*math.cos(c)-math.sin(a)*math.sin(c),
                 math.sin(a)*math.cos(b)*math.cos(c)+math.cos(a)*math.sin(c),-math.sin(b)*math.cos(c)]
         # Conservative bbox spans about the TCP, with the existing 5 mm per-side clearance.
-        width=2*max(abs(sum((point[i]-center[i])*tool_x[i] for i in range(3))) for point in points)
+        opening_center=center if tcp is None else tcp
+        width=2*max(abs(sum((point[i]-opening_center[i])*tool_x[i] for i in range(3))) for point in points)
         return dict(pose=center+abc,normal=normal,size_mm=size,width_mm=width,opening_mm=width+10,
                     planar_size_mm=[spans[i] for i in range(3) if i!=normal_axis],surface_base_mm=xyz,
                     coordinate_source="marker_depth",depth_mm=value["depth_mm"],thickness_source="preset",
@@ -232,7 +233,7 @@ class PresetDetections:
             matches=[]
             for index,obj in enumerate(frame["objects"]):
                 if obj["class_id"]!=binding["class_id"] or obj["confidence"]<binding["min_confidence"]:continue
-                current=await self.depth_target(p,frame,index)
+                current=await self.depth_target(p,frame,index,tcp=binding["pose"][:3])
                 if math.dist(current["pose"][:3],binding["pose"][:3])<=10:matches.append((obj,current))
             if len(matches)!=1:raise DomainError("선택한 BASE 위치의 10 mm 이내에 동일 클래스 한 개가 필요합니다.")
             obj,current=matches[0]

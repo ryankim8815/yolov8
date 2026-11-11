@@ -8,13 +8,14 @@ process.chdir(path.resolve(__dirname,'..'));
   const page=await browser.newPage({viewport:{width:1200,height:1000}}),errors=[],writes=[];
   page.on('pageerror',e=>errors.push(e.message));
   let state={revision:null,enabled:false,config:null,result:null,state:'unconfigured',message:'마커 좌표 등록 후 캘리브레이션하세요.',busy:false};
+  let pauseView=false,releaseView,notifyView;
   const cal={token:'a'.repeat(32),camera:{width:640,height:480},camera_from_base:[[0,-1,0,0],[0,0,-1,450],[1,0,0,1500],[0,0,0,1]],intrinsics:[[600,0,320],[0,600,240],[0,0,1]],distortion:[0,0,0,0,0],quality:{frames:12,reprojection_px:.3,depth_rms_mm:1.2,translation_jitter_mm:.5,rotation_jitter_deg:.1}};
   await page.route('**/*',async route=>{
    const req=route.request(),u=new URL(req.url());assert.equal(u.origin,'http://marker.test');
    if(u.pathname==='/'){
     const html=fs.readFileSync('app/static/robot.html','utf8');
-    const card=html.slice(html.indexOf('<section id="camera-calibration"'),html.indexOf('<div class="pick-steps"'));
-    return route.fulfill({contentType:'text/html',body:`<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/static/station-shell.css"><link rel="stylesheet" href="/static/packing.css"><link rel="stylesheet" href="/static/robot.css"><link rel="stylesheet" href="/static/robot-camera-calibration.css"></head><body style="margin:20px"><main>${card}</main><script type="module">import {connectCameraCalibration} from '/static/robot-camera-calibration.js';connectCameraCalibration(document.querySelector('#camera-calibration'),new AbortController().signal);</script></body></html>`});
+    const card=html.slice(html.indexOf('<section id="camera-calibration"'),html.indexOf('<div data-pick="legacyCamera">'));
+    return route.fulfill({contentType:'text/html',body:`<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/static/station-shell.css"><link rel="stylesheet" href="/static/packing.css"><link rel="stylesheet" href="/static/robot.css"><link rel="stylesheet" href="/static/dashboard-camera.css"><link rel="stylesheet" href="/static/robot-camera-calibration.css"></head><body style="margin:20px"><main><article class="panel pick-dialog teaching plane-editor"><section data-pick="calibration"><section id="plane-camera-settings" role="tabpanel">${card}</section></section></article></main><script type="module">import {connectCameraCalibration} from '/static/robot-camera-calibration.js';connectCameraCalibration(document.querySelector('#camera-calibration'),new AbortController().signal);</script></body></html>`});
    }
    if(u.pathname.startsWith('/static/'))return route.fulfill({path:'app'+u.pathname,contentType:u.pathname.endsWith('.js')?'text/javascript':'text/css'});
    if(req.method()!=='GET')writes.push({path:u.pathname,body:req.postDataJSON()});
@@ -27,13 +28,21 @@ process.chdir(path.resolve(__dirname,'..'));
     assert.equal(req.postDataJSON().revision,state.revision);state={...state,state:'ready',revision:'2'.repeat(32),result:cal,calibrated_at:new Date().toISOString(),message:'보정 완료'};
     return route.fulfill({json:state});
    }
-   if(u.pathname==='/api/robot/camera-calibration/view')return route.fulfill({json:{status:state,calibration:cal,error:null,image:'data:image/svg+xml;base64,'+Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="640" height="480"><rect width="640" height="480" fill="#33464e"/><text x="20" y="30" fill="white">SIMULATED CAMERA / CAD PROJECTION</text></svg>').toString('base64'),frame_id:12,captured_at:new Date().toISOString(),robot:{state:'monitoring',bridge_connected:true,config:{stale_seconds:3},display_joint_topic:'/monitor/joint_states',topics:[{name:'/monitor/joint_states',state:'live',age_seconds:0,message:{name:[1,2,3,4,5,6].map(i=>'joint_'+i),position:[0,0,Math.PI/2,0,Math.PI/2,0]},received_at:new Date().toISOString()}]}}});
+   if(u.pathname==='/api/robot/camera-calibration/view'){
+    const view={status:structuredClone(state),calibration:state.result,error:null,image:'data:image/svg+xml;base64,'+Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="640" height="480"><rect width="640" height="480" fill="#33464e"/><text x="20" y="30" fill="white">SIMULATED CAMERA / CAD PROJECTION</text></svg>').toString('base64'),frame_id:12,captured_at:new Date().toISOString(),robot:{state:'monitoring',bridge_connected:true,config:{stale_seconds:3},display_joint_topic:'/monitor/joint_states',topics:[{name:'/monitor/joint_states',state:'live',age_seconds:0,message:{name:[1,2,3,4,5,6].map(i=>'joint_'+i),position:[0,0,Math.PI/2,0,Math.PI/2,0]},received_at:new Date().toISOString()}]}};
+    if(pauseView){pauseView=false;await new Promise(resolve=>{releaseView=resolve;notifyView();});}
+    return route.fulfill({json:view});
+   }
    throw Error('Unexpected request: '+u.pathname);
   });
   await page.goto('http://marker.test/');
   const root=page.locator('#camera-calibration'),run=root.locator('[data-marker=run]');
   await page.waitForFunction(()=>!document.querySelector('[data-marker=save]').disabled);
   assert.equal(await run.isDisabled(),true);
+  await root.locator('tbody input').first().fill('123');
+  await root.locator('[data-marker=reload]').click();
+  await page.waitForFunction(()=>!document.querySelector('[data-marker=reload]').disabled);
+  assert.deepEqual(await root.locator('tbody input').evaluateAll(inputs=>inputs.map(i=>i.value)),Array(12).fill(''),'reload must discard unsaved coordinates when no marker is registered');
   assert.equal(await root.locator('[data-marker=enabled]').isChecked(),false);
   await root.locator('[data-marker=enabled]').check();
   assert.deepEqual(await root.locator('tbody input').evaluateAll(inputs=>inputs.map(i=>i.value)),Array(12).fill(''));
@@ -48,8 +57,23 @@ process.chdir(path.resolve(__dirname,'..'));
   assert.deepEqual(projected,[320,420]);
   const pixels=await root.locator('canvas').evaluate(c=>{const d=c.getContext('2d').getImageData(0,0,c.width,c.height).data;let n=0;for(let i=3;i<d.length;i+=4)if(d[i])n++;return n;});
   assert.ok(pixels>1000,'CAD should render with live telemetry');
+  await root.locator('[data-marker=image]').evaluate(image=>image.decode());
+  const overlay=await root.evaluate(el=>{const image=el.querySelector('[data-marker=image]').getBoundingClientRect(),canvas=el.querySelector('canvas'),rect=canvas.getBoundingClientRect();return {image:[image.x,image.y,image.width,image.height],canvas:[rect.x,rect.y,rect.width,rect.height],background:getComputedStyle(canvas).backgroundColor};});
+  assert.ok(overlay.image.every((value,i)=>Math.abs(value-overlay.canvas[i])<1),'image and overlay must have identical bounds inside the real dialog styles');
+  assert.equal(overlay.background,'rgba(0, 0, 0, 0)');
   fs.mkdirSync('.cache/marker-calibration-ui',{recursive:true});
   await root.screenshot({path:'.cache/marker-calibration-ui/desktop.png'});
+  await root.locator('[data-marker=preview]').click();
+  const held=new Promise(resolve=>notifyView=resolve);pauseView=true;
+  await root.locator('[data-marker=preview]').click();await held;
+  state={...state,revision:'3'.repeat(32),result:null,state:'required',message:'최신 등록값 · 재보정 필요'};
+  await root.locator('[data-marker=reload]').click();
+  await page.waitForFunction(()=>document.querySelector('[data-marker=status]').textContent.includes('최신 등록값'));
+  const oldResponse=page.waitForResponse(async response=>response.url().endsWith('/camera-calibration/view')&&(await response.json()).status.revision==='2'.repeat(32));
+  releaseView();await oldResponse;
+  await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
+  assert.match(await root.locator('[data-marker=status]').textContent(),/최신 등록값/,'late preview must not restore an earlier calibration');
+  await root.locator('[data-marker=preview]').click();
   await root.locator('tbody input').first().fill('1');assert.equal(await run.isDisabled(),true);
   for(const width of [736,390,320]){
    await page.setViewportSize({width,height:900});
@@ -61,6 +85,6 @@ process.chdir(path.resolve(__dirname,'..'));
   await root.screenshot({path:'.cache/marker-calibration-ui/mobile.png'});
   assert.deepEqual(writes.map(x=>x.path),['/api/robot/camera-calibration','/api/robot/camera-calibration/run']);
   assert.deepEqual(errors,[]);
-  console.log('PASS: blank physical coordinates, 12 full-cell inputs, registration and revision, manual calibration, quality, calibrated CAD overlay, dirty-state lock, keyboard and 320–1200px layouts. All network mocked.');
+  console.log('PASS: blank physical coordinates and reload, 12 full-cell inputs, revision, manual calibration, quality, calibrated CAD overlay, late-preview isolation, dirty-state lock, keyboard and 320–1200px layouts. All network mocked.');
  }finally{await browser.close();}
 })().catch(e=>{console.error(e);process.exitCode=1;});

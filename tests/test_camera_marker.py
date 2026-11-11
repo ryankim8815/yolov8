@@ -16,8 +16,8 @@ from app.store import DomainError
 from tests.fakes import settings
 
 
-def scene(offset=(20,-15,700),rotation=(3.0,.15,.1)):
-    k=np.array([[600,0,320],[0,602,240],[0,0,1.]],float);dist=np.zeros(5)
+def scene(offset=(20,-15,700),rotation=(3.0,.15,.1),distortion=(0.,0.,0.,0.,0.)):
+    k=np.array([[600,0,320],[0,602,240],[0,0,1.]],float);dist=np.array(distortion,float)
     rv=np.array(rotation);r=cv2.Rodrigues(rv)[0];t=np.array(offset,float)
     local=local_corners(100)
     pixel=cv2.projectPoints(local,rv,t,k,dist)[0].reshape(4,2)
@@ -30,7 +30,7 @@ def scene(offset=(20,-15,700),rotation=(3.0,.15,.1)):
     depth=(z.reshape(480,640)/1000).astype(np.float32)
     base=np.eye(4);base[:3,:3]=cv2.Rodrigues(np.array([.2,-.4,.1]))[0];base[:3,3]=[-300,100,500]
     config=dict(marker_id=0,side_mm=100.,corners_base_mm=transform(base,local@r.T+t).tolist())
-    sensor=SensorFrame(color,depth,None,(600,602,320,240),dict(model="Brown Conrady",coeffs=[0.]*5,depth_coordinates="color_z",serial="fixture"))
+    sensor=SensorFrame(color,depth,None,(600,602,320,240),dict(model="Brown Conrady",coeffs=dist.tolist(),depth_coordinates="color_z",serial="fixture"))
     return sensor,config,base
 
 
@@ -145,3 +145,33 @@ def test_raw_depth_cannot_be_combined_with_a_different_frame(tmp_path):
     with pytest.raises(DomainError,match='세션'):p.sensor_snapshot('old',2)
     p.generation=2
     with pytest.raises(DomainError,match='만료'):p.sensor_snapshot(p.session_id,2)
+
+
+def test_optical_profile_change_during_collection_rejects_all_frames(monkeypatch):
+    sensor,config,_=scene();value,pipeline=service(sensor)
+    monkeypatch.setattr('app.camera_marker.time.sleep',lambda _:None)
+    original=value.snapshot
+    def snapshot(*args):
+        if pipeline.frame==5:pipeline.sensor.intrinsics=(600.1,602,320,240)
+        return original(*args)
+    monkeypatch.setattr(value,'snapshot',snapshot)
+    with pytest.raises(DomainError,match='광학'):value.solve(config)
+    assert not value.tokens
+
+
+def test_optical_baseline_is_an_immutable_copy(monkeypatch):
+    sensor,config,_=scene();value,_=service(sensor)
+    monkeypatch.setattr('app.camera_marker.time.sleep',lambda _:None)
+    token=value.solve(config)['token']
+    sensor.calibration['coeffs'][0]=.00001
+    with pytest.raises(DomainError,match='광학'):value.checked(token)
+    assert token not in value.tokens
+
+
+@pytest.mark.parametrize('offset,rotation',[
+    ((-130,80,600),(3.05,-.1,.1)),((200,-100,850),(2.75,.25,.2)),((20,20,1000),(2.9,.15,-.1))])
+def test_metric_calibration_with_lens_distortion_and_different_viewpoints(offset,rotation):
+    sensor,config,base=scene(offset,rotation,distortion=(.05,-.02,.001,-.001,.005))
+    result=detect(sensor,config)
+    assert result['reprojection_px']<=1.5 and result['depth_rms_mm']<=10
+    assert np.linalg.norm(transform(result['base_from_camera'],[offset])-transform(base,[offset]))<3

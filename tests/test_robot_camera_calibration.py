@@ -7,9 +7,9 @@ import pytest
 
 from app.robot_camera_calibration import CameraCalibration,MarkerConfig,joints
 from app.store import DomainError
-from tests.test_robot_scenario import scenario
+from tests.test_robot_scenario import scenario,wait_state
 from tests.test_robot_presets import create,ready
-from tests.test_preset_yolo import yolo,capture,bound,fake_voice
+from tests.test_preset_yolo import yolo,capture,bound,fake_voice,voice_capture
 
 BASE='/api/robot/camera-calibration'
 CONFIG=dict(marker_id=0,side_mm=100.,corners_base_mm=[[0.,100.,0.],[100.,100.,0.],[100.,0.,0.],[0.,0.,0.]])
@@ -135,3 +135,42 @@ def test_registration_and_run_reject_cross_origin_requests(scenario):
     client,calls,*_=scenario
     response=client.put(BASE,json=dict(config=CONFIG),headers={'Origin':'https://untrusted.example'})
     assert response.status_code==403 and client.get(BASE).json()['revision'] is None and not calls
+
+
+@pytest.mark.parametrize('region,axis',[('floor',0),('shelf',1)])
+@pytest.mark.parametrize('shift',[-8.,8.])
+def test_depth_revalidation_checks_opening_about_the_approved_tcp(scenario,monkeypatch,region,axis,shift):
+    client,calls,frame,*_=scenario;fake_voice(monkeypatch)
+    solved(monkeypatch,client)
+    delta=[0.,0.,0.]
+    surface=[-450.,0.,40.] if region=='floor' else [-450.,0.,300.]
+    points=[[-470.,-20.,40.],[-430.,20.,40.]] if region=='floor' else [[-450.,-20.,280.],[-450.,20.,320.]]
+    def native(*_):
+        moved=lambda point:[point[i]+delta[i] for i in range(3)]
+        return dict(surface_base_mm=moved(surface),points_base_mm=list(map(moved,points)),bbox_base_mm=list(map(moved,points)),depth_mm=700.)
+    monkeypatch.setattr('app.robot_camera_calibration.native_call',native)
+    p=yolo(client,region=region);snapshot=capture(client,p)
+    assert snapshot['candidates'][0]['opening_mm']==pytest.approx(50)
+    assert not bound(client,p,snapshot)['errors']
+    delta[axis]=shift
+    response=client.post('/api/robot/presets/'+p['id']+'/preview',json=dict(snapshot_id=snapshot['snapshot_id']))
+    assert response.status_code==409,response.status_code
+    assert '벌림' in response.json()['detail'] and not calls
+
+
+def test_shift_after_approval_stops_before_the_first_sdk_operation(scenario,monkeypatch):
+    client,calls,*_=scenario;fake_voice(monkeypatch)
+    monkeypatch.setattr('app.robot_presets.read_yolo_catalog',lambda:dict(model_version='v1',model_name='테스트',classes=[dict(id=0,name='상품')]))
+    solved(monkeypatch,client);shift=0.
+    def native(*_):
+        points=[[-470.+shift,-20.,40.],[-430.+shift,20.,40.]]
+        return dict(surface_base_mm=[-450.+shift,0.,40.],points_base_mm=points,bbox_base_mm=points,depth_mm=700.)
+    monkeypatch.setattr('app.robot_camera_calibration.native_call',native)
+    p=yolo(client);snapshot=voice_capture(client,p)
+    ticket=bound(client,p,snapshot,'execution-preview')
+    assert not calls
+    shift=8.
+    response=client.post('/api/robot/presets/executions/approve',json=dict(approval_id=ticket['approval_id']))
+    assert response.status_code==202,response.text
+    move=wait_state(client,ticket['approval_id'],{'failed','unknown','cancelled','completed'})
+    assert move['state']=='failed' and '벌림' in move['message'] and not calls

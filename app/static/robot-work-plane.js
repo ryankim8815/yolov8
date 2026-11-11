@@ -326,7 +326,7 @@ export function connectWorkPlane(root) {
     ui.refresh.disabled = !frozen || pending;
     ui.reload.disabled = pending || Boolean(robotBlock);
     const cameraLocked = !calibration || locked();
-    editor.querySelector("#plane-camera-settings").inert = cameraLocked;
+    el.legacyCamera.inert = cameraLocked;
     editor.querySelector("#plane-gripper-settings").inert = cameraLocked;
     el.surfaceGeometry.inert = cameraLocked;
     if (calibration) {

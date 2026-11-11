@@ -15,7 +15,7 @@ export function projectBase(point,calibration){
 
 export function connectCameraCalibration(root,signal){
   const get=key=>root.querySelector(`[data-marker="${key}"]`);
-  let state=null,dirty=false,busy=false,preview=false,timer,parts;
+  let state=null,dirty=false,busy=false,preview=false,timer,parts,operation=0,disposed=false;
   const corners=get('corners');
   for(let i=0;i<4;i++){
     const row=document.createElement('tr'),label=document.createElement('th');label.scope='row';label.textContent=i;row.append(label);
@@ -42,14 +42,14 @@ export function connectCameraCalibration(root,signal){
   function changed(){dirty=true;printLink();buttons();message('변경한 마커 좌표를 저장한 뒤 캘리브레이션하세요.');}
   get('form').addEventListener('input',changed);
   async function action(fn){
-    if(busy)return;busy=true;buttons();
-    try{await fn();}catch(error){message(error.message,true);}finally{busy=false;buttons();}
+    if(busy||disposed)return;operation++;clearTimeout(timer);busy=true;buttons();
+    try{await fn();}catch(error){message(error.message,true);}finally{busy=false;buttons();if(preview&&!disposed){clearTimeout(timer);timer=setTimeout(tick,0);}}
   }
   async function load(){
     const data=await api('camera-calibration');
     get('enabled').checked=data.enabled;
-    if(data.config){get('id').value=data.config.marker_id;get('side').value=data.config.side_mm;
-      corners.querySelectorAll('tr').forEach((row,i)=>row.querySelectorAll('input').forEach((input,j)=>input.value=data.config.corners_base_mm[i][j]));}
+    get('id').value=data.config?.marker_id??0;get('side').value=data.config?.side_mm??100;
+    corners.querySelectorAll('tr').forEach((row,i)=>row.querySelectorAll('input').forEach((input,j)=>input.value=data.config?.corners_base_mm[i][j]??''));
     dirty=false;printLink();showStatus(data);
   }
   get('reload').addEventListener('click',()=>action(load));
@@ -83,13 +83,14 @@ export function connectCameraCalibration(root,signal){
   async function tick(){
     if(!preview)return;
     if(document.hidden||!root.getClientRects().length||busy){timer=setTimeout(tick,700);return;}
-    try{const data=await api('camera-calibration/view');if(!preview)return;
-      get('image').src=data.image;if(!dirty)showStatus(data.status);draw(data);
-    }catch(error){get('view-status').textContent=error.message;get('image').removeAttribute('src');const canvas=get('overlay');canvas.getContext('2d').clearRect(0,0,canvas.width,canvas.height);}
-    if(preview)timer=setTimeout(tick,1000);
+    const version=operation;
+    try{const data=await api('camera-calibration/view');
+      if(preview&&!busy&&!disposed&&version===operation){get('image').src=data.image;if(!dirty)showStatus(data.status);draw(data);}
+    }catch(error){if(preview&&!busy&&!disposed&&version===operation){get('view-status').textContent=error.message;get('image').removeAttribute('src');const canvas=get('overlay');canvas.getContext('2d').clearRect(0,0,canvas.width,canvas.height);}}
+    if(preview&&!disposed&&version===operation)timer=setTimeout(tick,1000);
   }
-  get('preview').addEventListener('click',()=>{preview=!preview;get('view').hidden=!preview;get('preview').textContent=preview?'중첩 보기 닫기':'영상·로봇 중첩 보기';clearTimeout(timer);if(preview)tick();});
-  const close=()=>{preview=false;clearTimeout(timer);};
-  window.addEventListener('pagehide',close,{signal});signal?.addEventListener('abort',close,{once:true});
+  get('preview').addEventListener('click',()=>{operation++;preview=!preview;get('view').hidden=!preview;get('preview').textContent=preview?'중첩 보기 닫기':'영상·로봇 중첩 보기';clearTimeout(timer);if(preview)tick();});
+  const close=()=>{operation++;preview=false;clearTimeout(timer);get('view').hidden=true;get('preview').textContent='영상·로봇 중첩 보기';};
+  window.addEventListener('pagehide',close,{signal});signal?.addEventListener('abort',()=>{disposed=true;close();},{once:true});
   action(load);
 }

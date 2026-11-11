@@ -383,7 +383,9 @@ docker compose -f docker-compose.yml -f rosbridge/compose.host.yml run --build -
 
 **영상·로봇 중첩 보기**는 현재 수신한 6축 관절값으로 E0509 CAD를 실제 색상 영상에 투영합니다. 영상과 관절 시각이 다를 수 있으므로 정지 상태에서 정렬을 확인하며, 충돌 판정에는 사용하지 않습니다. 마커 유실·이동, 카메라 세션·입력·해상도·광학값 변경 또는 서버 재시작 후에는 다시 캘리브레이션해야 합니다. 이전 변환을 자동 갱신하거나 자동 복원하지 않습니다. 보정 등록·재계산·실패·글로벌 중단은 관련 확인 대기를 무효화하며, 실제 실행 전과 파지 전에도 최신 영상으로 대상을 재검증합니다. 저장한 BASE 경유점·박스 좌표는 변경하지 않습니다. 보정이 켜진 상태에서 실패하면 기존 평면 좌표로 대신 실행하지 않습니다. 마커 BASE 보정 사용을 명시적으로 끄면 기존 작업면 보정을 사용합니다. 이전 대시보드 단일점 실행 대신 이동 프리셋에서 YOLO 대상을 확인하세요.
 
-보정 좌표와 결과는 로봇별 `camera-marker.json`에 독립 저장합니다. `GET/PUT /api/robot/camera-calibration`, `POST /api/robot/camera-calibration/run`(등록 revision 필요), `GET /api/robot/camera-calibration/view`를 제공합니다. 모의 RGB-D·SDK 회귀 검사는 `tests/test_camera_marker.py`, `tests/test_robot_camera_calibration.py`, 모든 네트워크를 차단하는 화면 검사는 `scripts/check_camera_calibration_ui.cjs`입니다. 실제 마커 배치·실측 등록과 독립 정확도 검증은 설치 후 운영자가 수행합니다.
+보정 좌표와 결과는 로봇별 `camera-marker.json`에 독립 저장합니다. `GET/PUT /api/robot/camera-calibration`, `POST /api/robot/camera-calibration/run`(등록 revision 필요), `GET /api/robot/camera-calibration/view`를 제공합니다. 마커 좌표 등록·조회는 카메라가 꺼져 있어도 가능하며 기존 평면 교시의 잠금과 분리됩니다. 실행 직전 벌림 재검증은 승인된 TCP를 기준으로 수행합니다. 보정 수집 중 광학값이 바뀌면 모든 수집값을 폐기합니다.
+
+모의 RGB-D·SDK 회귀 검사는 `tests/test_camera_marker.py`, `tests/test_robot_camera_calibration.py`, 모든 네트워크를 모의 응답으로 처리하는 화면 검사는 `scripts/check_camera_calibration_ui.cjs`입니다. 이 검사는 실제 공통 다이얼로그 스타일에서 영상·CAD 캔버스 경계와 투명도도 확인합니다. `scripts/check_camera_calibration_integration.cjs`는 아래 격리 QA 서버(8012)에서 전체 페이지의 마우스·키보드 입력, 독립 잠금, 좌표 초기화와 320px 배치를 검사합니다. 모든 변경 요청과 탐지 WebSocket을 차단하며, `CALIBRATION_READONLY_BASE=http://localhost:8080`으로 미등록 상태의 실제 로컬 UI를 읽기 전용으로 확인할 수도 있습니다. 실제 마커 배치·실측 등록과 독립 정확도 검증은 설치 후 운영자가 수행합니다.
 
 **고급 3D 보기 설정 → 3D 거리 설정.** 카메라에서 벽과 교시 TCP 평면까지의 거리를 시선축을 따라 측정해 입력합니다. **입체 / 측면**으로 공구 방향과 TCP 위치를 확인하세요. TCP와 앞면 사이의 표시는 시선 방향의 깊이 차이입니다. 네 모서리의 영상·BASE 교시값이 유효하면 정면 작업면의 법선을 시선축으로 사용합니다. 교시 전에는 예시 축인 BASE +X를 씁니다. 벽 거리와 손가락 길이는 이 브라우저에서 카메라별로 기억합니다.
 

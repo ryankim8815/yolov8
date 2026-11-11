@@ -1,5 +1,6 @@
 """Manual RGB-D camera registration. This module never imports a robot SDK."""
 import base64
+import copy
 import math
 import threading
 import time
@@ -136,11 +137,16 @@ class MarkerService:
         if not self.lock.acquire(blocking=False):raise DomainError("보정이 이미 진행 중입니다.")
         self.invalidate()
         try:
-            values=[];binding=None;last=None;deadline=time.monotonic()+6
+            values=[];binding=None;profile=None;last=None;deadline=time.monotonic()+6
             while len(values)<12 and time.monotonic()<deadline:
                 packet,_,current=self.snapshot()
                 if binding is not None and binding!=current:raise DomainError("보정 중 카메라 입력이 변경되었습니다.")
                 binding=current
+                optics(packet.sensors)
+                current_profile=(tuple(packet.sensors.intrinsics),copy.deepcopy(packet.sensors.calibration))
+                if profile is not None and profile!=current_profile:
+                    raise DomainError("보정 중 카메라 광학 설정이 변경되었습니다. 다시 캘리브레이션하세요.",412)
+                profile=current_profile
                 if packet.frame_id==last:time.sleep(.03);continue
                 last=packet.frame_id
                 value=detect(packet.sensors,config);values.append(value)
@@ -160,7 +166,7 @@ class MarkerService:
                         intrinsics=values[-1]["k"].tolist(),distortion=values[-1]["d"].tolist(),
                         quality=dict(frames=len(values),reprojection_px=max(v["reprojection_px"] for v in values),
                                      depth_rms_mm=max(v["depth_rms_mm"] for v in values),translation_jitter_mm=jitter,rotation_jitter_deg=rotation))
-            self.tokens[token]=dict(result=result,config=config,optics=packet.sensors.calibration)
+            self.tokens[token]=dict(result=result,config=copy.deepcopy(config),optics=copy.deepcopy(profile[1]))
             return result
         finally:self.lock.release()
 

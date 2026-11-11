@@ -263,6 +263,7 @@ docker compose run --rm --no-deps doosan-driver timeout 15 check-e0509</pre>
                     <div data-marker="view" hidden><div class="marker-image"><img data-marker="image" alt="현재 카메라 영상"><canvas data-marker="overlay" aria-label="보정된 카메라 좌표로 투영한 E0509 모델"></canvas></div><p data-marker="view-status" role="status"></p><p class="meta">민트색은 현재 수신 관절값으로 투영한 E0509 CAD 선입니다. 정지 상태에서 정렬을 확인하세요. 영상과 관절 수신 시각이 다를 수 있으며 충돌 판정에는 사용하지 않습니다.</p></div>
                     <p class="meta">마커를 가리거나 깊이·자세 검증이 실패하면 재보정이 필요합니다. YOLO 좌표는 깊이가 측정된 표면 기준이며, 프리셋의 두께로 중심을 계산합니다. 기존 경유점과 박스 좌표는 BASE 기준을 유지합니다.</p>
                   </section>
+                  <div data-pick="legacyCamera">
                   <div class="pick-steps" data-pick="steps" role="group" aria-label="교시할 모서리"></div>
                   <h3 data-pick="positionTitle">1번 모서리 위치</h3>
                   <div class="pick-position-body">
@@ -270,6 +271,7 @@ docker compose run --rm --no-deps doosan-driver timeout 15 check-e0509</pre>
                       <button type="button" data-pick="read">현재 위치 불러오기</button>
                     </div>
                     <div class="plane-corner-frame"><span class="pick-subtitle" data-pick="frameSize"></span><canvas data-pick="photo" aria-label="교시할 원본 영상"></canvas><p data-pick="pixel"></p></div>
+                  </div>
                   </div>
                 </section>
                 <section id="plane-surface-settings" role="tabpanel" aria-labelledby="plane-surface-tab" tabindex="0" hidden>
