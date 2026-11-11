@@ -61,3 +61,13 @@ body:has(#dataset-dialog[open]) { overflow:hidden; }
   .ds-head, .ds-library, .ds-detail, .ds-foot { padding:12px 14px; }
   .ds-foot { flex-wrap:wrap; } .ds-foot > div { margin-left:auto; }
 }
+/* Class selection shares the frozen-dataset visual style. */
+.training-base{display:block;margin:18px 0}.training-base select{display:block;width:min(100%,500px);margin-top:6px}
+.class-table-scroll{overflow:auto;max-width:100%;margin:14px 0}.class-table-scroll table{width:100%;min-width:620px;border-collapse:collapse;font-size:13px}
+#class-base-rows{max-height:460px}.class-table-scroll th,.class-table-scroll td{padding:9px;border:1px solid #304151;text-align:left}
+.class-table-scroll thead th{position:sticky;top:0;z-index:1;background:#1d2a38}.class-table-scroll select{width:100%;min-width:150px;padding:6px}
+.class-add,.class-confirm{display:flex;flex-direction:row;align-items:flex-start;gap:8px;line-height:1.5}
+.class-table-scroll input[type=checkbox],.class-add input[type=checkbox],.class-confirm input[type=checkbox]{width:16px;min-width:16px;height:16px;padding:0;flex:none;accent-color:var(--ds-mint)}
+#class-base-rows tr>:first-child{width:54px;text-align:center}.class-confirm{margin:14px 0}
+.class-add{border:1px solid #394a59;border-radius:6px;padding:8px;font-size:13px}.class-add input,.class-confirm input{width:auto;flex:none;margin-top:4px}
+#class-plan-status{line-height:1.6;overflow-wrap:anywhere}#class-source-search{min-width:0;width:min(100%,260px)}

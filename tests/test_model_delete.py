@@ -108,6 +108,7 @@ def test_v3_upgrade_backs_up_and_preserves_existing_models(tmp_path):
         original=store.get('model','candidate')
         with store.db:
             store.db.execute('ALTER TABLE models DROP COLUMN deleted_at')
+            store.db.execute('ALTER TABLE training_jobs DROP COLUMN class_plan')
             store.db.execute('PRAGMA user_version=3')
     with closing(Store(tmp_path)) as store:
         assert store.get('model','candidate')==original

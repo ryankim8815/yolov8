@@ -71,6 +71,7 @@ def test_v2_upgrade_preserves_existing_order_customer_and_backs_up(tmp_path):
         with store.db:
             store.db.execute("DROP TABLE customer_rfid")
             store.db.execute("ALTER TABLE models DROP COLUMN deleted_at")
+            store.db.execute("ALTER TABLE training_jobs DROP COLUMN class_plan")
             store.db.execute("PRAGMA user_version=2")
     with closing(Store(tmp_path)) as store:
         assert store.get("packing_order", "sample")["customer"] == "기존 사용자"

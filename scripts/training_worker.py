@@ -11,6 +11,7 @@ from pathlib import Path
 
 from app.config import Settings
 from app.datasets import require_training_split, verify_dataset
+from app.class_transfer import prepare_transfer, verify_transfer
 from app.detector import Detector
 from app.store import atomic_json, sha256
 from scripts.common import digest, environment
@@ -81,6 +82,38 @@ def fixed_batch_end(trainer):
         raise ValueError("Non-finite loss; no automatic training retry")
 
 
+def retention_comparison(job,trained):
+    rows=(job.get("class_plan") or {}).get("classes",[])
+    retained={row["source_class_id"]:row for row in rows if row["source_class_id"] is not None}
+    if not retained:return []
+    if sha256(job["initial_weights"])!=job["initial_sha256"]:
+        raise ValueError("비교 평가 전 기반 가중치가 변경되었습니다.")
+    dataset=job["dataset"];root=Path(dataset["path"])
+    paths=[root/item["image"] for item in dataset["items"] if item["split"]=="val"]
+    labels={str(root/item["image"]):root/item["label"] for item in dataset["items"] if item["split"]=="val"}
+    detector=Detector(replace(Settings(),backend="mps",model_path=Path(job["initial_weights"]),confidence=.001,warmup=0))
+    try:
+        detector.load()
+        class MappedDetector:
+            names={row["id"]:row["name"] for row in rows}
+            settings=detector.settings
+            def predict(self,frame):
+                return [{**obj,"class_id":retained[obj["class_id"]]["id"],"label":retained[obj["class_id"]]["name"]}
+                        for obj in detector.predict(frame) if obj["class_id"] in retained]
+        before=accuracy(MappedDetector(),paths,label_paths=labels,note="Same final validation split; source model predictions explicitly remapped to selected classes.")
+    finally:detector.close()
+    original={row["class_id"]:row for row in before["per_class"]}
+    final={row["class_id"]:row for row in trained["per_class"]}
+    result=[]
+    for row in retained.values():
+        left=original[row["id"]];right=final[row["id"]]
+        a,b=left["map50_95"],right["map50_95"]
+        result.append(dict(source_class_id=row["source_class_id"],source_name=row["source_name"],class_id=row["id"],name=row["name"],
+            before_map50_95=a,after_map50_95=b,change_percentage_points=(b-a)*100 if a is not None and b is not None else None,
+            before_recall=left["recall_at_025_iou50"],after_recall=right["recall_at_025_iou50"]))
+    return result
+
+
 def train(job, directory):
     import torch
     import ultralytics
@@ -98,17 +131,20 @@ def train(job, directory):
     # plots=False; avoid the dataset loader downloading Unicode plot fonts.
     data_utils.check_font = lambda *args, **kwargs: None
     model = YOLO(job["initial_weights"], task="detect")
+    transfer = prepare_transfer(model,job)
     options = {"data": str(Path(job["dataset"]["path"])/"data.yaml"), "device": "mps", "imgsz": 640,
                "batch": job["batch"], "epochs": job["epochs"], "patience": job["patience"], "workers": 0,
                "cache": False, "seed": 42, "deterministic": True, "amp": False,
                "project": str(directory), "name": "run", "exist_ok": False, "plots": False,
                "save": True, "val": True, "close_mosaic": 0, "optimizer": "AdamW"}
+    if transfer is not None:options["cls_remap"]=True
     def epoch_end(trainer):
         losses = {str(k): float(v) for k, v in (trainer.tloss or {}).items()}
         metrics = {str(k): float(v) for k, v in trainer.metrics.items()}
         progress(directory, "training", epoch=trainer.epoch+1, epochs=job["epochs"], losses=losses, metrics=metrics,
                  batch=trainer.args.batch)
     model.add_callback("on_train_start", lambda t: progress(directory, "training", epoch=0, epochs=job["epochs"], batch=t.args.batch))
+    model.add_callback("on_train_start", lambda t: verify_transfer(t,transfer))
     model.add_callback("on_train_batch_start", lambda t: fixed_batch_start(t, options["batch"]))
     model.add_callback("on_train_batch_end", fixed_batch_end)
     model.add_callback("on_fit_epoch_end", epoch_end)
@@ -121,8 +157,9 @@ def train(job, directory):
     torch.mps.empty_cache()
     progress(directory, "evaluating")
     result = evaluate(job, best, "mps")
+    comparison=retention_comparison(job,result["metrics"])
     atomic_json(directory/"pt-result.json", {"format": result, "training": {"requested": options, "actual": actual,
-               "oom_policy": "fail; no batch reduction or CPU fallback"}, "environment": environment()})
+               "oom_policy": "fail; no batch reduction or CPU fallback",**({"class_plan":job["class_plan"],"retention":comparison} if job.get("class_plan") else {})}, "environment": environment()})
 
 
 def conversion_accepted(pt_map, coreml_map):

@@ -15,6 +15,7 @@ from .datasets import build_dataset, require_training_split, verify_dataset
 from .packing import Packing
 from .model_registry import BUILTIN, ModelRegistry, attach_benchmarks, coco_classes
 from .store import DomainError, Store, atomic_json, now, uid
+from .training_classes import class_options, resolve_plan, freeze_plan
 
 TERMINAL = {"completed", "completed_with_warnings", "failed", "cancelled", "interrupted"}
 
@@ -366,11 +367,37 @@ class Runtime:
             with self.lock:
                 self.busy = None
 
+    def training_parent(self, identifier):
+        parent = self.registry.get(identifier or BUILTIN)
+        fmt = parent.get("formats", {}).get("mps", {})
+        if parent.get("kind") not in {"builtin", "custom"} or fmt.get("state") != "ready" or not fmt.get("sha256") or not Path(fmt.get("path", "")).is_file():
+            raise DomainError("클래스와 해시가 등록된 기본·사용자 PT 모델을 선택하세요.", 422)
+        return parent
+
+    def training_class_options(self, dataset_id, initial_model_id=None):
+        with self.lock, self.store.read_transaction():
+            return class_options(self.store, self.training_parent(initial_model_id), dataset_id)
+
+    def preview_training_classes(self, dataset_id, initial_model_id, selection):
+        with self.lock, self.store.read_transaction():
+            return resolve_plan(self.store, self.training_parent(initial_model_id), dataset_id, selection)[0]
+
     def create_job(self, values):
         with self.lock:
             self._require_idle()
+            values = dict(values)
+            selection = values.pop("class_selection", None)
+            signature = values.pop("class_plan_signature", None)
+            resolved = None
             dataset = self.store.get("dataset", values["dataset_id"])
-            require_training_split(dataset)
+            if selection is not None:
+                parent = self.training_parent(values.get("initial_model_id"))
+                resolved = resolve_plan(self.store, parent, dataset["id"], selection)
+                if not resolved[0]["ready"]:raise DomainError(" ".join(resolved[0]["errors"]),422)
+                if signature != resolved[0]["signature"]:raise DomainError("클래스 설정 또는 자료가 변경되었습니다. 최종 클래스를 다시 확인하세요.",412)
+                values["initial_model_id"] = parent["id"]
+            else:
+                require_training_split(dataset)
             try:
                 verify_dataset(dataset)
             except (OSError, ValueError) as exc:
@@ -378,7 +405,7 @@ class Runtime:
             initial = ROOT/"models/yolov8n.pt"
             if values.get("initial_model_id"):
                 parent = self.registry.get(values["initial_model_id"])
-                if parent["classes"] != dataset["classes"] or parent["formats"].get("mps", {}).get("state") != "ready":
+                if (not resolved and parent["classes"] != dataset["classes"]) or parent["formats"].get("mps", {}).get("state") != "ready":
                     raise DomainError("같은 클래스 매핑을 가진 사용자 PT 모델만 초기 모델로 선택할 수 있습니다", 422)
                 initial = Path(parent["formats"]["mps"]["path"])
                 expected_hash = parent["formats"]["mps"].get("sha256")
@@ -389,6 +416,11 @@ class Runtime:
             python = self.train_python
             if not python.is_file():
                 raise DomainError("학습 환경이 없습니다. bash scripts/setup.sh train을 실행하세요", 422)
+            if resolved:
+                try:dataset = freeze_plan(self.store, resolved)
+                except (OSError,ValueError) as exc:raise DomainError(f"선택 자료 검증 실패: {exc}",422) from exc
+                values["dataset_id"] = dataset["id"]
+                values["class_plan"] = {**resolved[0],"output_dataset_id":dataset["id"]}
             job = {**values, "id": uid("job"), "state": "queued", "created_at": now(),
                    "initial_weights": str(initial), "initial_sha256": artifact_hash(initial),
                    "dataset": dataset, "model_id": uid("custom"), "error": None}

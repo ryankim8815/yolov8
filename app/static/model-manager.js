@@ -102,6 +102,8 @@ function createModelManager({api, activate, reload, message}) {
           "patience " + config.patience].join(" · "));
       }
       add("초기 가중치 SHA-256", model.initial_sha256);
+      const plan=model.training?.class_plan;
+      if(plan)add("최종 클래스 구성",`기반 ${plan.selection.retained.length}개 유지 · 새 클래스 ${plan.selection.new_class_uuids.length}개 · 자료 ${plan.source_datasets.length}개 재사용`);
     }
     add("PT SHA-256", model.formats?.mps?.sha256 || model.formats?.cpu?.sha256);
     add("Core ML SHA-256", model.formats?.coreml?.sha256);
@@ -113,6 +115,18 @@ function createModelManager({api, activate, reload, message}) {
       const extra = element("dd", "");
       extra.append(raw);
       values.append(element("dt", "실행 기록"), extra);
+    }
+  }
+
+  function renderClassPerformance(model) {
+    const pt=model.formats?.mps?.metrics?.per_class||[],coreml=model.formats?.coreml?.metrics?.per_class||[];
+    const comparison=model.training?.retention||[],body=byId('model-class-metrics');body.replaceChildren();
+    byId('model-class-performance').hidden=!pt.length&&!coreml.length;
+    const percent=value=>Number.isFinite(value)?(value*100).toFixed(1)+'%':'—';
+    for(const cls of model.classes||[]){
+      const before=comparison.find(row=>row.class_id===cls.id),after=pt.find(row=>row.class_id===cls.id),converted=coreml.find(row=>row.class_id===cls.id);
+      const delta=before?.change_percentage_points,tr=element('tr','');
+      tr.append(element('th','#'+cls.id+' · '+cls.name),element('td',percent(before?.before_map50_95)),element('td',percent(after?.map50_95)),element('td',percent(converted?.map50_95)),element('td',Number.isFinite(delta)?(delta>0?'+':'')+delta.toFixed(1)+'%p':'—',delta<0?'registry-decline':''));body.append(tr);
     }
   }
 
@@ -156,6 +170,7 @@ function createModelManager({api, activate, reload, message}) {
     }
     renderClasses();
     renderFormats(model);
+    renderClassPerformance(model);
     renderMetadata(model);
     const apply = byId("use-version");
     apply.disabled = submitting || model.id === activeId || model.formats?.[backend]?.state !== "ready";

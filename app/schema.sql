@@ -88,7 +88,8 @@ CREATE TABLE training_jobs (
     initial_model_id INTEGER REFERENCES models(id) DEFERRABLE INITIALLY DEFERRED, initial_weights TEXT, initial_sha256 TEXT,
     -- Allocated before training; cancelled jobs can have no published model.
     planned_model_public_id TEXT UNIQUE, directory TEXT, state TEXT NOT NULL, batch INTEGER, epochs INTEGER, patience INTEGER,
-    created_at TEXT, ended_at TEXT, error TEXT, warning TEXT, progress TEXT
+    created_at TEXT, ended_at TEXT, error TEXT, warning TEXT, progress TEXT,
+    class_plan TEXT CHECK(class_plan IS NULL OR json_valid(class_plan))
 );
 CREATE TABLE products (
     id INTEGER PRIMARY KEY AUTOINCREMENT, sku TEXT NOT NULL UNIQUE, name TEXT NOT NULL, unit TEXT NOT NULL,

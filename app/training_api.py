@@ -10,6 +10,7 @@ from . import capture
 from .datasets import components
 from .store import DomainError
 from .robot_access_protocol import LOCAL_ORIGINS
+from .training_classes import ClassSelection
 
 
 class Input(BaseModel):
@@ -52,9 +53,17 @@ class BulkReview(Review):
 class TrainingInput(Input):
     dataset_id: str
     initial_model_id: str | None = None
+    class_selection: ClassSelection | None = None
+    class_plan_signature: str | None = Field(default=None,pattern='^[a-f0-9]{64}$')
     batch: int = Field(default=4, ge=1, le=16)
     epochs: int = Field(default=50, ge=1, le=300)
     patience: int = Field(default=10, ge=1, le=100)
+
+
+class ClassPreview(Input):
+    dataset_id: str
+    initial_model_id: str | None = None
+    class_selection: ClassSelection
 
 
 def public_job(job):
@@ -167,6 +176,14 @@ def router():
     @api.get("/api/training/jobs")
     def jobs(request: Request):
         return [public_job(j) for j in runtime(request).store.list("job")]
+
+    @api.get("/api/training/class-options")
+    def class_options(dataset_id:str,request:Request,initial_model_id:str|None=None):
+        return runtime(request).training_class_options(dataset_id,initial_model_id)
+
+    @api.post("/api/training/class-preview")
+    def class_preview(body:ClassPreview,request:Request):
+        return runtime(request).preview_training_classes(body.dataset_id,body.initial_model_id,body.class_selection.model_dump())
 
     @api.post("/api/training/jobs", status_code=202)
     def create_job(body: TrainingInput, request: Request):

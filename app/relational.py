@@ -12,7 +12,7 @@ TABLES = {
     "packing_event": "packing_events",
 }
 REPORT_FIELDS = {"metrics", "latency", "runtime", "environment", "training", "evaluation",
-                 "export_options", "progress"}
+                 "export_options", "progress", "class_plan"}
 BOX = ("left_x", "top_y", "right_x", "bottom_y")
 NORMALIZED_BOX = ("center_x", "center_y", "box_width", "box_height")
 

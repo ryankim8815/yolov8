@@ -153,6 +153,12 @@ def build_dataset(store):
             raise DomainError(split_failure_message(store, samples, groups, classes, exc), exc.status) from exc
         status = "ready"
         policy = "environment + sha256 + dHash Hamming <= 6 connected components; target 80:20"
+    return save_snapshot(store, mapping, assigned, status, policy)
+
+
+def save_snapshot(store, mapping, assigned, status, policy):
+    """Write a new snapshot; source samples may point at an older frozen snapshot."""
+    lookup = {c["uuid"]: c["id"] for c in mapping}
     identifier = uid("dataset")
     directory = store.root / "datasets" / identifier
     items = []

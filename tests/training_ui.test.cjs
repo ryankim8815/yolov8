@@ -53,6 +53,16 @@ function harness(gatePath, failStop=false, datasets=[], failOnce=null, initialHa
     if(url.startsWith('/api/datasets/'))data=datasets.find(d=>d.id===url.slice('/api/datasets/'.length));
     if(url==='/api/training/jobs')data=options.method==='POST'?{id:'test-job'}:[];
     if(url==='/api/models')data={backend:'mps',models:[model]};
+    if(url.startsWith('/api/training/class-options?')){
+      const d=datasets.find(d=>d.id===new URLSearchParams(url.split('?')[1]).get('dataset_id'));
+      data={initial_model_id:'coco-yolov8n',base_classes:[],data_classes:d.classes.map(c=>({...c,available:d.items.filter(i=>i.class_uuid===c.uuid).length,groups:2})),source_datasets:[{id:d.id,counts:d.counts}]};
+    }
+    if(url==='/api/training/class-preview'){
+      const values=JSON.parse(options.body),d=datasets.find(d=>d.id===values.dataset_id);
+      data={signature:'a'.repeat(64),ready:d.status!=='awaiting_validation',errors:['검증 자료 대기'],counts:d.counts,
+        classes:d.classes.map(c=>({...c,source_name:null,available:d.items.filter(i=>i.class_uuid===c.uuid).length,groups:2,
+          train:d.items.filter(i=>i.class_uuid===c.uuid&&i.split==='train').length,val:d.items.filter(i=>i.class_uuid===c.uuid&&i.split==='val').length}))};
+    }
     if(url==='/api/status')data={ready:true,state:'ready'};
     return {ok:true,json:async()=>data};
   }
@@ -60,12 +70,13 @@ function harness(gatePath, failStop=false, datasets=[], failOnce=null, initialHa
     document:{getElementById:el,createElement:()=>new Element(),createTextNode:text=>text,
       querySelectorAll:selector=>selector==='[data-tab]'?tabs:[]},
     window:{addEventListener(name, handler){listeners[name]=handler;},scrollTo(){}},Option,fetch,console,
-    location,WebSocket:class {},
+    location,WebSocket:class {},URLSearchParams,
     setInterval(fn){intervals.push(fn);},setTimeout:(fn)=>setImmediate(fn),
     currentStatus:{model_version:'base',collection:{id:null}}
   });
   vm.runInContext(fs.readFileSync(path.join(__dirname,'../app/static/model-manager.js'),'utf8'),context);
   vm.runInContext(fs.readFileSync(path.join(__dirname,'../app/static/dataset-picker.js'),'utf8'),context);
+  vm.runInContext(fs.readFileSync(path.join(__dirname,'../app/static/training-classes.js'),'utf8'),context);
   vm.runInContext(fs.readFileSync(path.join(__dirname,'../app/static/training.js'),'utf8'),context);
   const click=id=>el(id).handlers.click();
   return {calls,release,click,el,tabs,location,leave:()=>listeners.pagehide(),heartbeat:()=>intervals.forEach(fn=>fn()),state:()=>({cameraOn,collecting}),async ready(){
@@ -158,6 +169,7 @@ const one = snapshot('older',[['시계',18,11]]); // Legacy record before status
 const single = snapshot('one',[['시계',18,0]], 'awaiting_validation');
 const review = (h,id) => h.el('ds-list').children.find(b=>b.dataset.id===id).handlers.click();
 const textCells = e => e.children.map(row=>row.children.map(cell=>cell.textContent));
+async function confirmClasses(h){await tick();await h.click('class-preview');h.el('class-plan-confirm').checked=true;h.el('class-plan-confirm').handlers.change();}
 
 test('training posts only a confirmed snapshot, replacing the complete class map', async()=>{
   const h=harness(null,false,[single,two,one]);
@@ -170,12 +182,14 @@ test('training posts only a confirmed snapshot, replacing the complete class map
   await h.click('ds-confirm');
   assert.equal(h.el('dataset-selected-count').textContent,'2개');
   await h.click('dataset-open'); await review(h,one.id); await h.click('ds-cancel');
+  await confirmClasses(h);
   await h.click('train-start');
   assert.equal(h.calls.find(c=>c.url==='/api/training/jobs' && c.method==='POST').body.dataset_id,two.id);
   await h.click('dataset-open');
   assert.equal(h.el('ds-id').textContent,two.id);
   await review(h,one.id); await h.click('ds-confirm');
   assert.equal(h.el('dataset-selected-classes').children.length,1);
+  await confirmClasses(h);
   assert.equal(h.el('dataset-selected-title').textContent,'시계');
   assert.equal(h.calls.filter(c=>c.url==='/api/datasets/'+two.id).length,1);
   await h.click('train-start');

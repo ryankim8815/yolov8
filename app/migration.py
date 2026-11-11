@@ -8,7 +8,7 @@ from uuid import uuid4
 
 from .relational import Relations, TABLES
 
-VERSION = 4
+VERSION = 5
 # Preserve v0 insertion order within each entity. Resolve class names before bindings.
 ORDER = ("class", "group", "collection", "sample", "dataset", "job", "model", "setting",
          "model_alias", "operation", "product", "packing_order", "packing_event", "product_class")
@@ -125,6 +125,7 @@ def migrate_v1(db, old):
         old_columns = {r["name"] for r in old.execute(f"PRAGMA table_info({table})")}
         differences = old_columns.symmetric_difference(repository.keys.fields[table])
         if table == "models":differences.discard("deleted_at")
+        if table == "training_jobs":differences.discard("class_plan")
         if differences:
             raise ValueError(f"Unexpected v1 columns in {table}: {sorted(differences)}")
         for row in old.execute(f"SELECT * FROM {table} ORDER BY rowid"):
@@ -165,15 +166,21 @@ def initialize(db, root):
             version = db.execute("PRAGMA user_version").fetchone()[0]
             if version == VERSION:
                 return Relations(db)
-            if version == 3:
+            if version == 4:
+                backup(root, db, version)
+                db.execute("ALTER TABLE training_jobs ADD COLUMN class_plan TEXT CHECK(class_plan IS NULL OR json_valid(class_plan))")
+                repository = Relations(db)
+            elif version == 3:
                 backup(root, db, version)
                 db.execute("ALTER TABLE models ADD COLUMN deleted_at TEXT")
+                db.execute("ALTER TABLE training_jobs ADD COLUMN class_plan TEXT CHECK(class_plan IS NULL OR json_valid(class_plan))")
                 repository = Relations(db)
             elif version == 2:
                 backup(root, db, version)
                 db.execute("CREATE TABLE customer_rfid (customer_id INTEGER PRIMARY KEY REFERENCES customers(id), "
                            "uid TEXT COLLATE NOCASE UNIQUE)")
                 db.execute("ALTER TABLE models ADD COLUMN deleted_at TEXT")
+                db.execute("ALTER TABLE training_jobs ADD COLUMN class_plan TEXT CHECK(class_plan IS NULL OR json_valid(class_plan))")
                 repository = Relations(db)
             elif version == 1:
                 path = backup(root, db, version)

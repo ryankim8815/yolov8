@@ -3,6 +3,7 @@
   const el=id=>document.getElementById(id);
   let tab="live", ownedCollection=null, ownedObserved=false, records={models:[],jobs:[]}, backend="mps", samples=[], eventSocket;
   let refreshPending=false, dataKey="", pendingCollectionStart=null;
+  let classPlanner=null;
   const targetSku = location.search && new URLSearchParams(location.search).get("sku");
   let productLoaded = false;
   const reasons={saving:"사진 저장 중",interval:"저장 간격 대기",stabilizing:"대상 확인 중 (3프레임)",no_detection:"탐지된 물체 없음",outside_center:"물체를 중앙에 놓아주세요",ambiguous:"중앙에 물체 하나만 놓아주세요",low_confidence:"낮은 confidence",invalid_box:"잘못된 좌표",stale:"오래된 결과 · 저장 대기",queue_full:"저장 큐 포화 · 요청 생략",heartbeat_expired:"연결 유지 신호 만료 · 저장 중지",disk_error:"디스크 오류 · 저장 중지",user_stopped:"사진 저장 중지",camera_off:"카메라 꺼짐",stopped:"사진 저장 중지",server_shutdown:"서버 종료"};
@@ -38,6 +39,7 @@
     const base = records.models.find(m => m.kind === "builtin");
     options("initial-model", records.models.filter(m => m.kind === "custom" && m.formats.mps?.state === "ready"),
       registryLabel, base ? base.name + " · 기본 가중치" : "YOLOv8n 사전 학습 가중치");
+    classPlanner?.sync();
   }
 
   function displayActive(id) {
@@ -60,10 +62,17 @@
   async function reloadModels() {
     updateModels(await api("/api/models"));
   }
-  const datasetPicker = createDatasetPicker({api, node, onChange: updateDatasetState});
+  const datasetPicker = createDatasetPicker({api, node, onChange: () => {classPlanner?.sync();updateDatasetState();}});
+  classPlanner=createTrainingClasses({api,node,onChange:updateDatasetState,getContext:()=>{
+    const model=records.models.find(m=>m.id===el('initial-model').value)||records.models.find(m=>m.kind==='builtin');
+    const initial=model?.id||'coco-yolov8n',dataset_id=datasetPicker.selected?.id;
+    return {dataset_id,initial_model_id:initial,model_key:JSON.stringify([model?.classes,model?.formats?.mps?.sha256]),values:{dataset_id,initial_model_id:initial}};
+  }});
+  el('initial-model').addEventListener('change',()=>classPlanner.sync());
+  classPlanner.sync();
 
   function updateDatasetState() {
-    el("train-start").disabled = !datasetIsTrainable(datasetPicker.selected) || el("train-start").dataset.pending === "1";
+    el("train-start").disabled = !classPlanner?.ready || records.jobs.some(job=>!terminal.has(job.state)) || el("train-start").dataset.pending === "1";
   }
 
   updateDatasetState();
@@ -245,10 +254,9 @@
   });
 
   action("train-start", async () => {
-    const dataset = datasetPicker.selected;
-    if (!datasetIsTrainable(dataset)) throw Error("학습 가능한 데이터셋을 선택하세요.");
+    const values=classPlanner.values();
     const job = await api("/api/training/jobs", "POST", {
-      dataset_id: dataset.id, initial_model_id: el("initial-model").value || null,
+      ...values,
       batch: Number(el("train-batch").value), epochs: Number(el("train-epochs").value),
       patience: Number(el("train-patience").value)
     });
@@ -263,6 +271,7 @@
         const data = JSON.parse(event.data);
         records.jobs = data.jobs;
         renderJobs();
+        updateDatasetState();
         updateModels({models: data.models, active_model_id: data.status.model_version, backend: data.status.backend});
       } catch (error) { console.error(error); }
     };
