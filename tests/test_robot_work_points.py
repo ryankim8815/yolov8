@@ -173,3 +173,37 @@ class WorkPointTests(unittest.TestCase):
         self.assertEqual(self.client.get(url).status_code, 503)
         self.robot.call_service.assert_not_awaited()
         self.assertFalse(self.robot.work_points.path.exists())
+
+
+    def test_passive_sdk_tcp_refresh_uses_read_only_monitor_without_flange_inspection(self):
+        from dataclasses import replace
+        self.robot.settings = replace(self.robot.settings, access_backend="mac-sdk")
+        self.robot.scenario.inspect = AsyncMock(side_effect=AssertionError("Passive TCP reads must not reserve flange inspection"))
+        self.robot.call_service = AsyncMock(return_value={"success": True, "pos": self.pose})
+        self.robot.connected, self.robot.socket = True, object()
+        topic = self.robot.topics[3]["name"]
+        self.robot.receive(json.dumps({"op":"publish", "topic":topic, "msg":{"name":["joint_1"], "position":[1]}}))
+        for suffix in ("current", "current?monitor_only=true"):
+            response = self.client.get(self.url + suffix)
+            self.assertEqual(response.status_code, 200, response.text)
+            self.assertEqual(response.json(), {"pose": self.pose})
+        self.robot.scenario.inspect.assert_not_awaited()
+        self.assertFalse(self.robot.work_points.path.exists())
+
+    def test_monitor_only_refresh_never_falls_back_to_sdk_but_explicit_capture_can(self):
+        from dataclasses import replace
+        self.robot.settings = replace(self.robot.settings, access_backend="mac-sdk")
+        self.robot.scenario.inspect = AsyncMock(return_value=({}, {"current_tcp": self.pose}))
+        self.assertEqual(self.client.get(self.url + "current?monitor_only=true").status_code, 503)
+        self.robot.scenario.inspect.assert_not_awaited()
+        self.assertEqual(self.client.get(self.url + "current").json(), {"pose": self.pose})
+        self.robot.scenario.inspect.assert_awaited_once()
+
+    def test_explicit_sdk_capture_does_not_inspect_during_an_active_gripper_job(self):
+        from dataclasses import replace
+        from unittest.mock import PropertyMock
+        self.robot.settings = replace(self.robot.settings, access_backend="mac-sdk")
+        self.robot.scenario.inspect = AsyncMock()
+        with patch("app.robot_gripper.Gripper.busy", new_callable=PropertyMock, return_value=True):
+            self.assertEqual(self.client.get(self.url + "current").status_code, 503)
+        self.robot.scenario.inspect.assert_not_awaited()

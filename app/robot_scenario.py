@@ -160,11 +160,23 @@ class Scenario:
         return checked_response(code,data)
 
     async def inspect(self,poses=None,joints=None):
+        generation=self.stop_generation
         if self.robot.settings.access_backend!="mac-sdk":raise DomainError("17단계 실제 이송에는 Mac SDK가 필요합니다.")
         status=await self.host("status")
         if not status.get("scenario_supported"):raise DomainError("17단계·중단·좌표 조회를 지원하는 SDK 작업자를 시작하세요.")
         if not status.get("can_move"):raise DomainError(status.get("motion_reason") or "SDK 제어권·자동 모드·STANDBY를 확인하세요.")
-        result=await self.host("kinematics",KinematicsRequest(session_id=status["session_id"],poses=poses or [],joints=joints or []))
+        command=KinematicsRequest(session_id=status["session_id"],poses=poses or [],joints=joints or [])
+        try:
+            result=await self.host("kinematics",command)
+        except DomainError as exc:
+            # A terminal zero-byte voltage probe failure has made no actuator
+            # writes. Reopen once; never retry an unknown result or a move.
+            if not str(exc).endswith("response_timeout_296_0"):raise
+            current=await self.host("status")
+            if generation!=self.stop_generation or not current.get("can_move") or any(current.get(k)!=status.get(k) for k in ("session_id","motion_token")):
+                raise DomainError("SDK 상태 또는 중단 상태가 변경되었습니다. 다시 확인하세요.") from exc
+            result=await self.host("kinematics",command)
+        if generation!=self.stop_generation:raise DomainError("좌표 조회 중 중단을 요청했습니다. 다시 확인하세요.")
         if result.get("session_id")!=status["session_id"]:raise DomainError("SDK 세션이 변경되었습니다.")
         return status,result
 

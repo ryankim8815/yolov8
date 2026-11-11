@@ -228,26 +228,35 @@ class RobotMonitor:
         if socket is self.socket:
             self.teach_mode, self.teach_message = mode, message
 
-    async def current_work_pose(self):
-        if self.settings.access_backend=="mac-sdk" and self.scenario:
-            try:
-                _,snapshot=await self.scenario.inspect()
-                pose=snapshot.get("current_tcp")
-                if isinstance(pose,list) and len(pose)==6 and all(type(v) in (int,float) and math.isfinite(v) for v in pose):return {"pose":pose}
-            except (DomainError,HTTPException):pass
+    async def current_work_pose(self, *, monitor_only=False):
+        # The controller's read-only task registers do not open the flange serial port.
+        # Prefer this path so passive 3D refreshes cannot reserve an SDK inspection.
         socket = self.socket
-        if not self.connected or socket is None or self.snapshot()["topics"][3]["state"] != "live":
+        monitored = self.connected and socket is not None and self.snapshot()["topics"][3]["state"] == "live"
+        if monitored:
+            try:
+                result = await self.call_service(socket, "monitor/get_current_pose", {"space_type": 1}, timeout=4)
+            except (TimeoutError, RuntimeError, OSError, ConnectionClosed):
+                result = {}
+            pose = result.get("pos")
+            if (socket is self.socket and self.connected and result.get("success") is True
+                    and isinstance(pose, list) and len(pose) == 6
+                    and all(type(v) in (float, int) and math.isfinite(v) for v in pose)):
+                return {"pose": pose}
+        if not monitor_only and self.settings.access_backend == "mac-sdk" and self.scenario:
+            busy = self.picks.busy or self.hand.busy or self.pose_tests.snapshot()["busy"]
+            if not busy:
+                try:
+                    _, snapshot = await self.scenario.inspect()
+                    pose = snapshot.get("current_tcp")
+                    if (isinstance(pose, list) and len(pose) == 6
+                            and all(type(v) in (int, float) and math.isfinite(v) for v in pose)):
+                        return {"pose": pose}
+                except (DomainError, HTTPException):
+                    pass
+        if not monitored:
             raise DomainError("현재 위치를 읽으려면 제어기와 읽기 전용 관절 모니터가 연결되어야 합니다.", 503)
-        try:
-            result = await self.call_service(socket, "monitor/get_current_pose", {"space_type": 1}, timeout=4)
-        except (TimeoutError, RuntimeError, OSError, ConnectionClosed):
-            result = {}
-        pose = result.get("pos")
-        if (socket is not self.socket or not self.connected or result.get("success") is not True
-                or not isinstance(pose, list) or len(pose) != 6
-                or not all(type(v) in (float, int) and math.isfinite(v) for v in pose)):
-            raise DomainError("제어기에서 현재 작업 좌표를 읽지 못했습니다. 좌표는 변경되지 않았습니다.", 503)
-        return {"pose": pose}
+        raise DomainError("제어기에서 현재 작업 좌표를 읽지 못했습니다. 좌표는 변경되지 않았습니다.", 503)
 
     async def set_direct_teach(self, enabled):
         socket = self.socket
@@ -498,8 +507,8 @@ async def save_pose(slot: int, body: PoseInput, request: Request):
 
 
 @router.get("/work-points/current")
-async def current_work_pose(request: Request):
-    pose = await request.app.state.robot.current_work_pose()
+async def current_work_pose(request: Request, monitor_only: bool = False):
+    pose = await request.app.state.robot.current_work_pose(monitor_only=monitor_only)
     return JSONResponse(pose, headers={"Cache-Control": "no-store"})
 
 

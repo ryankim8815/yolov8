@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 
 from app.robot_web import create_robot_app
 from app.robot_scenario_config import ScenarioInput
+from app.store import DomainError
 
 
 @pytest.fixture
@@ -59,6 +60,48 @@ def wait_state(client,id,states):
         if move['state'] in states:return move
         time.sleep(.02)
     raise AssertionError(move)
+
+
+@pytest.mark.parametrize('failures',[1,2])
+def test_terminal_read_only_voltage_timeout_reopens_at_most_once(scenario,monkeypatch,failures):
+    client,calls,*_=scenario;engine=client.app.state.robot.scenario;original=engine.host;attempts=[]
+    async def host(operation,body=None):
+        if operation=='kinematics':
+            attempts.append(body)
+            if len(attempts)<=failures:raise DomainError('SDK 좌표·그리퍼 조회 실패: response_timeout_296_0')
+        return await original(operation,body)
+    monkeypatch.setattr(engine,'host',host)
+    if failures==1:
+        _,kin=client.portal.call(engine.inspect);assert kin['hand']['position']==0
+    else:
+        with pytest.raises(DomainError):client.portal.call(engine.inspect)
+    assert len(attempts)==2 and attempts[0]==attempts[1] and not calls
+
+
+@pytest.mark.parametrize('reason',['bad_response','response_timeout_296_3','SDK 좌표 조회 응답 미확인'])
+def test_inspection_never_retries_unconfirmed_or_malformed_response(scenario,monkeypatch,reason):
+    client,calls,*_=scenario;engine=client.app.state.robot.scenario;original=engine.host;attempts=[]
+    async def host(operation,body=None):
+        if operation=='kinematics':attempts.append(body);raise DomainError(reason)
+        return await original(operation,body)
+    monkeypatch.setattr(engine,'host',host)
+    with pytest.raises(DomainError):client.portal.call(engine.inspect)
+    assert len(attempts)==1 and not calls
+
+
+@pytest.mark.parametrize('changed',['stop','session_id','motion_token'])
+def test_inspection_retry_is_cancelled_by_stop_or_changed_session(scenario,monkeypatch,changed):
+    client,calls,_,status,*_=scenario;engine=client.app.state.robot.scenario;original=engine.host;attempts=[]
+    async def host(operation,body=None):
+        if operation=='kinematics':
+            attempts.append(body)
+            if changed=='stop':engine.stop_all()
+            else:status[changed]='changed'
+            raise DomainError('SDK 좌표·그리퍼 조회 실패: response_timeout_296_0')
+        return await original(operation,body)
+    monkeypatch.setattr(engine,'host',host)
+    with pytest.raises(DomainError):client.portal.call(engine.inspect)
+    assert len(attempts)==1 and not calls
 
 
 def prepare(client):

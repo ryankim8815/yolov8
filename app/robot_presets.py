@@ -87,17 +87,30 @@ class PresetEngine:
         status,kin=await self.legacy.inspect()
         if binding:await self.detections.require_ready(original,kin)
         context={k:kin[k] for k in ("session_id","tcp_name","reference_tcp")}
+        # Each inspection also reads the flange gripper. Resolve repeated targets
+        # once, in the SDK's bounded batches, rather than reopening it per step.
+        targets={space:list(dict.fromkeys(tuple(s["target"]) for s in steps
+                  if s["kind"] in {"joint","line","circle"} and s["space"]==space))
+                 for space in ("joint","task")}
+        resolved={"joint":{},"task":{}}
+        for offset in range(max((len(targets["joint"])+4)//5,(len(targets["task"])+3)//4)):
+            joints=targets["joint"][offset*5:offset*5+5];poses=targets["task"][offset*4:offset*4+4]
+            extra_status,extra=await self.legacy.inspect(joints=[list(q) for q in joints],poses=[list(pose) for pose in poses])
+            if any(extra.get(k)!=v for k,v in context.items()) or extra_status["motion_token"]!=status["motion_token"]:
+                raise DomainError("SDK 세션·TCP·위치가 변경되었습니다. 다시 경로를 확인하세요.")
+            if len(extra.get("forward",[]))!=len(joints) or len(extra.get("solutions",[]))!=len(poses):
+                raise DomainError("SDK 좌표 계산 결과를 확인할 수 없습니다. 다시 경로를 확인하세요.")
+            resolved["joint"].update(zip(joints,extra["forward"]))
+            resolved["task"].update(zip(poses,extra["solutions"]))
         previous=kin["current_tcp"]
         for step in steps:
             kind=step["kind"]
             if kind in {"joint","line","circle"}:
                 target=step["target"]
-                extra_status,extra=await self.legacy.inspect(**({"joints":[target]} if step["space"]=="joint" else {"poses":[target]}))
-                if any(extra.get(k)!=v for k,v in context.items()) or extra_status["motion_token"]!=status["motion_token"]:
-                    raise DomainError("SDK 세션·TCP·위치가 변경되었습니다. 다시 경로를 확인하세요.")
-                task=extra["forward"][0] if step["space"]=="joint" else target
+                calculated=resolved[step["space"]][tuple(target)]
+                task=calculated if step["space"]=="joint" else target
                 if kind=="joint" and step["space"]=="task":
-                    solution=extra["solutions"][0]
+                    solution=calculated
                     if not solution or len(solution)!=6:raise DomainError("관절 목표 해를 찾을 수 없습니다.")
                     step["target"]=solution
                 elif kind!="joint":

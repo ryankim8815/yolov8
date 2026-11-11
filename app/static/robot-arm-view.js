@@ -185,7 +185,7 @@ export function connectRobotArm(el,signal,onOrbit) {
     const controller=new AbortController(),key=source;pending=controller;lastRead=performance.now();
     const timeout=setTimeout(()=>controller.abort(),4000);
     try {
-      const response=await fetch("/api/robot/work-points/current",{cache:"no-store",signal:AbortSignal.any([signal,controller.signal])});
+      const response=await fetch("/api/robot/work-points/current?monitor_only=true",{cache:"no-store",signal:AbortSignal.any([signal,controller.signal])});
       const result=await response.json();
       if(!response.ok||!Array.isArray(result.pose)||result.pose.length!==6||!result.pose.every(Number.isFinite))throw Error("TCP unavailable");
       if(pending!==controller||signal.aborted||!active||simulation?.frame||key!==source||!armTelemetry(data,(performance.now()-arrived)/1000).live)return;

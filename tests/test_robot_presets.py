@@ -283,3 +283,45 @@ def test_ui_cleanup_migration_fails_closed_and_keeps_original_on_invalid_source(
     robot.pose_tests.data['poses'][0]['angles']=[900,0,90,0,90,0]
     with pytest.raises(ValidationError):PresetLibrary(lib.path.parent,robot).load()
     assert lib.path.read_bytes()==original and not calls
+
+
+def test_preview_batches_unique_targets_and_keeps_step_mapping(scenario,monkeypatch):
+    client,calls,*_=scenario;engine=client.app.state.robot.presets
+    joints=[[i,0,90,0,90,0] for i in range(7)]
+    poses=[[400+i,0,400,0,180,0] for i in range(6)]
+    steps=[dict(kind='movel',space='joint',target=q) for q in joints]
+    steps += [dict(kind='movej',space='task',target=p) for p in poses]
+    steps += [steps[0],steps[7]]
+    p=create(client,steps);original=engine.legacy.inspect;requests=[]
+    async def inspect(poses=None,joints=None):
+        requests.append((copy.deepcopy(joints or []),copy.deepcopy(poses or [])))
+        status,kin=await original(poses=poses,joints=joints)
+        kin['forward']=[[400+q[0],0,400,0,180,0] for q in joints or []]
+        kin['solutions']=[[pose[0]-400,0,70,0,110,0] for pose in poses or []]
+        return status,kin
+    monkeypatch.setattr(engine.legacy,'inspect',inspect)
+    ticket=ready(client,p)
+    assert requests==[([],[]),(joints[:5],poses[:4]),(joints[5:],poses[4:])]
+    for step,q in zip(ticket['steps'][:7],joints):
+        assert step['target']==[400+q[0],0,400,0,180,0] and step['expected_joints']==q
+    for step,pose in zip(ticket['steps'][7:13],poses):
+        assert step['target']==[pose[0]-400,0,70,0,110,0]
+    assert ticket['steps'][13]['target']==ticket['steps'][0]['target']
+    assert ticket['steps'][14]['target']==ticket['steps'][7]['target'] and not calls
+
+
+@pytest.mark.parametrize('changed',['session_id','tcp_name','reference_tcp','motion_token','missing_result'])
+def test_batched_preview_never_approves_changed_context_or_partial_results(scenario,monkeypatch,changed):
+    client,calls,*_=scenario;engine=client.app.state.robot.presets;original=engine.legacy.inspect;count=0
+    p=create(client,[dict(kind='movej',target=[0,0,90,0,90,0])])
+    async def inspect(**kwargs):
+        nonlocal count
+        status,kin=await original(**kwargs);count+=1
+        if count==2:
+            if changed=='motion_token':status[changed]='changed'
+            elif changed=='missing_result':kin['forward']=[]
+            else:kin[changed]='changed'
+        return status,kin
+    monkeypatch.setattr(engine.legacy,'inspect',inspect)
+    assert client.post(f'{BASE}/{p["id"]}/execution-preview',json={'revision':p['revision']}).status_code==409
+    assert not calls and not engine.robot.picks.approvals
