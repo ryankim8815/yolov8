@@ -1,8 +1,13 @@
 """The capture worker is the sole owner of VideoCapture."""
 import json
 import logging
+import os
 import subprocess
 from pathlib import Path
+
+
+class CameraPermissionError(RuntimeError):
+    """Require an explicit retry instead of reopening macOS authorization dialogs."""
 
 
 def camera_devices():
@@ -23,7 +28,7 @@ def camera_device(device_id):
     raise LookupError("선택한 카메라가 연결되어 있지 않습니다. 카메라 목록을 새로고침하세요.")
 
 
-def open_camera(settings):
+def open_camera(settings, *, stop_event=None):
     # Preserve the configured index when device discovery is unavailable.
     try:
         devices = camera_devices()
@@ -38,10 +43,17 @@ def open_camera(settings):
         from .realsense import RealSenseCamera
         if len(real_devices) == 1:
             try:
-                camera = RealSenseCamera(selected["index"])
+                if os.getenv("YOLO_REALSENSE_PRIVILEGED") == "1":
+                    from .realsense_macos import MacUSB
+                    camera = MacUSB(stop_event)
+                    camera.index = selected["index"]
+                else:
+                    camera = RealSenseCamera(selected["index"])
                 camera.device_id = selected["id"]
                 return camera
             except (OSError, RuntimeError) as exc:
+                if os.getenv("YOLO_REALSENSE_PRIVILEGED") == "1":
+                    raise CameraPermissionError(str(exc)) from exc
                 logging.getLogger(__name__).warning("RealSense sensor capture unavailable: %s", exc)
                 if "No module named 'pyrealsense2'" in str(exc):
                     note = "깊이·적외선 표시에는 RealSense SDK가 필요합니다."

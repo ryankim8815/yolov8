@@ -38,7 +38,7 @@ def percentile(values, fraction):
 
 
 class Pipeline:
-    def __init__(self, settings, camera_factory=open_camera, detector_factory=Detector,
+    def __init__(self, settings, camera_factory=None, detector_factory=Detector,
                  encoder=encode_jpeg, retry_delays=(1, 2, 4, 8, 10)):
         self.model_version = settings.model_path.stem
         self.capture_enabled = True
@@ -49,6 +49,8 @@ class Pipeline:
         self.retry_delays = retry_delays
         self.session_id = uuid.uuid4().hex
         self.stop_event = threading.Event()
+        if self.camera_factory is None:
+            self.camera_factory = lambda config: open_camera(config, stop_event=self.stop_event)
         self.input_slot, self.preview_slot = LatestSlot(), LatestSlot()
         self.lock = threading.Lock()
         self.started_at = time.monotonic()
@@ -141,6 +143,10 @@ class Pipeline:
                 with self.lock:
                     self.camera_online = False
                     self.camera_error = str(exc)
+                from .capture import CameraPermissionError
+                if isinstance(exc, CameraPermissionError):
+                    with self.lock:self.fatal_error = str(exc)
+                    break
             finally:
                 if camera is not None:
                     try:

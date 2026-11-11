@@ -53,6 +53,10 @@ bash scripts/start.sh cpu
 
 브라우저에서 [패킹 대시보드](http://127.0.0.1:8000)를 엽니다. **탐지 카메라 → 입력 카메라**에서 Mac에 연결된 장치를 선택하고 **적용**을 누르면 현재 모델이 그 카메라로 탐지를 계속합니다. 카메라가 꺼져 있다면 **탐지 시작**을 누르세요. 장치를 새로 연결했을 때는 **새로고침**으로 목록을 갱신합니다. 선택은 서버를 재시작할 때까지 유지되며, 서버 시작 시에는 `YOLO_CAMERA_INDEX`를 사용합니다.
 
+RealSense를 macOS에서 사용할 때 `failed to set power state` 또는 USB 접근 오류가 나면 `.env`에 `YOLO_REALSENSE_PRIVILEGED=1`을 설정하고 통합 서버를 다시 시작합니다. Mac 서버만 실행할 때는 `YOLO_REALSENSE_PRIVILEGED=1 bash scripts/start.sh coreml`을 사용합니다. RealSense 선택 시 macOS 관리자 인증창에 직접 인증하면 카메라 전용 작업자가 USB를 읽고, 일반 권한의 영상 서버에 로컬 소켓으로 색상·깊이·적외선 프레임을 전달합니다. 웹 서버와 로봇 제어기는 관리자 권한으로 실행하지 않습니다. 카메라를 끄면 센서 작업자도 종료됩니다. 인증 취소·장치 단절 시 자동으로 인증창을 반복하지 않으며, 다시 연결한 후 **탐지 시작**으로 재시도합니다. 현재 D455f 입력은 640×480 / 15 FPS 조합을 요청하며 실제 지원 모드는 카메라 상태에 표시됩니다. [librealsense macOS USB 권한 안내](https://github.com/realsenseai/librealsense/blob/master/doc/installation_osx.md).
+
+관리자 인증 모드는 Xcode Command Line Tools와 `brew install librealsense`로 설치한 네이티브 SDK를 사용합니다. SDK 설치 위치가 다르면 `YOLO_REALSENSE_PREFIX`를 지정합니다(Apple Silicon 기본 `/opt/homebrew`). 센서 작업자는 보호된 문서 폴더 밖의 임시 경로에서 실행되며, 웹 서버의 Python 환경과 별도로 동작합니다.
+
 대시보드는 실시간 영상과 측정된 FPS·서버 지연 p95·탐지 개수를 보여줍니다. 영상 아래 **탐지 클래스**에서 클래스별 수량을 확인할 수 있습니다. 클래스명을 누르면 영상에서 해당 객체의 상자가 강조되고 객체별 신뢰도가 표시됩니다. 다시 누르면 강조가 해제됩니다.
 
 **사용자 관리**에서 이름으로 사용자를 추가한 후 박스 RFID를 할당합니다. **재고 관리**에서 상품을 선택하고 **탐지 클래스 연결**을 눌러 활성 모델의 클래스를 지정합니다. 연결된 상품은 카메라 카드에 `생수 (bottle) ×2`처럼 표시됩니다. 연결 변경 화면에서 **미연결**을 저장하면 해제됩니다.
