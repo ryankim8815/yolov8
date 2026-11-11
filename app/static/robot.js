@@ -441,7 +441,8 @@ function routeRobot() {
     }
     workPlane.showWorkspace(page.id);
     if(location.hash==='#camera-calibration')requestAnimationFrame(()=>get('camera-calibration')?.scrollIntoView({block:'start'}));
-    if(location.hash==='#preset-execution')requestAnimationFrame(()=>get('preset-execution')?.scrollIntoView({block:'start'}));
+    if(location.hash==='#preset-execution')requestAnimationFrame(()=>(get('preset-execution')?.closest('.gripper-panel'))?.scrollIntoView({block:'start'}));
+    if(location.hash==='#preset-options')requestAnimationFrame(()=>get('preset-options')?.scrollIntoView({block:'start'}));
     if (location.hash === "#gripper-table") requestAnimationFrame(() => get("gripper-table")?.scrollIntoView({block:"start"}));
   } else if (workPlane) {
     workPlane.dispose(); workPlane = null;

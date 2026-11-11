@@ -75,6 +75,7 @@ export function connectWorkPlane(root) {
   function selectTab(active, navigate = false) {
     viewOptions.hidden = !manipulatorWorkspace || active.id === "manipulator-box-tab";
     const presetView=manipulatorWorkspace&&active.id==='manipulator-points-tab';
+    editor.querySelector('[data-preset-controls]').hidden=!presetView;
     el.sizing.hidden=presetView;
     el.basisHint.hidden=presetView;
     editor.querySelector('.plane-heights').hidden=presetView;
@@ -424,7 +425,7 @@ export function connectWorkPlane(root) {
       gripperWorkspace = id === "gripper";
       manipulatorWorkspace = id === "manipulator";
       if (manipulatorWorkspace && !manipulatorConnected) {
-        connectPresets(editor.querySelector("#scenario-editor"),orientation,lifetime.signal);
+        connectPresets(editor.querySelector("#scenario-editor"),orientation,lifetime.signal,editor.querySelector("[data-preset-controls]"));
         manipulatorConnected = true;
       }
       editor.querySelector("[data-gripper-geometry]").hidden=!gripperWorkspace;
@@ -433,7 +434,7 @@ export function connectWorkPlane(root) {
       visibleTabs = tabs.filter(tab => manipulatorWorkspace ? tab.hasAttribute("data-manipulator-tab") :
         gripperWorkspace ? tab.hasAttribute("data-gripper-tab") : !tab.hasAttribute("data-manipulator-tab") && !tab.hasAttribute("data-gripper-tab"));
       for (const tab of tabs) tab.hidden = !visibleTabs.includes(tab);
-      const requestedHash=location.hash==='#preset-execution'?'#work-points-title':location.hash;
+      const requestedHash=['#preset-execution','#preset-options'].includes(location.hash)?'#work-points-title':location.hash;
       const current = visibleTabs.find(tab => (tab.dataset.manipulatorTab || tab.dataset.gripperTab) === requestedHash);
       selectTab(current ?? visibleTabs[0]);
       const tablist=editor.querySelector('[role="tablist"]');

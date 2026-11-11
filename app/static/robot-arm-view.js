@@ -79,9 +79,6 @@ export function connectRobotArm(el,signal,onOrbit) {
     }
     notifySimulation();publish();
   }
-  ui.simulationPause.addEventListener("click",()=>simulationAction(simulation?.state==="paused"?"resume":"pause"),{signal});
-  ui.simulationStop.addEventListener("click",()=>simulationAction("stop"),{signal});
-  ui.simulationConfirm.addEventListener("click",()=>simulationAction(simulation?.state==="awaiting_grip"?"confirm-grip":"open-at-box"),{signal});
   let attached=false,handAccess=null,handStatus=null,table=null,tableRequest=null,lastTableRead=-Infinity,tableError="",handSignature="",readRequest=null,readNote="",readBaseline=null;
   const handState=()=>gripperVisualState(handAccess,table,{sdk:handStatus?.config?.access_backend==="mac-sdk",busy:Boolean(readRequest||handStatus?.hand_busy)});
   function cancelHandRequests(){tableRequest?.abort();tableRequest=null;readRequest?.abort();readRequest=null;}
@@ -133,10 +130,6 @@ export function connectRobotArm(el,signal,onOrbit) {
     ui.simulationStage.textContent=preview?simulation.message:"";
     ui.simulationMetrics.hidden=!preview||!simulation.recipe;
     ui.simulationMetrics.textContent=preview&&simulation.recipe?`가상 벌림 ${mm(preview.opening_mm)} mm · 상품 ${preview.holding?'파지 중':preview.released?'놓기 완료':'파지 전'}`:'';
-    ui.simulationPause.disabled=!["running","paused"].includes(simulation?.state);
-    ui.simulationPause.textContent=simulation?.state==="paused"?"계속 재생":"일시정지";
-    ui.simulationConfirm.hidden=!["awaiting_grip","awaiting_open"].includes(simulation?.state);
-    ui.simulationConfirm.textContent=simulation?.state==="awaiting_grip"?"가상 파지 확인 후 이송":"가상 박스에서 열기";
     ui.source.textContent=exampleContext?'예시 경로 · 실측 아님':preview?"시뮬레이션":sample.live?"실제 관절 수신 중":"기본 자세 · 실측 아님";ui.source.dataset.live=display.live;
     const hint=preview||idleExample?display.reason:sample.reason+(sample.live?" · BASE 원점 고정":" [0, 0, 90, 0, 90, 0]°");
     if(el.modelHint.textContent!==hint)el.modelHint.textContent=hint;

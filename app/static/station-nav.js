@@ -25,7 +25,7 @@ export function currentDestination() {
   if (document.body.dataset.workspace === "robot") {
     const id = location.hash.slice(1);
     if(id==='camera-calibration')return robotPages.find(page=>page.id==='work-plane');
-    if (["work-points-title","preset-execution","parcel-box-title","product-grasp-title","pose-title"].includes(id)) return robotPages[0];
+    if (["work-points-title","preset-execution","preset-options","parcel-box-title","product-grasp-title","pose-title"].includes(id)) return robotPages[0];
     if (["gripper-table","gripper-test"].includes(id)) return robotPages.find(page => page.id === "gripper");
     return robotPages.find(page => page.id === id) || destinations.find(page => page.id === "robot");
   }
