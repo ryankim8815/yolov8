@@ -18,13 +18,19 @@ export function connectCameraCalibration(root,signal){
   let state=null,dirty=false,busy=false,preview=false,timer,parts,operation=0,disposed=false;
   const corners=get('corners');
   for(let i=0;i<4;i++){
-    const name='ABCD'[i],row=document.createElement('tr'),label=document.createElement('th');label.scope='row';label.textContent=name;row.append(label);
+    const name='ABCD'[i],row=document.createElement('tr'),label=document.createElement('th');
+    if(i===0){
+      const td=document.createElement('td'),input=document.createElement('input');td.rowSpan=4;td.className='marker-id-cell';
+      input.type='number';input.step='1';input.min='0';input.max='49';input.value='0';input.required=true;
+      input.dataset.marker='id';input.setAttribute('aria-label','마커 ID');td.append(input);row.append(td);
+    }
+    label.scope='row';label.textContent=name;row.append(label);
     for(const axis of ['X','Y','Z']){
       const td=document.createElement('td'),input=document.createElement('input');input.type='number';input.step='any';input.required=true;
-      input.min='-5000';input.max='5000';input.setAttribute('aria-label',`마커 모서리 ${name} BASE ${axis}`);td.append(input);row.append(td);
+      input.min='-5000';input.max='5000';input.dataset.markerCoordinate=axis;input.setAttribute('aria-label',`마커 모서리 ${name} BASE ${axis}`);td.append(input);row.append(td);
     }
     const td=document.createElement('td'),read=document.createElement('button');read.type='button';read.textContent='현재 TCP';read.setAttribute('aria-label',`모서리 ${name}에 현재 TCP 좌표 입력`);
-    read.addEventListener('click',()=>action(async()=>{const data=await api('work-points/current?monitor_only=true');row.querySelectorAll('input').forEach((input,j)=>input.value=data.pose[j]);changed();}));td.append(read);row.append(td);corners.append(row);
+    read.addEventListener('click',()=>action(async()=>{const data=await api('work-points/current?monitor_only=true');row.querySelectorAll('[data-marker-coordinate]').forEach((input,j)=>input.value=data.pose[j]);changed();}));td.append(read);row.append(td);corners.append(row);
   }
   function message(value,error=false){get('status').textContent=value;get('status').dataset.state=error?'error':state?.state||'required';}
   function buttons(){
@@ -49,12 +55,12 @@ export function connectCameraCalibration(root,signal){
     const data=await api('camera-calibration');
     get('enabled').checked=data.enabled;
     get('id').value=data.config?.marker_id??0;get('side').value=data.config?.side_mm??100;
-    corners.querySelectorAll('tr').forEach((row,i)=>row.querySelectorAll('input').forEach((input,j)=>input.value=data.config?.corners_base_mm[i][j]??''));
+    corners.querySelectorAll('tr').forEach((row,i)=>row.querySelectorAll('[data-marker-coordinate]').forEach((input,j)=>input.value=data.config?.corners_base_mm[i][j]??''));
     dirty=false;printLink();showStatus(data);
   }
   get('reload').addEventListener('click',()=>action(load));
   get('form').addEventListener('submit',event=>{event.preventDefault();action(async()=>{
-    const config={marker_id:Number(get('id').value),side_mm:Number(get('side').value),corners_base_mm:[...corners.rows].map(row=>[...row.querySelectorAll('input')].map(input=>Number(input.value)))};
+    const config={marker_id:Number(get('id').value),side_mm:Number(get('side').value),corners_base_mm:[...corners.rows].map(row=>[...row.querySelectorAll('[data-marker-coordinate]')].map(input=>Number(input.value)))};
     const data=await api('camera-calibration','PUT',{revision:state.revision,enabled:get('enabled').checked,config});dirty=false;showStatus(data);
   });});
   get('run').addEventListener('click',()=>action(async()=>{

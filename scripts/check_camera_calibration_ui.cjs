@@ -19,6 +19,9 @@ process.chdir(path.resolve(__dirname,'..'));
    }
    if(u.pathname.startsWith('/static/'))return route.fulfill({path:'app'+u.pathname,contentType:u.pathname.endsWith('.js')?'text/javascript':'text/css'});
    if(req.method()!=='GET')writes.push({path:u.pathname,body:req.postDataJSON()});
+   if(u.pathname==='/api/robot/work-points/current'){
+    assert.equal(u.searchParams.get('monitor_only'),'true');return route.fulfill({json:{pose:[-10,20,30,0,180,0]}});
+   }
    if(u.pathname==='/api/robot/camera-calibration'&&req.method()==='GET')return route.fulfill({json:state});
    if(u.pathname==='/api/robot/camera-calibration'&&req.method()==='PUT'){
     const body=req.postDataJSON();assert.equal(body.revision,state.revision);assert.equal(body.config.corners_base_mm.length,4);
@@ -38,22 +41,32 @@ process.chdir(path.resolve(__dirname,'..'));
   await page.goto('http://marker.test/');
   const root=page.locator('#camera-calibration'),run=root.locator('[data-marker=run]');
   await page.waitForFunction(()=>!document.querySelector('[data-marker=save]').disabled);
+  const id=root.locator('tbody [data-marker=id]');
+  assert.deepEqual(await root.locator('thead th').allTextContents(),['마커 ID','모서리','X (mm)','Y (mm)','Z (mm)','좌표 읽기']);
+  assert.equal(await id.count(),1);assert.equal(await id.inputValue(),'0');
+  assert.equal(await id.evaluate(input=>input.parentElement.rowSpan),4);
   assert.deepEqual(await root.locator('tbody th').allTextContents(),['A','B','C','D']);
-  assert.equal(await root.locator('tbody input').first().getAttribute('aria-label'),'마커 모서리 A BASE X');
+  assert.equal(await root.locator('tbody [data-marker-coordinate]').first().getAttribute('aria-label'),'마커 모서리 A BASE X');
   assert.equal(await root.locator('tbody button').last().getAttribute('aria-label'),'모서리 D에 현재 TCP 좌표 입력');
   assert.equal(await run.isDisabled(),true);
-  await root.locator('tbody input').first().fill('123');
+  await id.fill('9');await root.locator('tbody [data-marker-coordinate]').first().fill('123');
   await root.locator('[data-marker=reload]').click();
   await page.waitForFunction(()=>!document.querySelector('[data-marker=reload]').disabled);
-  assert.deepEqual(await root.locator('tbody input').evaluateAll(inputs=>inputs.map(i=>i.value)),Array(12).fill(''),'reload must discard unsaved coordinates when no marker is registered');
+  assert.deepEqual(await root.locator('tbody [data-marker-coordinate]').evaluateAll(inputs=>inputs.map(i=>i.value)),Array(12).fill(''),'reload must discard unsaved coordinates when no marker is registered');
+  assert.equal(await id.inputValue(),'0');
   assert.equal(await root.locator('[data-marker=enabled]').isChecked(),false);
   await root.locator('[data-marker=enabled]').check();
-  assert.deepEqual(await root.locator('tbody input').evaluateAll(inputs=>inputs.map(i=>i.value)),Array(12).fill(''));
+  assert.deepEqual(await root.locator('tbody [data-marker-coordinate]').evaluateAll(inputs=>inputs.map(i=>i.value)),Array(12).fill(''));
+  await id.fill('7');assert.match(await root.locator('[data-marker=print]').getAttribute('href'),/marker_id=7&/);
+  await root.locator('tbody button').first().click();await page.waitForFunction(()=>!document.querySelector('[data-marker=save]').disabled);
+  assert.equal(await id.inputValue(),'7','reading corner A must preserve the marker ID');
+  assert.deepEqual(await root.locator('tbody tr').first().locator('[data-marker-coordinate]').evaluateAll(inputs=>inputs.map(i=>Number(i.value))),[-10,20,30]);
   const coords=[[0,100,0],[100,100,0],[100,0,0],[0,0,0]].flat();
-  for(let i=0;i<12;i++)await root.locator('tbody input').nth(i).fill(String(coords[i]));
-  await root.locator('tbody input').first().focus();await page.keyboard.press('Tab');
-  assert.equal(await root.locator('tbody input').nth(1).evaluate(input=>input===document.activeElement),true);
+  for(let i=0;i<12;i++)await root.locator('tbody [data-marker-coordinate]').nth(i).fill(String(coords[i]));
+  await root.locator('tbody [data-marker-coordinate]').first().focus();await page.keyboard.press('Tab');
+  assert.equal(await root.locator('tbody [data-marker-coordinate]').nth(1).evaluate(input=>input===document.activeElement),true);
   await root.locator('[data-marker=save]').click();await page.waitForFunction(()=>!document.querySelector('[data-marker=run]').disabled);
+  assert.equal(writes[0].body.config.marker_id,7);assert.deepEqual(writes[0].body.config.corners_base_mm,[[0,100,0],[100,100,0],[100,0,0],[0,0,0]]);
   await run.click();await page.waitForFunction(()=>document.querySelector('[data-marker=quality]').textContent.includes('12장'));
   await root.locator('[data-marker=preview]').click();await page.waitForFunction(()=>document.querySelector('[data-marker=view-status]').textContent.includes('영상 #12'));
   const projected=await page.evaluate(async()=>{const {projectBase}=await import('/static/robot-camera-calibration.js');return projectBase([0,0,0],{camera_from_base:[[0,-1,0,0],[0,0,-1,450],[1,0,0,1500],[0,0,0,1]],intrinsics:[[600,0,320],[0,600,240],[0,0,1]],distortion:[0,0,0,0,0]});});
@@ -72,22 +85,23 @@ process.chdir(path.resolve(__dirname,'..'));
   state={...state,revision:'3'.repeat(32),result:null,state:'required',message:'최신 등록값 · 재보정 필요'};
   await root.locator('[data-marker=reload]').click();
   await page.waitForFunction(()=>document.querySelector('[data-marker=status]').textContent.includes('최신 등록값'));
+  assert.equal(await id.inputValue(),'7');
   const oldResponse=page.waitForResponse(async response=>response.url().endsWith('/camera-calibration/view')&&(await response.json()).status.revision==='2'.repeat(32));
   releaseView();await oldResponse;
   await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
   assert.match(await root.locator('[data-marker=status]').textContent(),/최신 등록값/,'late preview must not restore an earlier calibration');
   await root.locator('[data-marker=preview]').click();
-  await root.locator('tbody input').first().fill('1');assert.equal(await run.isDisabled(),true);
+  await root.locator('tbody [data-marker-coordinate]').first().fill('1');assert.equal(await run.isDisabled(),true);
   for(const width of [736,390,320]){
    await page.setViewportSize({width,height:900});
    const boxes=await page.evaluate(()=>[...document.querySelectorAll('body,main,#camera-calibration,form,details,.marker-settings,.marker-actions,.marker-image')].map(e=>[e.tagName,e.className,e.getBoundingClientRect().width,e.scrollWidth]));
    assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth+1),false,'page overflow at '+width+' '+JSON.stringify(boxes));
-   const widths=await root.locator('tbody input').first().evaluate(input=>[input.getBoundingClientRect().width,input.parentElement.getBoundingClientRect().width]);
+   const widths=await root.locator('tbody [data-marker-coordinate]').first().evaluate(input=>[input.getBoundingClientRect().width,input.parentElement.getBoundingClientRect().width]);
    assert.ok(widths[0]<=widths[1]);
   }
   await root.screenshot({path:'.cache/marker-calibration-ui/mobile.png'});
   assert.deepEqual(writes.map(x=>x.path),['/api/robot/camera-calibration','/api/robot/camera-calibration/run']);
   assert.deepEqual(errors,[]);
-  console.log('PASS: blank physical coordinates and reload, 12 full-cell inputs, revision, manual calibration, quality, calibrated CAD overlay, late-preview isolation, dirty-state lock, keyboard and 320–1200px layouts. All network mocked.');
+  console.log('PASS: shared marker ID column, print/save/reload and TCP read isolation, 12 full-cell coordinates, revision, calibration, CAD overlay, late-preview isolation, keyboard and 320–1200px layouts. All network mocked.');
  }finally{await browser.close();}
 })().catch(e=>{console.error(e);process.exitCode=1;});
