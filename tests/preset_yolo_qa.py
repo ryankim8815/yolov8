@@ -60,7 +60,7 @@ def create_qa_app():
         path=request.url.path
         if request.method!='GET' and path.startswith('/api/robot/'):
             forbidden=('execution-preview' in path or 'recognition-preview' in path or path.endswith('/executions/approve'))
-            allowed=(path.startswith('/api/robot/presets') or path.startswith('/api/robot/preset-voice') or path in {'/api/robot/stop','/api/robot/pick/cancel'})
+            allowed=(path.startswith('/api/robot/presets') or path.startswith('/api/robot/preset-voice') or path in {'/api/robot/stop','/api/robot/pick/cancel','/api/robot/pick/scenario/preview'})
             if forbidden or not allowed:return JSONResponse(dict(detail='격리 모드 · 실제 장치 명령 차단'),503)
         return await call_next(request)
     @app.post('/__qa/state')

@@ -10,7 +10,7 @@ export function connectRobotArm(el,signal,onOrbit) {
   let scenarioPreview=null,scenarioVisible=false;
   const exampleGuides=exampleScenarioGuides(),exampleTcp=framePose(multiply(armFrames(defaultArmJoints)[6],poseFrame(simulationToolPose)));
   const simulationObservers=new Set();
-  const simulationState=()=>simulation?{state:simulation.state,progress:simulation.frame?.progress||0,message:simulation.message,route:simulation.route,step:(simulation.frame?.segment||0)+1}:
+  const simulationState=()=>simulation?{state:simulation.state,progress:simulation.frame?.progress||0,message:simulation.message,route:simulation.route,step:(simulation.frame?.segment||0)+1,seedSource:simulation.seedSource}:
     {state:"idle",progress:0,message:"각 지점을 입력한 뒤 시뮬레이션을 시작하세요."};
   const notifySimulation=()=>{const state=simulationState();for(const fn of simulationObservers)fn(state);};
   function stopSimulation(){
@@ -40,7 +40,7 @@ export function connectRobotArm(el,signal,onOrbit) {
     if(!active||!attached)return;
     stopSimulation();
     const seed=[...(recipe?.example?defaultArmJoints:sample.angles)],tool=poseFrame(toolPose),controller=new AbortController();
-    const job={state:"planning",controller,route,recipe,handled:new Set(),frame:{angles:seed,tcp:framePose(multiply(armFrames(seed)[6],tool)),progress:0,opening_mm:recipe?.idle_opening_mm??null},message:"시뮬레이션 경로와 공구 방향을 계산하고 있습니다.",elapsed:0};
+    const job={state:"planning",controller,route,recipe,seedSource:recipe?.example?'example':sample.live?'telemetry':'fallback',handled:new Set(),frame:{angles:seed,tcp:framePose(multiply(armFrames(seed)[6],tool)),progress:0,opening_mm:recipe?.idle_opening_mm??null},message:"시뮬레이션 경로와 공구 방향을 계산하고 있습니다.",elapsed:0};
     simulation=job;cancelTcp("시뮬레이션 중");notifySimulation();publish();
     try {
       const options={toolPose,signal:AbortSignal.any([signal,controller.signal])};
@@ -126,13 +126,13 @@ export function connectRobotArm(el,signal,onOrbit) {
     if(!active)return;
     const preview=simulation?.frame,sceneRecipe=simulation?.recipe||(scenarioVisible?scenarioPreview:null),exampleContext=Boolean(sceneRecipe?.example),idleExample=exampleContext&&!preview;
     const display=preview?{angles:preview.angles,live:false,reason:"시뮬레이션 · 실제 기기 명령 없음"}:idleExample?{angles:defaultArmJoints,live:false,reason:'예시 기본 자세 · 실제 기기 명령 없음'}:sample;
-    const shownTcp=preview?preview.tcp:idleExample?exampleTcp:tcp,displayBox=exampleContext?sceneRecipe.box:parcelBox;
+    const shownTcp=preview?preview.tcp:idleExample?exampleTcp:tcp,displayBox=sceneRecipe?.box??parcelBox;
     ui.canvas.dataset.example=exampleContext;
     ui.simulation.hidden=!preview;
     root.dataset.scenarioPlayback=Boolean(preview&&simulation.recipe);
     ui.simulationStage.textContent=preview?simulation.message:"";
     ui.simulationMetrics.hidden=!preview||!simulation.recipe;
-    ui.simulationMetrics.textContent=preview&&simulation.recipe?`가상 벌림 ${mm(preview.opening_mm)} mm · 상품 ${preview.holding?'파지 중':preview.released?'박스에 놓임':'파지 전'}`:'';
+    ui.simulationMetrics.textContent=preview&&simulation.recipe?`가상 벌림 ${mm(preview.opening_mm)} mm · 상품 ${preview.holding?'파지 중':preview.released?'놓기 완료':'파지 전'}`:'';
     ui.simulationPause.disabled=!["running","paused"].includes(simulation?.state);
     ui.simulationPause.textContent=simulation?.state==="paused"?"계속 재생":"일시정지";
     ui.simulationConfirm.hidden=!["awaiting_grip","awaiting_open"].includes(simulation?.state);
@@ -150,13 +150,13 @@ export function connectRobotArm(el,signal,onOrbit) {
     ui.canvas.setAttribute("aria-label","E0509 6축 매니퓰레이터. "+display.reason+". 관절각 "+display.angles.map(mm).join(", ")+"도. BASE 원점 고정. "+(preview||idleExample?"시뮬레이션 TCP와 공구 방향 표시.":tcp?"실측 TCP와 공구 방향 표시.":"TCP 수신 없음. 모델 플랜지 방향 표시."));
     ui.parcelBox.hidden=!displayBox;
     if(displayBox){
-      ui.boxTitle.textContent=(exampleContext?'예시 택배 박스':"택배 박스")+(displayBox.draft?" · 저장 전":"");
+      ui.boxTitle.textContent=(exampleContext?'예시 택배 박스':sceneRecipe?'프리셋 택배 박스':"택배 박스")+(displayBox.draft?" · 저장 전":"");
       ui.boxSize.textContent="가로 × 세로 × 높이 · "+displayBox.size_mm.join(" × ")+" mm";
       ui.boxCenter.textContent="바닥면 중심 · BASE ("+displayBox.center_base_mm.join(", ")+") mm";
       ui.canvas.setAttribute("aria-label",ui.canvas.getAttribute("aria-label")+" "+ui.boxSize.textContent+". "+ui.boxCenter.textContent+".");
     }
     const actualHand=attached?handState():null;
-    ui.hand.hidden=!attached||exampleContext;
+    ui.hand.hidden=!attached||exampleContext||Boolean(preview);
     const hand=actualHand&&(preview&&simulation.recipe||idleExample)?{...actualHand,opening_mm:idleExample?sceneRecipe.idle_opening_mm:Number.isFinite(preview.opening_mm)?preview.opening_mm:null}:actualHand;
     if(actualHand){
       const hand=actualHand;

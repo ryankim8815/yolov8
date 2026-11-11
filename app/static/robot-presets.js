@@ -14,7 +14,7 @@ const numberInput=(key,value,label)=>`<label>${label}<input type="number" step="
 const terminal=state=>['completed','failed','unknown','cancelled'].includes(state);
 
 export function connectPresets(root,arm,signal){
-  root.innerHTML=`<div class="preset-heading"><div><h3>경로 편집</h3><p class="scenario-caption">저장한 경로를 선택하고 단계와 음성 명령을 설정하세요.</p></div><span data-p="saved" class="scenario-badge">조회 중</span></div>
+  root.innerHTML=`<div class="preset-heading"><div><h3>경로 편집</h3><p class="scenario-caption">저장한 경로를 선택하고 단계와 음성 명령을 설정하세요.</p></div><div class="preset-preview-entry"><a href="#preset-execution">시뮬레이션으로 미리보기 ↓</a><span data-p="saved" class="scenario-badge">조회 중</span></div></div>
     <div class="preset-layout"><aside class="preset-library"><div class="preset-library-head"><h4>내 프리셋</h4><button type="button" data-action="new">＋ 추가</button></div><div data-p="list"></div></aside>
     <section class="preset-detail"><div class="preset-edit-head"><label>프리셋 이름<input data-field="name" maxlength="80"></label><button type="button" data-action="copy">복제</button></div>
     <section data-p="object-source" class="preset-object-source" aria-label="객체 정보 출처"></section>
@@ -25,7 +25,7 @@ export function connectPresets(root,arm,signal){
     <div class="preset-table-scroll"><table class="scenario-joint-table preset-table"><thead><tr><th>단계</th><th>이동 방식</th><th>동작 속도</th><th>입력 방식</th>${[1,2,3,4,5,6].map(i=>'<th>J'+i+'</th>').join('')}<th>벌림 기준</th><th>벌림 (mm)</th><th>접촉 파지</th></tr></thead><tbody data-p="steps"></tbody></table></div>
     <details class="preset-voice-binding"><summary>음성 명령 연결</summary><div class="preset-edit-head"><h4>등록 문장과 확인 방식</h4><label class="preset-check"><input type="checkbox" data-field="voice_enabled">음성 사용</label></div><label>등록 명령 · 한 줄에 하나<textarea data-p="aliases" rows="2" placeholder="로봇 A박스 포장"></textarea></label><label>실행 확인<select data-field="confirmation"><option value="screen">화면에서 승인 후 실행</option><option value="voice">‘로봇 실행’으로 음성 재확인</option></select></label><button type="button" data-action="use-transcript" disabled>최근 인식문을 명령에 추가</button><p class="scenario-caption">공통 명령: 로봇 실행 · 로봇 취소 · 로봇 중단 · 음성 대기 종료</p></details>
     <div class="pose-actions"><button type="button" data-action="save">프리셋 저장</button><button type="button" data-action="discard">변경 취소</button><button type="button" data-action="reload">최신 설정 불러오기</button></div><p data-p="message" role="status"></p></section></div>
-    <section class="preset-player" id="preset-execution"><div class="panel-head"><h4>경로 시뮬레이션 · 실제 실행</h4><span data-p="count"></span></div><details class="preset-simulation-settings" open><summary>시뮬레이션 객체 설정</summary><div data-p="simulation-settings"></div></details><section class="preset-readiness" aria-label="실행 준비 상태"><div class="preset-edit-head"><h5>실행 준비 상태</h5><button type="button" data-action="refresh-readiness">상태 다시 확인</button></div><p data-p="native-status" role="status">카메라·음성 서비스 확인 중</p><p data-p="robot-status" role="status">실제 로봇 연결 확인 중</p><div data-p="requirements"></div><div class="pose-actions"><a href="/training#live">카메라 설정</a><a href="#manipulator">로봇 연결 상태</a></div></section><div class="pose-actions"><label>실행 대상 · 수동·음성 공통<select data-p="voice-target"><option value="simulation">시뮬레이션</option><option value="hardware">실제 로봇</option></select></label><button type="button" data-action="play">시뮬레이션 시작</button><button type="button" data-action="pause">일시정지 / 계속</button><button type="button" data-action="sim-stop">가상 재생 종료</button><label>재생 배속<select data-p="rate"><option>1</option><option>5</option><option selected>10</option><option>20</option></select></label></div><p data-p="simulation" role="status">경로를 불러오는 중입니다.</p><p data-p="job" role="status"></p>
+    <section class="preset-player" id="preset-execution"><div class="panel-head"><h4>경로 시뮬레이션 · 실제 실행</h4><span data-p="count"></span></div><section class="preset-simulation-guide" aria-label="장비 없이 시뮬레이션"><div class="preset-edit-head"><h5>로봇 연결 없이 가상으로 테스트하세요</h5><span data-p="simulation-connection" class="scenario-badge">연결 확인 중</span></div><p>저장된 좌표나 편집 중인 좌표로 미리 볼 수 있습니다. 좌표가 아직 없다면 예시 경로로 먼저 체험하세요.</p><div class="pose-actions"><label>예시 작업<select data-p="demo-region"><option value="floor">바닥 · 수직 파지</option><option value="shelf">선반 · 수평 파지</option></select></label><button type="button" data-action="demo">예시 17단계 체험</button></div><p class="scenario-caption">예시는 현재 프리셋과 별개의 가상 경로입니다. 프리셋·작업 좌표를 저장하거나 로봇·마이크를 작동하지 않습니다.</p></section><details class="preset-simulation-settings" open><summary>시뮬레이션 객체 설정</summary><div data-p="simulation-settings"></div></details><section class="preset-readiness" aria-label="실행 준비 상태"><div class="preset-edit-head"><h5>서비스 연결 · 프리셋 준비 상태</h5><button type="button" data-action="refresh-readiness">상태 다시 확인</button></div><p data-p="native-status" role="status">카메라·음성 서비스 확인 중</p><p data-p="robot-status" role="status">실제 로봇 연결 확인 중</p><div data-p="requirements"></div><div class="pose-actions"><a href="/training#live">카메라 설정</a><a href="#manipulator">로봇 연결 상태</a></div></section><div class="pose-actions"><label>실행 대상 · 수동·음성 공통<select data-p="voice-target"><option value="simulation">시뮬레이션</option><option value="hardware">실제 로봇</option></select></label><button type="button" data-action="play">시뮬레이션 시작</button><button type="button" data-action="pause">일시정지</button><button type="button" data-action="confirm-simulation" hidden>가상 파지 확인 후 이송</button><button type="button" data-action="sim-stop">가상 재생 종료</button><label>재생 배속<select data-p="rate"><option>1</option><option>5</option><option selected>10</option><option>20</option></select></label></div><p data-p="simulation-context" class="preset-simulation-context"></p><label class="simulation-progress preset-playback-progress">전체 진행<input data-p="progress" type="range" min="0" max="1000" value="0" disabled><output data-p="percent">0%</output></label><p data-p="simulation" role="status">경로를 불러오는 중입니다.</p><details data-p="simulation-errors" class="preset-simulation-errors" hidden><summary>경로 계산 오류 자세히 보기</summary><p data-p="simulation-error-detail"></p></details><p data-p="job" role="status" hidden></p>
     <section class="preset-voice-console"><div class="preset-edit-head"><h4>음성 대기</h4><span data-p="mic-state" class="scenario-badge">청취 종료</span></div><div class="pose-actions"><button type="button" data-action="listen">음성 대기 시작</button><button type="button" data-action="unlisten">음성 대기 종료</button></div><p class="scenario-caption">마이크 입력은 Mac 음성 서비스를 사용합니다. 종료 전까지 연속 대기합니다. 청취 종료와 로봇 작업 중단은 별개입니다.</p><div data-p="class-gate" class="preset-class-gate" hidden></div><p data-p="transcript"></p><p data-p="voice-message" role="status"></p><div data-p="voice-selection" class="preset-pending preset-voice-selection" hidden></div><div data-p="voice-pending" class="preset-pending" hidden></div>
     <details class="preset-command-tests"><summary>고급 · 문장 입력 테스트</summary><label>문장 입력 테스트 · 실제 장비 실행 불가<input data-p="text" placeholder="등록한 명령을 입력하세요"></label><label data-p="test-class-field" hidden>테스트 클래스 · 현재 모델의 이름 한 개<input data-p="test-class" placeholder="예: 스팸 · 모의 입력 전용"></label><div class="pose-actions"><button type="button" data-action="text-test">명령 테스트</button><button type="button" data-action="test-play" disabled>테스트 결과 시뮬레이션</button></div><p data-p="test-result" role="status"></p><div data-p="test-targets" class="preset-detection-candidates"></div></details></section></section>
     <dialog data-p="dialog" aria-labelledby="preset-execution-title"><h3 id="preset-execution-title">실제 프리셋 실행 승인</h3><p data-p="approval-summary"></p><pre data-p="approval-path" class="scenario-hardware-path"></pre><p data-p="approval-status" role="status"></p><div class="pose-actions"><button type="button" data-action="cancel">승인 요청 취소</button><button type="button" data-action="approve">승인 후 실제 실행</button></div></dialog>`;
@@ -35,11 +35,12 @@ export function connectPresets(root,arm,signal){
   let presets=[],draft=null,dirty=false,busy=false,realBusy=false,conflict=false,recipe=null,testRecipe=null,previewTimer,pollTimer,epoch=0,ticket=null,ticketTimer,lastVoiceSimulation=null,simulation={state:'idle',step:0};
   let voicePending=null,voiceSelection=null,voicePreparation=null,voiceClass=null,lastTranscript='',lastStopSerial=null,testBinding=null,textRequest=0;
   let voiceBusy=false,voiceListening=false,voiceCanStop=false,pollEpoch=0;
-  let readinessBusy=false,readinessTimer,robotConnected=false,requirementsSignature='';
+  let readinessBusy=false,readinessTimer,robotConnected=false,requirementsSignature='',demoRequest=0,demoController=null;
   const message=(text,error=false)=>{ui.message.textContent=text;ui.message.dataset.error=error;};
   const detection=connectPresetDetection(ui['object-source'],{getDraft:()=>draft,onChange:()=>changed(true),onPrepare:()=>void hardware(null,true),signal});
   const snapshot=()=>{if(draft)cache.set(draft.id,{draft:structuredClone(draft),dirty});};
-  function invalidate(keepDetection=false){epoch++;clearTimeout(previewTimer);recipe=null;arm.simulationAction('stop');arm.setScenarioPreview(null);cancelTicket();if(!keepDetection)detection.reset();}
+  function cancelDemo(){demoRequest++;if(demoController){demoController.abort();demoController=null;busy=false;}}
+  function invalidate(keepDetection=false){epoch++;cancelDemo();clearTimeout(previewTimer);recipe=null;arm.simulationAction('stop');arm.setScenarioPreview(null);cancelTicket();if(!keepDetection)detection.reset();}
   function cancelTicket(){clearTimeout(ticketTimer);if(ticket){void api('pick/cancel','POST',{approval_id:ticket.approval_id}).catch(()=>{});ticket=null;}if(ui.dialog.open)ui.dialog.close();}
   const simulationActive=()=>['planning','running','paused','awaiting_grip','awaiting_open'].includes(simulation.state);
   function controls(){
@@ -49,15 +50,23 @@ export function connectPresets(root,arm,signal){
     for(const action of ['new','copy','add','import-box'])root.querySelector(`[data-action="${action}"]`).disabled=!draft||busy||realBusy||voiceBusy||(action==='copy'&&(dirty||conflict));
     root.querySelector('[data-action="reload"]').disabled=busy||realBusy||voiceBusy;
     for(const button of root.querySelectorAll('[data-action="import-example"]'))button.disabled=!draft||busy||realBusy||voiceBusy;
-    root.querySelector('[data-action="play"]').disabled=!draft||(draft?.object_source==='yolo'&&!usesSimulationObject()?(dirty||conflict||simulationActive()):!recipe||recipe.errors.length>0||(ui['voice-target'].value==='hardware'&&(dirty||conflict||simulationActive())))||busy||realBusy||voiceBusy;
-    root.querySelector('[data-action="play"]').textContent=ui['voice-target'].value==='hardware'?'실제 프리셋 실행':'시뮬레이션 시작';
-    root.querySelector('[data-action="pause"]').disabled=!simulationActive();
-    root.querySelector('[data-action="sim-stop"]').disabled=!simulationActive();
-    root.querySelector('[data-action="test-play"]').disabled=!testRecipe||busy||realBusy;
+    const hardwareTarget=ui['voice-target'].value==='hardware',needsYolo=draft?.object_source==='yolo'&&!usesSimulationObject(),needsSaved=hardwareTarget||needsYolo;
+    root.querySelector('[data-action="play"]').disabled=!draft||simulationActive()||(!needsYolo&&(!recipe||recipe.errors.length>0))||(needsSaved&&(dirty||conflict))||busy||realBusy||voiceBusy||(hardwareTarget&&!robotConnected);
+    root.querySelector('[data-action="play"]').textContent=hardwareTarget?'실제 프리셋 실행':'시뮬레이션 시작';
+    root.querySelector('[data-action="pause"]').disabled=!['running','paused'].includes(simulation.state);
+    root.querySelector('[data-action="pause"]').textContent=simulation.state==='paused'?'계속 재생':'일시정지';
+    const confirmation=root.querySelector('[data-action="confirm-simulation"]');confirmation.hidden=!['awaiting_grip','awaiting_open'].includes(simulation.state);confirmation.textContent=simulation.state==='awaiting_open'?'가상 박스에서 열기':'가상 파지 확인 후 이송';
+    root.querySelector('[data-action="sim-stop"]').disabled=simulation.state==='idle'&&!demoController;
+    root.querySelector('[data-action="test-play"]').disabled=!testRecipe||busy||realBusy||simulationActive();
+    root.querySelector('[data-action="demo"]').disabled=!draft||busy||realBusy||voiceBusy||simulationActive()||hardwareTarget;
+    ui['demo-region'].disabled=busy||realBusy||voiceBusy||simulationActive()||hardwareTarget;
+    ui.progress.disabled=!['running','paused','awaiting_grip','awaiting_open','complete'].includes(simulation.state);
+    ui['simulation-connection'].textContent=robotConnected?'로봇 연결됨 · 가상 테스트 가능':'로봇 미연결 · 가상 테스트 가능';
+    ui.job.hidden=!hardwareTarget&&!realBusy;
     root.querySelector('[data-action="use-transcript"]').disabled=!lastTranscript||busy||realBusy;
     for(const button of root.querySelectorAll('[data-select]'))button.disabled=busy||realBusy||voiceBusy;
     for(const button of root.querySelectorAll('[data-op]')){
-      button.disabled=busy||realBusy||voiceBusy||(button.dataset.op==='execute'&&(dirty||conflict||simulationActive()));
+      button.disabled=busy||realBusy||voiceBusy||(button.dataset.op==='execute'&&(simulationActive()||needsSaved&&(dirty||conflict)||hardwareTarget&&!robotConnected));
       if(button.dataset.op==='execute')button.textContent=ui['voice-target'].value==='hardware'?'이 단계 실제 실행':'이 단계 시뮬레이션';
     }
     for(const input of root.querySelectorAll('[data-field],[data-joint],[data-node-field],[data-node-value],[data-prepare-speed],[data-grasp-mode],[data-simulation-mode], [data-p="aliases"], [data-p="range"],[data-p="start"],[data-p="end"]'))input.disabled=busy||realBusy||voiceBusy||input.hasAttribute('data-locked');
@@ -88,7 +97,7 @@ export function connectPresets(root,arm,signal){
   }
   function renderRequirements(){
     const issues=configurationIssues(),signature=JSON.stringify(issues);if(signature===requirementsSignature)return;requirementsSignature=signature;
-    ui.requirements.innerHTML=issues.length?`<strong>입력할 작업 좌표 ${issues.length}개</strong>${issues.map(([field,label])=>`<div class="preset-requirement"><span>${label}</span><button type="button" data-configure-field="${field}">입력 위치로 이동</button></div>`).join('')}<p class="scenario-caption">실제 작업 좌표를 입력하거나 저장 자세를 불러온 뒤 프리셋을 저장하세요.</p>`:'';
+    ui.requirements.innerHTML=issues.length?`<strong>입력할 작업 좌표 ${issues.length}개</strong>${issues.map(([field,label])=>`<div class="preset-requirement"><span>${label}</span><button type="button" data-configure-field="${field}">입력 위치로 이동</button></div>`).join('')}<p class="scenario-caption">좌표를 입력하거나 저장 자세를 불러오면 저장 전에도 시뮬레이션할 수 있습니다. 실제 실행 전에는 프리셋을 저장하세요.</p>`:'';
   }
   function configureField(field){
     const input=root.querySelector(`[data-field="${CSS.escape(field)}"]`);if(!input)return;
@@ -204,9 +213,13 @@ export function connectPresets(root,arm,signal){
     try{
       const p=await api(`presets/${draft.id}/preview`,'POST',{preset:draft,simulation_object:usesSimulationObject(),...(draft.object_source==='yolo'?detection.payload():{})},signal);
       if(version!==epoch)return;p.region??=draft.region;recipe=p;arm.setScenarioPreview(p.product?.center_base_mm?.every(Number.isFinite)?p:null);ui.count.textContent=p.steps.length+'단계';
-      ui.simulation.textContent=p.errors.length?p.errors.join(' '):p.example?'모의 객체 · 시뮬레이션 전용 · 실제 장비 목표와 다를 수 있습니다.':p.object_source==='yolo'&&!p.detected?'시작 버튼을 누르고 대상 클래스를 말씀하세요. 탐지 객체 선택 후 경로를 계산하고 별도로 승인합니다.':'재생 준비 완료 · 실제 장치 명령 없음';
+      if(simulation.state==='idle'){
+        ui['simulation-errors'].hidden=!p.errors.length;ui['simulation-error-detail'].textContent=[...new Set(p.errors)].join('\n');
+        ui['simulation-context'].textContent=dirty?'편집 중인 프리셋 경로 · 저장 전 변경 포함':'저장된 프리셋 경로';
+        ui.simulation.textContent=p.errors.length?(configurationIssues().length?'필수 좌표 '+configurationIssues().length+'개를 입력하면 프리셋 시뮬레이션을 시작할 수 있습니다. 예시 경로는 바로 체험할 수 있습니다.':p.errors[0]):p.example?'모의 객체 · 시뮬레이션 전용 · 실제 장비 목표와 다를 수 있습니다.':p.object_source==='yolo'&&!p.detected?'시작 버튼을 누르고 대상 클래스를 말씀하세요. 탐지 객체 선택 후 경로를 계산하고 별도로 승인합니다.':'재생 준비 완료 · 실제 장치 명령 없음';
+      }
       renderSteps();controls();
-    }catch(error){if(version===epoch){recipe=null;arm.setScenarioPreview(null);ui.simulation.textContent=error.message;controls();}}
+    }catch(error){if(version===epoch){recipe=null;arm.setScenarioPreview(null);if(simulation.state==='idle')ui.simulation.textContent=error.message;controls();}}
   }
   async function choose(id){snapshot();invalidate();const p=presets.find(p=>p.id===id)||presets[0];selected=p.id;try{localStorage.setItem('robot-preset-selection',p.id);}catch{}const url=new URL(location.href);url.searchParams.set('preset',selected);history.replaceState(history.state,'',url);const stored=cache.get(p.id);draft=structuredClone(stored?.dirty?stored.draft:p);draft.grasp_abc??={floor:null,shelf:null};draft.simulation_objects??={floor:null,shelf:null};dirty=stored?.dirty||false;conflict=dirty&&draft.revision!==p.revision;message('');render();await preview();}
   async function load(){busy=true;controls();try{presets=(await api('presets','GET',undefined,signal)).presets;await choose(presets.some(p=>p.id===selected)?selected:presets[0].id);}catch(error){message(error.message,true);}finally{busy=false;controls();if(location.hash==='#preset-execution'&&!root.closest('[data-manipulator-panel]').hidden)requestAnimationFrame(()=>root.querySelector('#preset-execution').scrollIntoView({block:'start'}));}}
@@ -214,21 +227,39 @@ export function connectPresets(root,arm,signal){
   async function create(copy=false){busy=true;controls();try{const p=copy?await api(`presets/${draft.id}/copy`,'POST',{revision:presets.find(p=>p.id===draft.id).revision},signal):await api('presets','POST',{id:uid(),name:'새 이동 경로'},signal);presets.push(p);await choose(p.id);}catch(error){message(error.message,true);}finally{busy=false;controls();}}
   async function playRecipe(path){
     path={...path,region:path.region??draft.region};
-    playingRecipe=path;ui.simulation.dataset.playback=String(++playbackSerial);
+    arm.simulationAction('stop');
+    playingRecipe=path;ui['simulation-errors'].hidden=true;ui['simulation-context'].textContent=path.standalone_demo?'예시 17단계 · '+(path.region==='shelf'?'선반':'바닥')+' · 현재 프리셋과 별개 · 저장하지 않음':(path.example?'모의 객체 · ':'')+(dirty?'편집 중인 프리셋 경로 · 저장 전 변경 포함':'프리셋 경로');ui.simulation.dataset.playback=String(++playbackSerial);
     arm.simulationAction('rate',Number(ui.rate.value));await arm.simulateRecipe(path);
   }
   async function run(stepId=null){
+    if(!draft||busy||realBusy||voiceBusy||simulationActive())return;
     if(ui['voice-target'].value==='hardware'){await hardware(stepId);return;}
     if(draft?.object_source==='yolo'&&!usesSimulationObject()){await requestClass('simulation',stepId);return;}
-    if(!recipe||recipe.errors.length||busy||realBusy||voiceBusy)return;
-    const version=epoch;
+    if(!stepId&&(!recipe||recipe.errors.length))return;
+    const version=stepId?++epoch:epoch;
+    if(stepId){clearTimeout(previewTimer);arm.simulationAction('stop');}
     let path=recipe;
     if(stepId){busy=true;controls();try{path=await api(`presets/${draft.id}/preview`,'POST',{preset:{...draft,range_start:stepId,range_end:stepId},simulation_object:usesSimulationObject()},signal);}finally{busy=false;controls();}}
-    if(version!==epoch||path.errors.length)return;
+    if(version!==epoch)return;
+    if(path.errors.length){ui.simulation.textContent=path.errors[0];ui['simulation-errors'].hidden=false;ui['simulation-error-detail'].textContent=path.errors.join('\n');return;}
     await playRecipe(path);
+    if(stepId&&version===epoch)void preview();
+  }
+  async function demo(){
+    if(!draft||busy||realBusy||voiceBusy||simulationActive()||ui['voice-target'].value!=='simulation')return;
+    const request=++demoRequest,controller=new AbortController();demoController=controller;busy=true;controls();
+    ui.simulation.textContent='예시 경로를 준비하고 있습니다.';
+    try{
+      const path=await api('pick/scenario/preview','POST',{example:true,region:ui['demo-region'].value},AbortSignal.any([signal,controller.signal]));
+      if(request!==demoRequest||signal.aborted||root.closest('[data-manipulator-panel]').hidden)return;
+      if(path.errors.length)throw Error(path.errors.join(' '));
+      await playRecipe({...path,standalone_demo:true});
+    }catch(error){if(request===demoRequest)ui.simulation.textContent=error.message;}
+    finally{if(demoController===controller){demoController=null;busy=false;controls();}}
   }
   async function hardware(stepId=null,recognition=false){
     if(dirty||busy||realBusy||simulationActive())return;
+    if(!robotConnected){ui.simulation.textContent='실제 로봇이 연결되지 않았습니다. 실행 대상을 시뮬레이션으로 바꾸세요.';return;}
     if(draft.object_source==='yolo'&&!recognition){await requestClass('hardware',stepId);return;}
     busy=true;controls();const version=epoch;
     try{
@@ -281,8 +312,10 @@ export function connectPresets(root,arm,signal){
       case 'capture-box':if(!robotConnected||busy||realBusy||voiceBusy)break;busy=true;controls();try{const {pose}=await api('work-points/current','GET',undefined,signal);if(!validVector(pose))throw Error('현재 TCP 여섯 좌표를 확인할 수 없습니다.');draft.box_pose=pose;changed(true);message('현재 TCP를 초안에 불러왔습니다. 놓기 위치를 확인한 뒤 프리셋을 저장하세요.');}finally{busy=false;controls();}break;
       case 'refresh-readiness':await refreshReadiness();break;
       case 'play':await run();break;
+      case 'demo':await demo();break;
       case 'pause':arm.simulationAction(simulation.state==='paused'?'resume':'pause');break;
-      case 'sim-stop':arm.simulationAction('stop');break;
+      case 'confirm-simulation':arm.simulationAction(simulation.state==='awaiting_grip'?'confirm-grip':'open-at-box');break;
+      case 'sim-stop':cancelDemo();arm.simulationAction('stop');if(simulation.state==='idle')ui.simulation.textContent='시뮬레이션 종료 · 프리셋과 저장 좌표는 유지됩니다.';controls();break;
       case 'cancel':cancelTicket();break;
       case 'approve':{if(!ticket||busy||realBusy)break;const id=ticket.approval_id;ticket=null;clearTimeout(ticketTimer);root.querySelector('[data-action="approve"]').disabled=true;busy=true;controls();try{const move=await api('presets/executions/approve','POST',{approval_id:id},signal);realBusy=!terminal(move.state);ui.dialog.close();ui.job.textContent=move.message;await poll();}finally{busy=false;controls();}break;}
       case 'listen':await listening(true);break;
@@ -301,6 +334,7 @@ export function connectPresets(root,arm,signal){
   for(const el of [ui.range,ui.start,ui.end])on(el,'change',()=>{if(!draft)return;draft.range_start=ui.range.value==='all'?null:ui.start.value;draft.range_end=ui.range.value==='all'?null:ui.end.value;changed(true);});
   on(ui['voice-target'],'change',()=>{cancelTicket();arm.simulationAction('stop');if(voicePending||voiceSelection||voiceClass)void api('preset-voice/cancel','POST',{},signal).then(poll).catch(error=>message(error.message,true));invalidate();void preview();renderSteps();controls();});
   on(ui.rate,'change',()=>arm.simulationAction('rate',Number(ui.rate.value)));
+  on(ui.progress,'input',()=>{if(!ui.progress.disabled)arm.simulationAction('seek',Number(ui.progress.value)/1000);});
   async function requestClass(target,stepId=null){
     if(!draft||dirty||conflict||busy||realBusy||voiceBusy||simulationActive())return;
     voiceBusy=true;pollEpoch++;clearTimeout(pollTimer);controls();
@@ -327,7 +361,16 @@ export function connectPresets(root,arm,signal){
   }
   on(ui.dialog,'close',cancelTicket);
   on(window,'robot-global-stop',()=>{invalidate();void poll();});
-  const unsubscribe=arm.observeSimulation(next=>{simulation=next;ui.simulation.dataset.state=next.state;ui.simulation.textContent=`${next.step||0}/${playingRecipe?.steps.length||next.route?.length||recipe?.steps.length||0} · ${next.message||next.state}`;for(const row of ui.steps.querySelectorAll('[data-preset-step]'))row.dataset.current=(playingRecipe||recipe)?.steps?.[next.step-1]?.id===row.dataset.presetStep?'true':'false';controls();});
+  const unsubscribe=arm.observeSimulation(next=>{
+    simulation=next;ui.simulation.dataset.state=next.state;
+    ui.progress.value=Math.round((next.progress||0)*1000);ui.percent.textContent=Math.round((next.progress||0)*100)+'%';
+    if(next.state==='idle'){
+      playingRecipe=null;ui['simulation-context'].textContent='프리셋 경로 · 로봇 연결 없이 미리보기';
+      ui.simulation.textContent='시뮬레이션 대기 · 프리셋 경로 또는 예시 경로를 선택하세요.';
+    }else ui.simulation.textContent=`${next.message||next.state}`+(next.seedSource==='fallback'?' · 로봇 미연결 · 기본 자세에서 재생':'');
+    for(const row of ui.steps.querySelectorAll('[data-preset-step]'))row.dataset.current=next.state!=='idle'&&!playingRecipe?.standalone_demo&&(playingRecipe||recipe)?.steps?.[next.step-1]?.id===row.dataset.presetStep?'true':'false';
+    controls();
+  });
   async function poll(){clearTimeout(pollTimer);pollTimer=null;if(signal.aborted)return;const request=++pollEpoch;try{
     const visible=!document.hidden&&!root.closest('[data-manipulator-panel]').hidden;
     const [v,status]=await Promise.all([api('preset-voice/status?heartbeat='+visible,'GET',undefined,signal),api('pick/scenario/status','GET',undefined,signal)]);
@@ -365,6 +408,6 @@ export function connectPresets(root,arm,signal){
     controls();
     if(voiceFocus){const selector=`[data-action="${CSS.escape(voiceFocus.action)}"]${voiceFocus.candidate?`[data-candidate="${CSS.escape(voiceFocus.candidate)}"]`:''}`;const next=ui[voiceFocus.scope].querySelector(selector);if(next&&!next.disabled&&!ui[voiceFocus.scope].hidden)next.focus({preventScroll:true});}
   }catch(error){if(request===pollEpoch&&error.name!=='AbortError')ui['voice-message'].textContent=error.message;}finally{if(!signal.aborted&&request===pollEpoch)pollTimer=setTimeout(poll,700);}}
-  signal.addEventListener('abort',()=>{snapshot();clearTimeout(previewTimer);clearTimeout(pollTimer);clearTimeout(ticketTimer);clearTimeout(readinessTimer);cancelTicket();unsubscribe();},{once:true});
+  signal.addEventListener('abort',()=>{cancelDemo();snapshot();clearTimeout(previewTimer);clearTimeout(pollTimer);clearTimeout(ticketTimer);clearTimeout(readinessTimer);cancelTicket();unsubscribe();},{once:true});
   void load();void poll();void refreshReadiness();
 }

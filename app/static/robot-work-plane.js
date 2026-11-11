@@ -74,6 +74,10 @@ export function connectWorkPlane(root) {
   let manipulatorWorkspace = false;
   function selectTab(active, navigate = false) {
     viewOptions.hidden = !manipulatorWorkspace || active.id === "manipulator-box-tab";
+    const presetView=manipulatorWorkspace&&active.id==='manipulator-points-tab';
+    el.sizing.hidden=presetView;
+    el.basisHint.hidden=presetView;
+    editor.querySelector('.plane-heights').hidden=presetView;
     orientation.setManipulator(!gripperWorkspace);
     orientation.setScenarioVisible(active.id==='manipulator-points-tab'&&manipulatorWorkspace);
     if(active.id!=="manipulator-points-tab")orientation.simulationAction("stop");
