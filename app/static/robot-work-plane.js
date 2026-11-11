@@ -4,6 +4,7 @@ import { trackGripperEstimate } from "./gripper-measurement.js";
 import { imagePixel, api, center, marker, sameInput, readCalibration } from "./robot-camera-frame.js";
 import { subscribeParcelBox } from "./robot-work-points.js";
 import {connectPresets} from './robot-presets.js';
+import {connectModuleManager} from './robot-modules.js';
 import {connectCameraCalibration} from './robot-camera-calibration.js';
 
 const axes = ["X", "Y", "Z"];
@@ -73,9 +74,9 @@ export function connectWorkPlane(root) {
   let gripperWorkspace = false;
   let manipulatorWorkspace = false;
   function selectTab(active, navigate = false) {
-    viewOptions.hidden = !manipulatorWorkspace || ["manipulator-box-tab","manipulator-standby-tab"].includes(active.id);
+    viewOptions.hidden = !manipulatorWorkspace || ["manipulator-box-tab","manipulator-modules-tab"].includes(active.id);
     const presetView=manipulatorWorkspace&&active.id==='manipulator-points-tab';
-    const routeView=presetView||manipulatorWorkspace&&active.id==='manipulator-standby-tab';
+    const routeView=presetView||manipulatorWorkspace&&active.id==='manipulator-modules-tab';
     editor.querySelector('[data-preset-controls]').hidden=!presetView;
     el.sizing.hidden=routeView;
     el.basisHint.hidden=routeView;
@@ -426,7 +427,8 @@ export function connectWorkPlane(root) {
       gripperWorkspace = id === "gripper";
       manipulatorWorkspace = id === "manipulator";
       if (manipulatorWorkspace && !manipulatorConnected) {
-        connectPresets(editor.querySelector("#scenario-editor"),orientation,lifetime.signal,editor.querySelector("[data-preset-controls]"),editor.querySelector("[data-preset-standby]"));
+        connectModuleManager(editor.querySelector('[data-module-manager]'),lifetime.signal);
+        connectPresets(editor.querySelector("#scenario-editor"),orientation,lifetime.signal,editor.querySelector("[data-preset-controls]"));
         manipulatorConnected = true;
       }
       editor.querySelector("[data-gripper-geometry]").hidden=!gripperWorkspace;

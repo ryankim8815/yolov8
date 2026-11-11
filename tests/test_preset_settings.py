@@ -10,6 +10,15 @@ from tests.test_robot_camera_calibration import solved
 
 
 def save(client,p):
+    # Per-path custom orientations now use a separate reusable grasp definition.
+    group=next((s for s in p['steps'] if s['kind']=='grasp'),None)
+    if group:
+        definition=client.get('/api/robot/modules/'+group['module_id']).json()
+        if definition['settings']['grasp_abc']!=p['grasp_abc']:
+            body={k:copy.deepcopy(definition[k]) for k in ('name','kind','description','default_percent','settings')}
+            body['name']='테스트 파지 자세';body['settings']['grasp_abc']=copy.deepcopy(p['grasp_abc'])
+            created=client.post('/api/robot/modules',json=body);assert created.status_code==201,created.text
+            group['module_id']=created.json()['id']
     response=client.put(BASE+'/'+p['id'],json=p)
     assert response.status_code==200,response.text
     return response.json()

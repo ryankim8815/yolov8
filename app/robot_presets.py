@@ -14,6 +14,7 @@ from .robot_preset_config import MotionPreset, PresetStep, PresetLibrary, compil
 from .robot_preset_detection import PresetDetections, read_yolo_catalog
 from .robot_pick import frame_reader
 from .store import DomainError
+from .robot_modules import ModuleLibrary,DEFAULTS
 
 
 class PresetPreview(Input):
@@ -45,12 +46,27 @@ class PresetEngine:
     def __init__(self,robot,directory):
         self.robot=robot;self.legacy=robot.scenario;self.library=PresetLibrary(directory,robot)
         self.voice=None;self.detections=PresetDetections(self)
+        self.modules=ModuleLibrary(directory,self)
+
+    def effective(self,preset):
+        p=copy.deepcopy(preset.model_dump() if isinstance(preset,MotionPreset) else preset);bindings=self.modules.bind(p)
+        for kind in ('prepare','grasp'):
+            step=next((s for s in p['steps'] if s['kind']==kind),None)
+            if step:
+                settings=bindings[step['id']]['settings']
+                if kind=='prepare':p['context'].update(standby_joints=settings['joints'],standby_opening_mm=settings['opening_mm'])
+                else:p['context']['approaches']=settings['approaches'];p['grasp_abc']=settings['grasp_abc']
+        box=self.robot.parcel_box.value;p['box_pose']=copy.deepcopy(box['tcp_pose']);p['box_size']=copy.deepcopy(box['size_mm']);p['box_center']=copy.deepcopy(box['center_base_mm']);p['context']['box_clearance_mm']=box['clearance_mm']
+        return p,bindings
 
     def compile(self,preset,detected=None,*,simulation=False,defaults=False,simulation_object=False):
+        preset,bindings=self.effective(preset)
         if simulation:
-            return compile_simulation(preset,self.robot.hand,self.robot.floor.value["z_mm"],box=self.robot.parcel_box.value,
-                                      defaults=defaults,simulation_object=simulation_object,detected=detected)
-        return compile_preset(preset,self.robot.hand,self.robot.floor.value["z_mm"],detected=detected)
+            recipe=compile_simulation(preset,self.robot.hand,self.robot.floor.value["z_mm"],box=self.robot.parcel_box.value,
+                                      defaults=defaults,simulation_object=simulation_object,detected=detected,module_settings=bindings)
+        else:recipe=compile_preset(preset,self.robot.hand,self.robot.floor.value["z_mm"],detected=detected,module_settings=bindings)
+        recipe.update(box_source='parcel_box',box_revision=self.robot.parcel_box.value['revision'],modules_revision=self.modules.load()['revision'],module_bindings=[dict(step_id=key,id=m['id'],revision=m['revision'],name=m['name']) for key,m in bindings.items()])
+        return recipe
 
     async def catalog(self):return await asyncio.to_thread(read_yolo_catalog)
 
@@ -65,6 +81,7 @@ class PresetEngine:
 
     def save(self,preset,create=False):
         self.legacy.require_idle()
+        p=preset.model_dump();self.modules.bind(p);preset=MotionPreset.model_validate(p)
         result=self.library.save(preset,create)
         if self.voice:self.voice.invalidate("프리셋 변경으로 확인 대기를 취소했습니다.")
         return result
@@ -210,7 +227,8 @@ class PresetEngine:
             self.robot.picks.record(identifier,state,str(exc) or "실행 결과 미확인")
 
 
-def engine(request):return request.app.state.robot.presets
+def engine(request):
+    e=request.app.state.robot.presets;e.modules.load();return e
 
 
 router=APIRouter(prefix="/presets")

@@ -125,6 +125,8 @@ def test_migrated_manual_drop_keeps_dynamic_object_and_idle_openings(scenario):
     p=library(client)[0]
     p['context']['virtual']['floor']['size_mm'][0]=60
     p['context']['standby_opening_mm']=75
+    from tests.test_module_library import modules,update
+    module=modules(client)[0];module['settings']['opening_mm']=75;update(client,module)
     recipe=client.post(f'{BASE}/{p["id"]}/preview',json={'preset':p}).json()
     assert recipe['steps'][11]['opening_mm']==70
     assert recipe['steps'][16]['opening_mm']==75

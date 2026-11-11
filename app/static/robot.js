@@ -422,6 +422,7 @@ async function refresh() {
   }
 }
 function routeRobot() {
+  if(location.hash==='#standby-title'){const url=new URL(location.href);url.hash='module-management-title';history.replaceState(history.state,'',url);}
   if (["#pose-title", "#product-grasp-title"].includes(location.hash)) {
     const url=new URL(location.href); url.hash="work-points-title"; history.replaceState(history.state,"",url);
   }

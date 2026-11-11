@@ -54,6 +54,7 @@ class PresetDetections:
         return value if value and value.enabled else None
 
     async def depth_target(self,p,packet,index,*,tcp=None):
+        p=self.engine.effective(p)[0]
         value=await self.spatial.object(packet,index)
         xyz=value["surface_base_mm"];region=p["region"]
         normal=[0,0,1] if region=="floor" else [-1,0,0]
@@ -80,6 +81,7 @@ class PresetDetections:
                     calibration_revision=self.spatial.value["revision"])
 
     def plane_estimate(self,p,plane,xyxy,tcp):
+        p=self.engine.effective(p)[0]
         result=plane.gripper_estimate(xyxy,tcp=tcp)
         if result.get("reason") or p.get("grasp_abc",{}).get(p["region"]) is None:return result
         axis=tool_x(plane.abc);normal_component=abs(sum(a*n for a,n in zip(axis,plane.normal)))
@@ -116,6 +118,7 @@ class PresetDetections:
             raise DomainError("YOLO 모델 또는 클래스 목록이 변경되었습니다. 클래스를 다시 선택하세요.")
 
     async def require_ready(self,p,kin=None):
+        p=self.engine.effective(p)[0]
         if kin is None:_,kin=await self.engine.legacy.inspect()
         expected=p["context"]["standby_joints"]
         width=self.engine.legacy.idle_width(p["context"])
@@ -179,7 +182,7 @@ class PresetDetections:
         else:
             calibration=self.robot.picks.calibration(camera,p["region"])
             if not calibration["revision"]:raise DomainError("이 카메라·해상도의 상품 파지 영역을 먼저 보정하세요.")
-            plane=PickPlane(Calibration(**calibration),orientation=grasp_abc(p,calibration["corners"][0]["pose"][3:]))
+            plane=PickPlane(Calibration(**calibration),orientation=grasp_abc(self.engine.effective(p)[0],calibration["corners"][0]["pose"][3:]))
         candidates=[];targets={};identifier=uid()
         for index,obj in enumerate(packet["objects"]):
             if obj["class_id"]!=selected["class_id"] or obj["confidence"]<p["yolo"]["min_confidence"]:continue

@@ -331,7 +331,7 @@ export async function planScenarioSimulation(startAngles,recipe,{toolPose=simula
     try{
       if(recipe.generic){
         if(['joint','line','circle'].includes(step.kind))await armMove(step,segment);
-        else if(step.kind==='gripper'){await hand(step.contact?recipe.width_mm:step.opening_mm,segment,step.speed);if(step.contact)holding=true;else if(holding){holding=false;released=true;}}
+        else if(step.kind==='gripper'){await hand(step.contact?(step.object_width_mm??recipe.width_mm):step.opening_mm,segment,step.speed);if(step.contact)holding=true;else if(holding){holding=false;released=true;}}
         else if(step.kind==='wait'){time+=step.seconds;push(segment);}
       }
       else if(n===1){await armMove(step,segment);await hand(recipe.idle_opening_mm,segment,config.profiles[config.stages['1'].profile].gripper);}

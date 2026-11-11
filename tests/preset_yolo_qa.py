@@ -51,6 +51,9 @@ def create_qa_app():
             plane=dict(camera=camera_info.model_dump(),region='floor',revision='qa-plane',clearance_per_side_mm=5,
                 corners=[dict(pixel=point,pose=[*xyz,0,180,0]) for point,xyz in zip([[10,10],[150,10],[150,150],[10,150]],[[-520,-70,20],[-380,-70,20],[-380,70,20],[-520,70,20]])])
             robot.picks.planes={robot_pick.camera_key(camera_info)+':floor':plane};atomic_json(robot.picks.path,robot.picks.planes)
+            from app.robot_work_points import ParcelBoxInput
+            robot.parcel_box.save(ParcelBoxInput(**{k:robot.parcel_box.value[k] for k in ('revision','size_mm','center_base_mm')},tcp_pose=[450,0,120,0,180,0],clearance_mm=200))
+            robot.presets.modules.load()
             p=copy.deepcopy(robot.presets.library.load()['presets'][0]);p['context']['waypoint1_joints']=[-180,0,60,0,120,0];p['context']['box_clearance_mm']=200;p['box_pose']=[450,0,120,0,180,0]
             p['steps']=[s.model_dump() for s in robot.presets.library.migrate(p['context'])]
             robot.presets.save(MotionPreset.model_validate(p))
@@ -61,7 +64,7 @@ def create_qa_app():
         path=request.url.path
         if request.method!='GET' and path.startswith('/api/robot/'):
             forbidden=('execution-preview' in path or 'recognition-preview' in path or path.endswith('/executions/approve'))
-            allowed=(path.startswith('/api/robot/presets') or path.startswith('/api/robot/preset-voice') or path in {'/api/robot/stop','/api/robot/pick/cancel','/api/robot/pick/scenario/preview','/api/robot/parcel-box'})
+            allowed=(path.startswith('/api/robot/presets') or path.startswith('/api/robot/preset-voice') or path.startswith('/api/robot/modules') or path in {'/api/robot/stop','/api/robot/pick/cancel','/api/robot/pick/scenario/preview','/api/robot/parcel-box'})
             if forbidden or not allowed:return JSONResponse(dict(detail='격리 모드 · 실제 장치 명령 차단'),503)
         return await call_next(request)
     @app.post('/__qa/state')

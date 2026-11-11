@@ -66,7 +66,7 @@ const assert=require('node:assert/strict');
   await page.waitForFunction(previous=>{const p=document.querySelector('[data-p=simulation]');return Number(p.dataset.playback)>previous&&p.dataset.state==='complete';},fullPlayback,{timeout:15000});
   assert.equal(await action('sim-stop').isEnabled(),true);await action('sim-stop').click();
   await page.waitForFunction(()=>document.querySelector('[data-p=simulation]').dataset.state==='idle');
-  await page.locator('[data-p=kind]').selectOption('grasp');await action('add').click();
+  await page.locator('[data-p=module]').selectOption('builtin-grasp');await action('add-module').click();
   await page.waitForFunction(()=>document.querySelectorAll('#scenario-editor [data-preset-step]').length===7);
   const locked=page.locator('[data-node-field="2:0.kind"]');assert.equal(await locked.isDisabled(),true);
   await page.locator('.preset-node-menu').nth(2).locator('summary').click();await page.locator('[data-op=up][data-index="2"]').click();await page.waitForTimeout(400);

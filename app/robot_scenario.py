@@ -124,9 +124,11 @@ class Scenario:
             raise DomainError("진행 중인 로봇 작업이 끝난 뒤 설정하거나 준비하세요.")
 
     def versions(self):
+        module_revision=self.robot.presets.modules.load()['revision'] if getattr(self.robot,'presets',None) else None
         versions=dict(config=self.config.value["revision"],box=self.robot.work_points.points["box"]["revision"],
                     hand=self.robot.hand.table["revision"],contact=self.robot.hand.contact["revision"],stop=self.stop_generation,
                     parcel_box=self.robot.parcel_box.value["revision"])
+        if module_revision is not None:versions['modules']=module_revision
         calibration=getattr(self.robot,"camera_calibration",None)
         if calibration and calibration.enabled:versions["camera_calibration"]=calibration.value["revision"]
         return versions
@@ -150,6 +152,8 @@ class Scenario:
         opening=width+10
         approach=approach_pose(config,body.region,pose)
         box=body.box_pose or (demo["box_pose"] if demo else self.robot.work_points.points["box"]["pose"])
+        if demo and body.box_pose is None and self.robot.parcel_box.value.get('tcp_pose') is not None:
+            box=copy.deepcopy(self.robot.parcel_box.value['tcp_pose']);config['box_clearance_mm']=self.robot.parcel_box.value['clearance_mm']
         errors=[]
         if config["waypoint1_joints"] is None:errors.append("1차 경유점의 관절각을 설정하세요.")
         if box is None:errors.append("택배 박스 놓기 TCP를 설정하세요.")

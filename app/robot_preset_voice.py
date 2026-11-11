@@ -401,7 +401,8 @@ class VoiceApproval(Input):
 
 router=APIRouter(prefix="/preset-voice")
 
-def voice(request):return request.app.state.robot.presets.voice
+def voice(request):
+    e=request.app.state.robot.presets;e.modules.load();return e.voice
 
 @router.get("/status")
 async def status(request:Request,heartbeat:bool=False):return voice(request).status(heartbeat=heartbeat)

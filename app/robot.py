@@ -26,6 +26,7 @@ from .robot_pick import PickTargets, router as pick_router
 from .robot_work_points import TRANSFER_POINTS, FloorReference, FloorReferenceInput, ParcelBox, ParcelBoxInput, PointName, WorkPointInput, WorkPoints
 from .robot_scenario import Scenario, router as scenario_router
 from .robot_presets import PresetEngine, router as preset_router
+from .robot_modules import router as module_router
 from .robot_preset_voice import PresetVoice, router as preset_voice_router
 from .store import DomainError
 from .robot_camera_calibration import CameraCalibration,router as camera_calibration_router
@@ -447,6 +448,7 @@ router = APIRouter(prefix="/api/robot", dependencies=[Depends(require_robot_owne
 router.include_router(pick_router)
 router.include_router(scenario_router)
 router.include_router(preset_router)
+router.include_router(module_router)
 router.include_router(preset_voice_router)
 router.include_router(hand_router)
 router.include_router(camera_calibration_router)
@@ -527,7 +529,9 @@ async def parcel_box(request: Request):
 
 @router.put("/parcel-box", dependencies=[Depends(same_site_json)])
 async def save_parcel_box(body: ParcelBoxInput, request: Request):
-    return request.app.state.robot.parcel_box.save(body)
+    robot=request.app.state.robot;robot.scenario.require_idle();value=robot.parcel_box.save(body)
+    if robot.presets:robot.presets.voice.invalidate('택배 박스 설정 변경으로 실행 확인을 취소했습니다.')
+    return value
 
 
 @router.put("/floor-reference", dependencies=[Depends(same_site_json)])

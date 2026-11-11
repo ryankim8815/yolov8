@@ -43,7 +43,7 @@ def test_migration_backup_and_independent_snapshot(scenario):
     assert robot.scenario.config.path.read_bytes()==original and robot.work_points.points==points
     backups=list(robot.scenario.config.path.parent.glob('backups/preset-migration-*/pick-scenario.json'))
     assert len(backups)==1 and backups[0].read_bytes()==original
-    assert library(client)[0]==p and len(list(robot.scenario.config.path.parent.glob('backups/*')))==1
+    assert library(client)[0]==p and len(list(robot.scenario.config.path.parent.glob('backups/*')))==2
     assert not calls
 
 
@@ -251,7 +251,7 @@ def test_ui_cleanup_imports_all_saved_locations_once_without_changing_routes(sce
     robot.pose_tests.write(robot.pose_tests.data)
     before={path:path.read_bytes() for path in lib.path.parent.glob('*.json') if path!=lib.path}
     migrated=PresetLibrary(lib.path.parent,robot).load()
-    assert migrated['schema_version']==3 and migrated['presets'][0]==original
+    assert migrated['schema_version']==4 and migrated['presets'][0]==original
     imports=migrated['ui_migration']['imported'];assert len(imports)==6
     presets={p['id']:p for p in migrated['presets']}
     for source in imports:

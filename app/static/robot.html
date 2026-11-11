@@ -127,9 +127,9 @@ docker compose run --rm --no-deps doosan-driver timeout 15 check-e0509</pre>
             <section id="scenario-editor" aria-label="이동 프리셋 편집과 실행"></section>
           </div>
         </section>
-        <section id="manipulator-standby" data-manipulator-panel hidden class="panel" role="tabpanel" aria-labelledby="manipulator-standby-tab" tabindex="0">
-          <div class="panel-head"><h2 id="standby-title">대기 자세</h2><span class="meta">관절각 · °</span></div>
-          <div class="pose-body" data-preset-standby></div>
+        <section id="manipulator-modules" data-manipulator-panel hidden class="panel" role="tabpanel" aria-labelledby="manipulator-modules-tab" tabindex="0">
+          <div class="panel-head"><h2 id="module-management-title">모듈 관리</h2><span class="meta">공통 모듈 라이브러리</span></div>
+          <div class="pose-body" data-module-manager></div>
         </section>
         <section id="manipulator-parcel-box" data-manipulator-panel hidden class="panel" role="tabpanel" aria-labelledby="manipulator-box-tab" tabindex="0">
           <div class="panel-head"><h2 id="parcel-box-title">택배 박스 설정</h2><span id="parcel-box-state" class="meta">조회 중</span></div>
@@ -146,7 +146,11 @@ docker compose run --rm --no-deps doosan-driver timeout 15 check-e0509</pre>
               <label>Z · 바닥 높이<input name="z" type="number" step="any" min="-1000000" max="1000000" placeholder="예: 0" required></label>
             </div></fieldset>
             <p id="parcel-box-preview" class="work-point-help" aria-live="polite">크기와 위치를 모두 입력하면 박스가 표시됩니다.</p>
-            <p class="work-point-help">장비 공통의 박스 크기·설치 위치입니다. 실제 놓기 TCP는 <a href="#work-points-title">이동 프리셋 → 프리셋별 박스 놓기 TCP</a>에서 별도로 설정하세요.</p>
+            <fieldset class="parcel-box-fields"><legend>공통 놓기 TCP · BASE</legend><p class="work-point-help">모든 프리셋의 박스 위치 모듈이 이 목표를 사용합니다. XYZ는 mm, ABC는 °(ZYZ)입니다.</p><div class="pose-fields">
+              <label>X<input name="tcp_x" type="number" step="any" min="-1000000" max="1000000"></label><label>Y<input name="tcp_y" type="number" step="any" min="-1000000" max="1000000"></label><label>Z<input name="tcp_z" type="number" step="any" min="-1000000" max="1000000"></label>
+              <label>A<input name="tcp_a" type="number" step="any" min="-1000000" max="1000000"></label><label>B<input name="tcp_b" type="number" step="any" min="-1000000" max="1000000"></label><label>C<input name="tcp_c" type="number" step="any" min="-1000000" max="1000000"></label>
+              <label>박스 위 상승 간격 (mm)<input name="clearance" type="number" step="any" min="0.001" max="1000" required></label>
+            </div><div class="pose-actions"><button type="button" id="parcel-box-read-tcp">현재 TCP 불러오기</button><button type="button" id="parcel-box-clear-tcp">놓기 TCP 비우기</button></div><p id="parcel-box-tcp-status" class="work-point-help"></p></fieldset>
             <div class="pose-actions">
               <button type="button" id="parcel-box-cancel" disabled>변경 취소</button>
               <button type="button" id="parcel-box-reload" hidden>최신 설정 불러오기</button>
@@ -236,7 +240,7 @@ docker compose run --rm --no-deps doosan-driver timeout 15 check-e0509</pre>
                 <div class="plane-tabs" role="tablist" aria-label="캘리브레이션 설정">
                   <button type="button" role="tab" id="manipulator-control-tab" data-manipulator-tab="#manipulator" aria-selected="false" aria-controls="manipulator-control" tabindex="-1" hidden>로봇 제어</button>
                   <button type="button" role="tab" id="manipulator-points-tab" data-manipulator-tab="#work-points-title" aria-selected="false" aria-controls="manipulator-work-points" tabindex="-1" hidden>이동 프리셋</button>
-                  <button type="button" role="tab" id="manipulator-standby-tab" data-manipulator-tab="#standby-title" aria-selected="false" aria-controls="manipulator-standby" tabindex="-1" hidden>대기 자세</button>
+                  <button type="button" role="tab" id="manipulator-modules-tab" data-manipulator-tab="#module-management-title" aria-selected="false" aria-controls="manipulator-modules" tabindex="-1" hidden>모듈 관리</button>
                   <button type="button" role="tab" id="manipulator-box-tab" data-manipulator-tab="#parcel-box-title" aria-selected="false" aria-controls="manipulator-parcel-box" tabindex="-1" hidden>택배 박스 설정</button>
                   <button type="button" role="tab" id="plane-camera-tab" aria-selected="true" aria-controls="plane-camera-settings">카메라 좌표 설정</button>
                   <button type="button" role="tab" id="plane-floor-tab" aria-selected="false" aria-controls="plane-floor-settings" tabindex="-1">바닥 기준</button>

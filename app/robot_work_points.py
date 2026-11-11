@@ -28,10 +28,12 @@ class ParcelBoxInput(BaseModel):
     size_mm: list[Annotated[FiniteFloat, Field(ge=0.001, le=1_000_000)]] = Field(min_length=3, max_length=3)
     center_base_mm: list[Annotated[FiniteFloat, Field(ge=-1_000_000, le=1_000_000)]] = Field(min_length=3, max_length=3)
     revision: str | None = Field(max_length=32)
+    tcp_pose: list[FiniteFloat] | None = Field(default=None,min_length=6,max_length=6)
+    clearance_mm: FiniteFloat = Field(default=100,gt=0,le=1000)
 
 
 class ParcelBox:
-    """Display geometry; center is the bottom face in BASE, not a robot TCP goal."""
+    """Shared carton geometry and separately taught drop TCP in BASE."""
     def __init__(self, path):
         self.path = path
         self.value = json.loads(path.read_text()) if path.exists() else dict(
@@ -40,11 +42,14 @@ class ParcelBox:
             self.value["size_mm"] = [400, 300, 250]
         if self.value.get("center_base_mm") is None:
             self.value["center_base_mm"] = [500, 0, 0]
+        self.value.setdefault('tcp_pose',None);self.value.setdefault('clearance_mm',100)
 
     def save(self, body):
         if body.revision != self.value["revision"]:
             raise DomainError("다른 화면에서 택배 박스 설정을 변경했습니다. 최신 설정을 불러오세요.")
         value = dict(size_mm=body.size_mm, center_base_mm=body.center_base_mm,
+                     tcp_pose=body.tcp_pose if 'tcp_pose' in body.model_fields_set else self.value['tcp_pose'],
+                     clearance_mm=body.clearance_mm if 'clearance_mm' in body.model_fields_set else self.value['clearance_mm'],
                      revision=uuid4().hex, updated_at=now())
         atomic_json(self.path, value)
         self.value = value

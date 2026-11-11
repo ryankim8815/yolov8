@@ -48,10 +48,14 @@ class PresetStep(Input):
     legacy_speed: HandSpeed | None = None
     prepare_motion: Literal["movej", "movel", "movec"] = "movej"
     prepare_hand_speed: HandSpeed | None = None
+    prepare_hand_id: str | None = Field(default=None,min_length=1,max_length=64,pattern=r"^[a-zA-Z0-9_-]+$")
+    module_slot: int | None = Field(default=None,ge=0,le=4)
+    module_id: str | None = Field(default=None,min_length=1,max_length=64,pattern=r'^[a-zA-Z0-9_-]+$')
     children: list["PresetStep"] = Field(default_factory=list, max_length=5)
 
     @model_validator(mode="after")
     def valid(self):
+        if self.module_id and self.kind not in {'prepare','grasp','place'}:raise ValueError('모듈 정의는 모듈 동작에만 연결할 수 있습니다.')
         if self.kind == "gripper" and "acceleration" not in self.model_fields_set:
             self.acceleration = 3000
         sizes = {"grasp": 5, "place": 4}
@@ -60,6 +64,11 @@ class PresetStep(Input):
             # The approach/above movement may also be a taught line or arc.
             if len(self.children) != sizes[self.kind] or any(c.kind != k for c,k in zip(self.children[1:], expected[1:])) or self.children[0].kind not in {"movej","movel","movec"}:
                 raise ValueError("자동 묶음의 내부 순서는 변경할 수 없습니다.")
+            slots=[c.module_slot for c in self.children]
+            if all(slot is None for slot in slots):
+                for index,child in enumerate(self.children):child.module_slot=index
+            elif slots!=list(range(sizes[self.kind])):
+                raise ValueError("모듈의 세부 단계 순서는 변경할 수 없습니다.")
         elif self.children:
             raise ValueError("자동 묶음에만 내부 단계가 있습니다.")
         if self.kind in {"movej","movel","movec","prepare"} and self.acceleration > 10:
@@ -113,9 +122,10 @@ class MotionPreset(Input):
         ids=[s.id for s in self.steps]
         all_ids=ids+[c.id for s in self.steps for c in s.children]
         all_ids += [child_id(s.id,i) for s in self.steps if s.kind in {"grasp","place"} and not s.children for i in range(5 if s.kind=="grasp" else 4)]
-        all_ids += [child_id(s.id,"hand") for s in self.steps if s.kind=="prepare"]
+        all_ids += [s.prepare_hand_id or child_id(s.id,"hand") for s in self.steps if s.kind=="prepare"]
         if len(set(all_ids))!=len(all_ids):raise ValueError("단계 ID가 중복되었습니다.")
         for s in self.steps:
+            if s.module_slot is not None:raise ValueError("모듈의 세부 단계는 개별 동작으로 분리할 수 없습니다.")
             if s.reference_id and s.reference_id not in ids:raise ValueError("참조한 단계가 삭제되었습니다.")
         if bool(self.range_start)!=bool(self.range_end):raise ValueError("시작과 종료 단계를 함께 지정하세요.")
         if self.range_start and (self.range_start not in ids or self.range_end not in ids or ids.index(self.range_start)>ids.index(self.range_end)):
@@ -159,6 +169,31 @@ class MotionPreset(Input):
             if s.reference_id or s.source in {"waypoint1","waypoint2"}:
                 s.target=copy.deepcopy(saved_target(old[s.id]));s.source="explicit";s.reference_id=None;s.j1_delta=0;s.j1_only=False
                 if s.space=="joint":check_joints(s.target)
+        # Standby movement + opening restore is one reusable two-stage module.
+        # Preserve physical step IDs and speeds while removing partial-module ranges.
+        def module_range(members,module_id):
+            if (self.range_start in members and self.range_start!=members[0]) or (self.range_end in members and self.range_end!=members[-1]):
+                raise ValueError("실행 구간은 모듈의 세부 단계가 아닌 모듈 전체를 선택하세요.")
+            if self.range_start in members:self.range_start=module_id
+            if self.range_end in members:self.range_end=module_id
+        modules=[];index=0
+        while index<len(self.steps):
+            s=self.steps[index];tail=self.steps[index+1:]
+            if s.kind in {"movej","movel","movec"} and s.source=="standby" and tail and tail[0].kind=="gripper" and tail[0].opening_source=="idle" and not tail[0].contact:
+                hand=tail[0];module_range([s.id,hand.id],s.id)
+                modules.append(s.model_copy(update=dict(kind="prepare",prepare_motion=s.kind,prepare_hand_id=hand.id,prepare_hand_speed=HandSpeed(**physical_speed(hand,True)),children=[])))
+                index+=2;continue
+            group=self.steps[index:index+4]
+            if len(group)==4 and [c.source for c in group]==["above_box","box","box","above_box"] and group[0].kind in {"movej","movel","movec"} and [c.kind for c in group[1:]]==["movel","gripper","movel"]:
+                identifier=child_id(s.id,"place-module");module_range([c.id for c in group],identifier)
+                modules.append(PresetStep(id=identifier,kind="place",name="박스 놓기",children=group,percent=s.percent,acceleration=s.acceleration))
+                index+=4;continue
+            modules.append(s);index+=1
+        self.steps=modules
+        all_ids=[s.id for s in self.steps]+[c.id for s in self.steps for c in s.children]
+        all_ids += [child_id(s.id,i) for s in self.steps if s.kind in {"grasp","place"} and not s.children for i in range(5 if s.kind=="grasp" else 4)]
+        all_ids += [s.prepare_hand_id or child_id(s.id,"hand") for s in self.steps if s.kind=="prepare"]
+        if len(set(all_ids))!=len(all_ids):raise ValueError("모듈과 단계 ID가 중복되었습니다.")
         return self
 
 
@@ -166,7 +201,7 @@ def physical_speed(step, hand=False):
     return step.legacy_speed.model_dump() if step.legacy_speed else dict(speed=step.percent/10, acceleration=step.acceleration)
 
 
-def compile_preset(preset, hand, floor_z=0, *, selected_range=True, detected=None):
+def compile_preset(preset, hand, floor_z=0, *, selected_range=True, detected=None,module_settings=None):
     """No SDK traffic; incomplete drafts return diagnostics rather than guessed targets."""
     p=MotionPreset.model_validate(preset.model_dump() if isinstance(preset,MotionPreset) else preset)
     cfg=p.context.model_dump();product=copy.deepcopy(cfg["virtual"][p.region]);errors=[]
@@ -203,28 +238,47 @@ def compile_preset(preset, hand, floor_z=0, *, selected_range=True, detected=Non
     nodes=p.steps
     if selected_range and p.range_start:
         ids=[s.id for s in nodes];nodes=nodes[ids.index(p.range_start):ids.index(p.range_end)+1]
-    result=[]
-    def append(s, group=None, forced_source=None, hand_width=None, forced_contact=None):
+    result=[];last_opening=opening
+    def append(s, group=None, forced_source=None, hand_width=None, forced_contact=None,forced_target=None):
+        nonlocal last_opening
         kind=s.kind
         if kind=="checkpoint":return
         if kind=="prepare":
+            settings=(module_settings or {}).get(s.id,{}).get('settings')
+            goal=settings['joints'] if settings else cfg['standby_joints']
+            standby_width=(settings['opening_mm'] or max((x['width_mm'] for x in hand.table['points']),default=80)) if settings else idle
             movement=s.model_copy(update={"kind":s.prepare_motion,"source":"standby","target":None,"reference_id":None,"space":"joint","j1_only":False})
-            append(movement, s.id)
-            h=PresetStep(id=child_id(s.id,"hand"),kind="gripper",name="대기 벌림 복원",opening_mm=idle,percent=s.percent,acceleration=3000,legacy_speed=s.prepare_hand_speed)
+            append(movement, s.id,forced_target=goal)
+            h=PresetStep(id=s.prepare_hand_id or child_id(s.id,"hand"),kind="gripper",name="대기 벌림 복원",opening_mm=standby_width,percent=s.percent,acceleration=3000,legacy_speed=s.prepare_hand_speed)
             append(h,s.id);return
         if kind in {"grasp","place"}:
-            specs=([("movej","상품 접근 위치","object_approach",None,False),("gripper","권장 폭으로 벌리기",None,opening,False),
+            module_pose,module_approach,module_width,module_opening=pose,approach,width,opening
+            settings=(module_settings or {}).get(s.id,{}).get('settings')
+            if kind=='grasp' and settings:
+                module_cfg=copy.deepcopy(cfg);module_cfg['approaches']=settings['approaches']
+                if pose is not None:
+                    abc=settings['grasp_abc'][p.region]
+                    if abc is None and not detected:abc=grasp_abc({**p.model_dump(),'grasp_abc':settings['grasp_abc']})
+                    module_pose=[*pose[:3],*(abc or pose[3:])]
+                    module_approach=approach_pose(module_cfg,p.region,module_pose,detected['normal'] if detected else None)
+                    if not detected:
+                        module_width=sum(abs(a)*size for a,size in zip(tool_x(module_pose[3:]),product['size_mm'])) if settings['grasp_abc'][p.region] is not None else product['size_mm'][0 if p.region=='floor' else 1]
+                        module_opening=module_width+10
+            if kind=='grasp':last_opening=module_opening
+            specs=([("movej","상품 접근 위치","object_approach",None,False),("gripper","권장 폭으로 벌리기",None,module_opening,False),
                     ("movel","파지점으로 접근","object",None,False),("gripper","접촉 확인·파지 유지",None,None,True),
                     ("movel","접근 위치로 후퇴","object_approach",None,False)] if kind=="grasp" else
                    [("movej","박스 위 위치","above_box",None,False),("movel","놓기 위치로 하강","box",None,False),
-                    ("gripper","파지 전 벌림으로 개방",None,opening,False),("movel","박스 위로 상승","above_box",None,False)])
+                    ("gripper","파지 전 벌림으로 개방",None,last_opening,False),("movel","박스 위로 상승","above_box",None,False)])
             for i,(k,title,source,w,contact) in enumerate(specs):
                 child=(s.children[i] if s.children else PresetStep(id=child_id(s.id,i),kind=k,name=title,percent=s.percent,acceleration=3000 if k=="gripper" else s.acceleration))
                 # Automatic groups never accept client-supplied Cartesian/joint targets.
                 child=child.model_copy(update={"source":source or "explicit","space":"task","target":None,"reference_id":None})
-                append(child,s.id,source,w,contact)
+                target={'object':module_pose,'object_approach':module_approach}.get(source) if kind=='grasp' else None
+                append(child,s.id,source,w,contact,forced_target=target)
                 if kind=="grasp":
                     result[-1]["object_role"]=("approach","preopen","descent","grip","retreat")[i]
+                    if contact:result[-1]['object_width_mm']=module_width
             return
         group_kind=by_id[group].kind if group else None
         calculation=("standby" if group_kind=="prepare" or s.source=="standby" or kind=="gripper" and s.opening_source=="idle" else
@@ -234,7 +288,7 @@ def compile_preset(preset, hand, floor_z=0, *, selected_range=True, detected=Non
         out=dict(id=s.id,group_id=group,kind={"movej":"joint","movel":"line","movec":"circle"}.get(kind,kind),calculation_source=calculation,computed=bool(calculation),
                  motion=kind if kind in {"movej","movel","movec"} else None,title=s.name or kind,speed=physical_speed(s,kind=="gripper"))
         if kind in {"movej","movel","movec"}:
-            target=resolve(s)
+            target=forced_target if forced_target is not None else resolve(s)
             if target is None:errors.append((s.name or kind)+"의 목표 좌표를 입력하세요.")
             out.update(target=target,space=s.space,via_pose=s.via_pose)
             out["j1_only"]=s.j1_only
@@ -258,7 +312,7 @@ def compile_preset(preset, hand, floor_z=0, *, selected_range=True, detected=Non
                 detected=copy.deepcopy(detected))
 
 
-def compile_simulation(preset,hand,floor_z=0,*,box=None,defaults=False,simulation_object=True,detected=None):
+def compile_simulation(preset,hand,floor_z=0,*,box=None,defaults=False,simulation_object=True,detected=None,module_settings=None):
     """Explicit preview-only override. Hardware always calls compile_preset."""
     p=MotionPreset.model_validate(preset.model_dump() if isinstance(preset,MotionPreset) else preset)
     draft=p.model_copy(deep=True);virtual_defaults=[]
@@ -283,7 +337,7 @@ def compile_simulation(preset,hand,floor_z=0,*,box=None,defaults=False,simulatio
             draft.box_pose=simulation_box_pose(geometry)
             draft.context.box_clearance_mm=max(draft.context.box_clearance_mm,draft.box_center[2]+draft.box_size[2]+50-draft.box_pose[2])
             virtual_defaults.append(dict(field="box_pose",label="박스 놓기 TCP",value=list(draft.box_pose)))
-    recipe=compile_preset(draft,hand,floor_z,detected=detected)
+    recipe=compile_preset(draft,hand,floor_z,detected=detected,module_settings=module_settings)
     recipe["simulation_defaults"]=virtual_defaults
     if box:recipe.update(box_source="parcel_box",box_revision=box.get("revision"))
     if obj is not None:recipe.update(example=True,name="모의 객체 · "+p.name,object_source=p.object_source)
@@ -310,13 +364,22 @@ class PresetLibrary:
                     normalized.append(p)
                 data.update(schema_version=3,presets=normalized,manual_stage_migration=dict(version=3,changed_presets=changed))
                 atomic_json(self.path,data)
+            if data.get("schema_version",1)<4:
+                self.backup("modules-v4")
+                normalized=[];changed=[]
+                for previous in data["presets"]:
+                    p=MotionPreset.model_validate(previous).model_dump()
+                    if p!=previous:p["revision"]=uid();changed.append(p["id"])
+                    normalized.append(p)
+                data.update(schema_version=4,presets=normalized,module_migration=dict(version=4,changed_presets=changed))
+                atomic_json(self.path,data)
             else:data["presets"]=[MotionPreset.model_validate(p).model_dump() for p in data["presets"]]
             self.value=data;return data
         self.backup("preset-migration")
         cfg=copy.deepcopy(self.robot.scenario.config.value);box=self.robot.work_points.points["box"]["pose"]
         p=MotionPreset(name="기존 이동 경로",context=ScenarioInput.model_validate(cfg),box_pose=box,
                        box_size=self.robot.parcel_box.value["size_mm"],box_center=self.robot.parcel_box.value["center_base_mm"],steps=self.migrate(cfg))
-        p.revision=uid();self.value=self.import_saved_locations(dict(schema_version=1,presets=[p.model_dump()]));self.value["schema_version"]=3;atomic_json(self.path,self.value)
+        p.revision=uid();self.value=self.import_saved_locations(dict(schema_version=1,presets=[p.model_dump()]));self.value["schema_version"]=4;atomic_json(self.path,self.value)
         return self.value
 
     def backup(self,prefix):
@@ -389,6 +452,14 @@ class PresetLibrary:
         data=copy.deepcopy(self.load());old=next((p for p in data["presets"] if p["id"]==preset.id),None)
         if create and old:raise DomainError("이미 등록된 프리셋입니다.")
         if not create and (not old or preset.revision!=old["revision"]):raise DomainError("다른 화면에서 변경되었습니다. 최신 프리셋을 불러오세요.",412)
+        previous={s["id"]:s for s in old["steps"]} if old else {}
+        for step in preset.steps:
+            prior=previous.get(step.id)
+            if prior and prior["kind"] in {"prepare","grasp","place"}:
+                if step.kind!=prior["kind"]:raise DomainError("기존 모듈의 유형은 변경할 수 없습니다. 모듈 전체를 삭제하거나 추가하세요.",422)
+                expected=[c["id"] for c in prior.get("children",[])] or [child_id(step.id,i) for i in range(5 if step.kind=="grasp" else 4)]
+                if (step.kind in {"grasp","place"} and step.children and [c.id for c in step.children]!=expected) or (prior.get("children") and not step.children):
+                    raise DomainError("모듈의 세부 단계 순서는 변경할 수 없습니다.",422)
         words={normalized(a) for a in preset.aliases}
         if any(words & {normalized(a) for a in p["aliases"]} for p in data["presets"] if p["id"]!=preset.id):
             raise DomainError("다른 프리셋에 같은 음성 명령이 등록되어 있습니다.")
