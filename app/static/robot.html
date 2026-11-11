@@ -128,7 +128,7 @@ docker compose run --rm --no-deps doosan-driver timeout 15 check-e0509</pre>
           </div>
         </section>
         <section id="manipulator-parcel-box" data-manipulator-panel hidden class="panel" role="tabpanel" aria-labelledby="manipulator-box-tab" tabindex="0">
-          <div class="panel-head"><h2 id="parcel-box-title">공통 박스 외형·설치 위치</h2><span id="parcel-box-state" class="meta">조회 중</span></div>
+          <div class="panel-head"><h2 id="parcel-box-title">택배 박스 설정</h2><span id="parcel-box-state" class="meta">조회 중</span></div>
           <form id="parcel-box-form" class="pose-body">
             <p class="work-point-help">박스의 크기와 바닥면 중심을 로봇 BASE 기준으로 입력하세요. 가로는 X축, 세로는 Y축, 높이는 +Z축 방향입니다. 값을 바꾸면 위 3D 화면에 즉시 반영됩니다.</p>
             <fieldset class="parcel-box-fields"><legend>박스 크기 (mm)</legend><div class="pose-fields">
@@ -142,7 +142,7 @@ docker compose run --rm --no-deps doosan-driver timeout 15 check-e0509</pre>
               <label>Z · 바닥 높이<input name="z" type="number" step="any" min="-1000000" max="1000000" placeholder="예: 0" required></label>
             </div></fieldset>
             <p id="parcel-box-preview" class="work-point-help" aria-live="polite">크기와 위치를 모두 입력하면 박스가 표시됩니다.</p>
-            <p class="work-point-help">이 설정은 장비 공통의 박스 외형·설치 위치입니다. 실제 놓기 목표는 <a href="#work-points-title">이동 프리셋 → 프리셋별 박스 놓기 TCP</a>에서 별도로 저장하세요.</p>
+            <p class="work-point-help">장비 공통의 박스 크기·설치 위치입니다. 실제 놓기 TCP는 <a href="#work-points-title">이동 프리셋 → 프리셋별 박스 놓기 TCP</a>에서 별도로 설정하세요.</p>
             <div class="pose-actions">
               <button type="button" id="parcel-box-cancel" disabled>변경 취소</button>
               <button type="button" id="parcel-box-reload" hidden>최신 설정 불러오기</button>
@@ -231,7 +231,7 @@ docker compose run --rm --no-deps doosan-driver timeout 15 check-e0509</pre>
                 <div class="plane-tabs" role="tablist" aria-label="캘리브레이션 설정">
                   <button type="button" role="tab" id="manipulator-control-tab" data-manipulator-tab="#manipulator" aria-selected="false" aria-controls="manipulator-control" tabindex="-1" hidden>로봇 제어</button>
                   <button type="button" role="tab" id="manipulator-points-tab" data-manipulator-tab="#work-points-title" aria-selected="false" aria-controls="manipulator-work-points" tabindex="-1" hidden>이동 프리셋</button>
-                  <button type="button" role="tab" id="manipulator-box-tab" data-manipulator-tab="#parcel-box-title" aria-selected="false" aria-controls="manipulator-parcel-box" tabindex="-1" hidden>공통 박스 외형·설치 위치</button>
+                  <button type="button" role="tab" id="manipulator-box-tab" data-manipulator-tab="#parcel-box-title" aria-selected="false" aria-controls="manipulator-parcel-box" tabindex="-1" hidden>택배 박스 설정</button>
                   <button type="button" role="tab" id="plane-camera-tab" aria-selected="true" aria-controls="plane-camera-settings">카메라 좌표 설정</button>
                   <button type="button" role="tab" id="plane-floor-tab" aria-selected="false" aria-controls="plane-floor-settings" tabindex="-1">바닥 기준</button>
                   <button type="button" role="tab" id="plane-hand-table-tab" data-gripper-tab="#gripper" aria-selected="false" aria-controls="plane-hand-table" tabindex="-1" hidden>캘리브레이션</button>

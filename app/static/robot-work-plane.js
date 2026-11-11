@@ -73,6 +73,7 @@ export function connectWorkPlane(root) {
   let gripperWorkspace = false;
   let manipulatorWorkspace = false;
   function selectTab(active, navigate = false) {
+    viewOptions.hidden = !manipulatorWorkspace || active.id === "manipulator-box-tab";
     orientation.setManipulator(!gripperWorkspace);
     orientation.setScenarioVisible(active.id==='manipulator-points-tab'&&manipulatorWorkspace);
     if(active.id!=="manipulator-points-tab")orientation.simulationAction("stop");
@@ -422,7 +423,6 @@ export function connectWorkPlane(root) {
         connectPresets(editor.querySelector("#scenario-editor"),orientation,lifetime.signal);
         manipulatorConnected = true;
       }
-      viewOptions.hidden=!manipulatorWorkspace;
       editor.querySelector("[data-gripper-geometry]").hidden=!gripperWorkspace;
       orientation.setParcelBox(manipulatorWorkspace ? parcelBox : null);
       orientation.setGripperAttached(manipulatorWorkspace);
