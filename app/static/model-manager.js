@@ -19,8 +19,14 @@ function createModelManager({api, activate, reload, message}) {
   });
   const backends = {mps: "MPS", coreml: "Core ML", cpu: "CPU"};
   const kinds = {custom: "사용자 모델", builtin: "기본 모델", configured: "외부 모델"};
-  let models = [], selectedId, activeId, backend, editId, mode, submitting = false;
+  let models = [], selectedId, activeId, backend, editId, editName, mode, submitting = false, dialogBlock = "";
   const find = id => models.find(model => model.id === id);
+  function deleteReason(model) {
+    if (!model) return "다른 화면에서 삭제된 모델입니다. 목록을 다시 확인하세요.";
+    if (model.kind === "builtin") return "기본 모델은 삭제할 수 없습니다.";
+    if (model.id === activeId) return "현재 적용 중입니다. 다른 모델을 적용한 뒤 삭제하세요.";
+    return model.delete_blocked_reason || "";
+  }
   function element(tag, text, className) {
     const item = document.createElement(tag);
     item.textContent = text;
@@ -145,7 +151,8 @@ function createModelManager({api, activate, reload, message}) {
       button.onclick = () => select(parent.id);
       link.append(button);
     } else {
-      link.textContent = model.kind === "builtin" ? "YOLOv8n · COCO 사전 학습" : "미확인";
+      link.textContent = model.kind === "builtin" ? "YOLOv8n · COCO 사전 학습" :
+        model.deleted_parent_name ? "삭제된 기반 모델 · " + model.deleted_parent_name : "미확인";
     }
     renderClasses();
     renderFormats(model);
@@ -153,21 +160,39 @@ function createModelManager({api, activate, reload, message}) {
     const apply = byId("use-version");
     apply.disabled = submitting || model.id === activeId || model.formats?.[backend]?.state !== "ready";
     apply.textContent = backends[backend] + (model.id === activeId ? "에 적용 중" : "에 적용");
+    byId("rename-model").disabled = submitting;
+    const reason = deleteReason(model);
+    byId("delete-model").disabled = submitting || Boolean(reason);
+    byId("model-delete-reason").textContent = reason || "목록과 모델 선택에서 제거합니다. 학습 데이터·이력·가중치 파일은 보존됩니다.";
+    if (dialog.open && mode === "delete" && !submitting) {
+      const blocked = deleteReason(find(editId));
+      byId("submit-model-change").disabled = Boolean(blocked);
+      const error = byId("model-form-error");
+      if (blocked || (dialogBlock && error.textContent === dialogBlock)) error.textContent = blocked;
+      dialogBlock = blocked;
+    }
   }
 
   function openDialog(action) {
     const model = find(selectedId);
     if (!model || submitting) return;
+    if (action === "delete" && deleteReason(model)) return;
     editId = model.id;
+    editName = model.name;
     mode = action;
     const rename = mode === "rename";
-    byId("model-dialog-title").textContent = rename ? "모델 이름 변경" : "실시간 탐지에 적용";
+    const deleting = mode === "delete";
+    byId("model-dialog-title").textContent = rename ? "모델 이름 변경" : deleting ? "모델 삭제" : "실시간 탐지에 적용";
     byId("model-dialog-note").textContent = rename ? registryVersion(model) + "의 표시 이름을 입력하세요." :
-      registryLabel(model) + " 모델을 " + backends[backend] + "에 적용합니다. 연결된 모든 화면의 탐지 모델이 바뀝니다.";
+      deleting ? registryLabel(model) + " 모델을 삭제합니다. 목록과 탐지·수집·추가 학습 선택에서 제거됩니다. 학습 데이터와 이력, 원본 가중치 파일은 보존됩니다." :
+        registryLabel(model) + " 모델을 " + backends[backend] + "에 적용합니다. 연결된 모든 화면의 탐지 모델이 바뀝니다.";
     byId("model-name-field").hidden = !rename;
     byId("model-new-name").value = model.name;
     byId("model-form-error").textContent = "";
-    byId("submit-model-change").textContent = rename ? "저장" : "적용";
+    dialogBlock = "";
+    byId("submit-model-change").textContent = rename ? "저장" : deleting ? "모델 삭제" : "적용";
+    byId("submit-model-change").dataset.mode = mode;
+    byId("submit-model-change").disabled = false;
     dialog.showModal();
     if (rename) byId("model-new-name").select();
     else byId("cancel-model-change").focus();
@@ -175,6 +200,7 @@ function createModelManager({api, activate, reload, message}) {
   byId("class-search").addEventListener("input", renderClasses);
   byId("rename-model").addEventListener("click", () => openDialog("rename"));
   byId("use-version").addEventListener("click", () => openDialog("apply"));
+  byId("delete-model").addEventListener("click", () => openDialog("delete"));
   byId("cancel-model-change").addEventListener("click", () => dialog.close());
   dialog.addEventListener("cancel", event => { if (submitting) event.preventDefault(); });
   byId("model-form").addEventListener("submit", async event => {
@@ -193,6 +219,11 @@ function createModelManager({api, activate, reload, message}) {
       if (mode === "rename") {
         await api("/api/models/" + encodeURIComponent(editId), "PATCH", {name});
         message("표시 이름을 저장했습니다.");
+      } else if (mode === "delete") {
+        const blocked = deleteReason(find(editId));
+        if (blocked) throw Error(blocked);
+        await api("/api/models/" + encodeURIComponent(editId), "DELETE", {name: editName});
+        message("모델을 삭제했습니다. 학습 데이터와 이력, 가중치 파일은 보존했습니다.");
       } else {
         await activate(editId);
       }

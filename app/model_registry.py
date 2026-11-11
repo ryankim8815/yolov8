@@ -7,7 +7,7 @@ import yaml
 
 from .config import ROOT
 from .packing import Packing
-from .store import DomainError, atomic_json
+from .store import DomainError, atomic_json, now
 
 BUILTIN = "coco-yolov8n"
 
@@ -49,15 +49,34 @@ class ModelRegistry:
     def models(self):
         with self.store.lock:
             names = {a["model_id"]: a["name"] for a in self.store.list("model_alias")}
-            return [{**model, "name": names.get(model["id"], model.get("name", model["id"]))}
-                    for model in self.store.list("model")]
+            records=self.store.list("model");deleted={m['id']:names.get(m['id'],m.get('name',m['id'])) for m in records if m.get('deleted_at')}
+            return [{**model, "name": names.get(model["id"], model.get("name", model["id"])),
+                     **({'deleted_parent_name':deleted[model['parent_model_id']]} if model.get('parent_model_id') in deleted else {})}
+                    for model in records if not model.get('deleted_at')]
+
+    def get(self,identifier):
+        model=self.store.get('model',identifier)
+        if model.get('deleted_at'):raise DomainError('삭제된 모델입니다.',404)
+        return model
+
+    def delete(self,identifier,expected_name):
+        with self.store.write_transaction() as write:
+            model=self.get(identifier)
+            if identifier==BUILTIN or model.get('kind')=='builtin':raise DomainError('기본 모델은 삭제할 수 없습니다.')
+            alias=self.store.db.execute('SELECT name FROM model_aliases WHERE model_id=(SELECT id FROM models WHERE public_id=?)',(identifier,)).fetchone()
+            name=alias[0] if alias else model.get('name') or identifier
+            if expected_name!=name:raise DomainError('모델 이름이 변경되었습니다. 목록을 새로 불러온 뒤 삭제할 모델을 다시 확인하세요.',412)
+            write('model',{**model,'deleted_at':now()})
+            self.store.db.execute('DELETE FROM active_models WHERE model_id=(SELECT id FROM models WHERE public_id=?)',(identifier,))
+            Packing.log(write,'모델',f'{name} · 모델 삭제 · {identifier}')
+        return {'id':identifier,'deleted':True}
 
     def rename(self, identifier, name):
         name = name.strip()
         if not 1 <= len(name) <= 80 or any(ord(c) < 32 or ord(c) == 127 for c in name):
             raise DomainError("이름은 제어 문자 없이 1~80자로 입력하세요", 422)
         with self.store.write_transaction() as write:
-            model = self.store.get("model", identifier)
+            model = self.get(identifier)
             alias = self.store.db.execute("SELECT name FROM model_aliases WHERE model_id="
                                           "(SELECT id FROM models WHERE public_id=?)", (identifier,)).fetchone()
             old = alias[0] if alias else model.get("name") or identifier

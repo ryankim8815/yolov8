@@ -148,7 +148,7 @@ class Packing:
     def model_classes(self, model_id):
         model = self.store.db.execute(
             "SELECT m.public_id AS id,coalesce(a.name,m.name,m.public_id) AS name FROM models m "
-            "LEFT JOIN model_aliases a ON a.model_id=m.id WHERE m.public_id=?", (model_id,)).fetchone()
+            "LEFT JOIN model_aliases a ON a.model_id=m.id WHERE m.public_id=? AND m.deleted_at IS NULL", (model_id,)).fetchone()
         if model is None:
             raise DomainError("model: 항목을 찾을 수 없습니다", 404)
         classes = self.store.db.execute(

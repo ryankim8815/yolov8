@@ -8,6 +8,7 @@ import pytest
 
 from app.packing import Packing
 from app.store import Store
+from app.migration import VERSION
 
 
 def make_v1(root):
@@ -39,7 +40,7 @@ def test_v1_keys_preserve_order_and_stock(tmp_path):
         assert dict(db.execute("SELECT public_id,id FROM order_items")) == item_ids
         assert store.get("packing_order", "old-order")["items"] == order["items"]
     with closing(Store(tmp_path)) as store:
-        assert store.db.execute("PRAGMA user_version").fetchone()[0] == 3
+        assert store.db.execute("PRAGMA user_version").fetchone()[0] == VERSION
         assert dict(store.db.execute("SELECT public_id,id FROM order_items")) == item_ids
         assert store.db.execute("PRAGMA foreign_key_check").fetchall() == []
     backups = list((tmp_path / "backups").glob("metadata-v1-*.sqlite3"))
@@ -69,6 +70,7 @@ def test_v2_upgrade_preserves_existing_order_customer_and_backs_up(tmp_path):
                                     "paused":False,"items":[]})
         with store.db:
             store.db.execute("DROP TABLE customer_rfid")
+            store.db.execute("ALTER TABLE models DROP COLUMN deleted_at")
             store.db.execute("PRAGMA user_version=2")
     with closing(Store(tmp_path)) as store:
         assert store.get("packing_order", "sample")["customer"] == "기존 사용자"
@@ -127,7 +129,7 @@ def test_migration_wal_backup_and_restart(tmp_path):
     try:
         store = Store(tmp_path)
         try:
-            assert store.db.execute("PRAGMA user_version").fetchone()[0] == 3
+            assert store.db.execute("PRAGMA user_version").fetchone()[0] == VERSION
             assert not store.db.execute("SELECT 1 FROM sqlite_schema WHERE name='records'").fetchone()
             assert not store.db.execute("PRAGMA foreign_key_check").fetchall()
             assert store.get("packing_order", order["id"]) == order

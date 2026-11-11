@@ -9,7 +9,7 @@ CREATE TABLE capture_groups (
     id INTEGER PRIMARY KEY AUTOINCREMENT, public_id TEXT NOT NULL UNIQUE, name TEXT NOT NULL UNIQUE, created_at TEXT
 );
 CREATE TABLE models (
-    id INTEGER PRIMARY KEY AUTOINCREMENT, public_id TEXT NOT NULL UNIQUE, name TEXT, kind TEXT, created_at TEXT,
+    id INTEGER PRIMARY KEY AUTOINCREMENT, public_id TEXT NOT NULL UNIQUE, name TEXT, kind TEXT, created_at TEXT, deleted_at TEXT,
     job_id INTEGER UNIQUE REFERENCES training_jobs(id) DEFERRABLE INITIALLY DEFERRED,
     dataset_id INTEGER REFERENCES datasets(id),
     initial_model_id INTEGER REFERENCES models(id) DEFERRABLE INITIALLY DEFERRED, initial_sha256 TEXT,

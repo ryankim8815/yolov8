@@ -97,6 +97,16 @@ def test_restore_lineage_and_allocate_sibling_versions_atomically(tmp_path):
         assert {models[key]["version_number"] for key in ("sibling1", "sibling2")} == {3, 4}
         assert models["sibling2"]["parent_model_id"] == "first"
 
+        last=max((models[k] for k in ('sibling1','sibling2')),key=lambda m:m['version_number'])
+        registry.delete(last['id'],last['name'])
+        registry.delete('first','first')
+        assert 'first' not in by_id(registry.models())
+        assert by_id(registry.models())['child']['deleted_parent_name']=='first'
+        registry.recover_versions()
+        registry.publish(*trained(store,'next','child','weights2','next-weights'))
+        assert by_id(registry.models())['next']['version_number']==5
+        assert store.get('model',last['id'])['version_number']==4
+
         model, job = trained(store, "broken", "first", "weights1", "bad")
         import sqlite3
         store.db.execute("CREATE TRIGGER fail_job BEFORE INSERT ON training_jobs WHEN NEW.public_id='job-broken' "

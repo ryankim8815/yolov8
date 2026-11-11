@@ -47,6 +47,9 @@
 #model-metadata pre { white-space: pre-wrap; overflow: auto; max-height: 260px; font-size: 12px; }
 .registry-actions { background: #15272b; color: #b5c4d2; font-size: 13px; }
 #use-version, #submit-model-change { background: #80dfbf; color: #102820; font-weight: 650; }
+.registry-delete { background: #261d25; font-size: 13px; }.registry-delete p { margin: 6px 0 0; }
+#delete-model, #submit-model-change[data-mode=delete] { background: #753c40; border-color: #a96468; color: #fff0ee; }
+#delete-model:disabled { opacity: .5; }
 #models-page button:disabled { cursor: default; }
 #model-dialog { width: min(430px, 92vw); padding: 22px; border: 1px solid #486075; border-radius: 12px; background: #172432; color: inherit; }
 #model-dialog h3 { margin: 0; }

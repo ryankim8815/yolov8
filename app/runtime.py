@@ -88,7 +88,7 @@ class Runtime:
         if not self.settings.model_path_explicit:
             try:
                 saved = self.store.get("setting", "selected-" + self.settings.backend)
-                model = self.store.get("model", saved["model_id"])
+                model = self.registry.get(saved["model_id"])
                 fmt = model["formats"].get(self.settings.backend, {})
                 if fmt.get("state") == "ready" and Path(fmt["path"]).exists():
                     if fmt.get("sha256") and artifact_hash(fmt["path"]) != fmt["sha256"]:
@@ -231,7 +231,7 @@ class Runtime:
             self._require_idle()
             cls = self.store.get("class", values["class_id"])
             self.store.get("group", values["group_id"])
-            model = self.store.get("model", values["model_id"])
+            model = self.registry.get(values["model_id"])
             fmt = model["formats"].get(self.settings.backend, {})
             if fmt.get("state") != "ready":
                 raise DomainError("현재 백엔드에서 사용할 수 없는 수집 모델입니다", 422)
@@ -281,7 +281,7 @@ class Runtime:
     def activate(self, identifier):
         with self.lock:
             self._require_idle()
-            model = self.store.get("model", identifier)
+            model = self.registry.get(identifier)
             fmt = model["formats"].get(self.settings.backend, {})
             if fmt.get("state") != "ready" or not Path(fmt.get("path", "")).exists():
                 raise DomainError("현재 백엔드용 검증된 모델 형식이 없습니다", 422)
@@ -292,6 +292,26 @@ class Runtime:
             self.busy = "switching_model"
             self._spawn(self._switch, operation, Path(fmt["path"]))
             return operation
+
+    def models(self):
+        with self.lock:
+            records=self.registry.models()
+            for model in records:
+                if model['id']==BUILTIN or model.get('kind')=='builtin':reason='기본 모델은 삭제할 수 없습니다.'
+                elif model['id']==self.model_id:reason='현재 적용 중입니다. 다른 모델을 적용한 뒤 삭제하세요.'
+                elif self.stop_event.is_set():reason='서버가 종료 중입니다.'
+                elif self.busy:reason='학습 또는 모델 전환이 끝난 뒤 삭제하세요.'
+                elif self.collector.snapshot()['id']:reason='사진 저장을 먼저 중지하세요.'
+                else:reason=None
+                model['delete_blocked_reason']=reason
+            return records
+
+    def delete_model(self,identifier,expected_name):
+        with self.lock:
+            self._require_idle()
+            self.registry.get(identifier)
+            if identifier==self.model_id:raise DomainError('현재 적용 중인 모델입니다. 다른 모델을 적용한 뒤 삭제하세요.')
+            return self.registry.delete(identifier,expected_name)
 
     def _wait_model(self, pipeline):
         deadline = time.monotonic() + 90
@@ -357,7 +377,7 @@ class Runtime:
                 raise DomainError(f"데이터셋 스냅샷 검증 실패: {exc}", 422) from exc
             initial = ROOT/"models/yolov8n.pt"
             if values.get("initial_model_id"):
-                parent = self.store.get("model", values["initial_model_id"])
+                parent = self.registry.get(values["initial_model_id"])
                 if parent["classes"] != dataset["classes"] or parent["formats"].get("mps", {}).get("state") != "ready":
                     raise DomainError("같은 클래스 매핑을 가진 사용자 PT 모델만 초기 모델로 선택할 수 있습니다", 422)
                 initial = Path(parent["formats"]["mps"]["path"])
@@ -502,7 +522,7 @@ class Runtime:
 
     def events(self):
         return {"event": "snapshot", "status": self.status(), "collection": self.collector.snapshot(),
-                "jobs": self.store.list("job"), "models": self.registry.models(),
+                "jobs": self.store.list("job"), "models": self.models(),
                 "operations": self.store.list("operation")}
 
     def stop(self):
