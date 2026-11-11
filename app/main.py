@@ -11,6 +11,7 @@ from starlette.requests import ClientDisconnect
 
 from .config import Settings
 from .camera_views import DisplayMode
+from .camera_marker_api import router as camera_marker_router
 from .packing_api import router as packing_router
 from .pipeline import Pipeline
 from .runtime import Runtime
@@ -89,6 +90,7 @@ def create_app(settings=None, pipeline_factory=Pipeline, state_root=None):
     application.include_router(router())
     application.include_router(packing_router)
     application.include_router(voice_router)
+    application.include_router(camera_marker_router)
     install_robot_routes(application)
 
     @application.exception_handler(DomainError)

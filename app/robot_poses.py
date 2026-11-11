@@ -105,6 +105,8 @@ class PoseTests:
             raise DomainError("직접 교시를 끄고 드라이버의 자동 모드가 확인된 뒤 이동하세요.", 409)
 
     def execute(self, slot, revision, sdk_ticket=None):
+        if getattr(self.monitor,"camera_calibration",None) and self.monitor.camera_calibration.busy:
+            raise DomainError("카메라 캘리브레이션이 끝난 뒤 이동하세요.")
         pose = self.require_slot(slot, revision)
         if pose["angles"] is None:
             raise DomainError("먼저 자세를 저장하세요.")

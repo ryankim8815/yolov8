@@ -1,0 +1,15 @@
+.marker-calibration{margin:18px 0;padding:20px;border:1px solid var(--line,#35464e);border-radius:12px;background:var(--surface,#17242c)}
+.marker-calibration p{line-height:1.6;margin-top:10px}.marker-calibration a{color:var(--mint,#72dec4)}.marker-settings,.marker-actions{display:flex;flex-wrap:wrap;align-items:center;gap:12px;margin:14px 0}
+.marker-calibration input{color:var(--ink,#dae5e8);accent-color:var(--mint,#72dec4)}.marker-settings input[type=number]{padding:8px;border:1px solid var(--line,#35464e);border-radius:6px;background:var(--surface,#17242c);font:inherit}
+.marker-calibration [data-marker=run]:enabled{background:var(--mint,#72dec4);color:var(--surface,#17242c);border-color:var(--mint,#72dec4)}
+.marker-settings label{display:flex;gap:8px;align-items:center}.marker-settings input[type=number]{width:90px;min-width:0}
+.marker-calibration form{grid-template-columns:minmax(0,1fr)}.marker-calibration form>*{min-width:0;max-width:100%}
+.marker-calibration details{margin:16px 0}.marker-calibration summary{cursor:pointer;font-weight:600}
+.marker-table-wrap{overflow:auto;margin:12px 0}.marker-table{width:100%;border-collapse:collapse;table-layout:fixed;min-width:410px}
+.marker-table th,.marker-table td{border:1px solid var(--line,#35464e);padding:8px;text-align:center}.marker-table td:has(input){padding:0}
+.marker-table tbody tr:last-child td{border:1px solid var(--line,#35464e)}
+.marker-table input{display:block;width:100%;max-width:100%;min-width:0;box-sizing:border-box;margin:0;border:0;border-radius:0;background:transparent;padding:12px 8px;text-align:right;font:inherit}
+.marker-table input:focus{outline:2px solid #6ae1c3;outline-offset:-2px}.marker-table th:first-child{width:54px}.marker-table th:last-child{width:100px}
+.marker-image{position:relative;max-width:960px;background:#0c151b}.marker-image img{display:block;width:100%;height:auto}.marker-image canvas{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
+.marker-calibration [data-marker=status]{color:var(--mint,#72dec4)}.marker-calibration [data-state=required],.marker-calibration [data-state=error]{color:var(--amber,#ffc987)}
+@media(max-width:600px){.marker-calibration{padding:12px}.marker-actions button{flex:1 1 45%}.marker-settings{align-items:flex-start;flex-direction:column}}

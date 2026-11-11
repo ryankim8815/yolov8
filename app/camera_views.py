@@ -17,6 +17,7 @@ class SensorFrame:
     depth: np.ndarray | None    # metres, aligned to color
     infrared: np.ndarray | None
     intrinsics: tuple | None   # fx, fy, ppx, ppy of the aligned image
+    calibration: dict | None = None  # factory color optics; depth is color optical Z
 
     def modes(self):
         modes = list(VIDEO_MODES)

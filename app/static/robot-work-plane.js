@@ -4,6 +4,7 @@ import { trackGripperEstimate } from "./gripper-measurement.js";
 import { imagePixel, api, center, marker, sameInput, readCalibration } from "./robot-camera-frame.js";
 import { subscribeParcelBox } from "./robot-work-points.js";
 import {connectPresets} from './robot-presets.js';
+import {connectCameraCalibration} from './robot-camera-calibration.js';
 
 const axes = ["X", "Y", "Z"];
 const blankCorners = () => Array.from({length:4}, () => ({pixel:null, pose:Array(6).fill(null)}));
@@ -64,6 +65,7 @@ export function connectWorkPlane(root) {
   const livePanels = [...document.querySelectorAll("[data-hand-panel], [data-manipulator-panel]")];
   el.calibration.append(...livePanels);
   const lifetime = new AbortController();
+  connectCameraCalibration(editor.querySelector('#camera-calibration'),lifetime.signal);
   const on = (node, type, handler) => node.addEventListener(type, handler, {signal:lifetime.signal});
   const tabs = [...editor.querySelectorAll('.plane-tabs > [role="tab"]')];
   const viewOptions=editor.querySelector('.plane-view-options');

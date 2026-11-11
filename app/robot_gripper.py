@@ -135,6 +135,8 @@ async def save_table(body: CalibrationInput, request: Request):
 @router.post("/command", dependencies=[Depends(local_json)])
 async def manual(body: HandCommand, request: Request):
     robot = request.app.state.robot
+    if getattr(robot,"camera_calibration",None) and robot.camera_calibration.busy:
+        raise DomainError("카메라 캘리브레이션이 끝난 뒤 그리퍼를 조작하세요.")
     if robot.settings.access_backend != "mac-sdk":
         raise DomainError("RH-P12 조작에는 Mac SDK가 필요합니다.")
     if robot.hand.busy or robot.picks.busy or robot.pose_tests.snapshot()["busy"]:

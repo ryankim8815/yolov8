@@ -161,6 +161,9 @@ class PickTargets:
         return self.calibration(active,body.region)
 
     async def preview(self, selection, reader):
+        calibration=getattr(self.robot,"camera_calibration",None)
+        if calibration and calibration.enabled:
+            raise DomainError("마커 BASE 보정을 사용 중입니다. 이동 프리셋의 YOLO 실행에서 대상을 선택하세요.")
         if selection.scenario or selection.handling=="rh_p12":
             if selection.mode!="transfer" or selection.handling!="rh_p12":raise DomainError("17단계 시나리오는 RH-P12 박스 이송에서 사용하세요.",422)
             return await self.robot.scenario.preview_real(selection,reader)

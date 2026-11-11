@@ -28,6 +28,7 @@ from .robot_scenario import Scenario, router as scenario_router
 from .robot_presets import PresetEngine, router as preset_router
 from .robot_preset_voice import PresetVoice, router as preset_voice_router
 from .store import DomainError
+from .robot_camera_calibration import CameraCalibration,router as camera_calibration_router
 
 RECLAIM_SERVICE = "system/reclaim_control"
 TEACH_STATUS = "system/direct_teach_status"
@@ -120,6 +121,7 @@ class RobotMonitor:
         self.scenario = Scenario(self,self.pose_tests.path.parent) if self.pose_tests else None
         self.presets = PresetEngine(self,self.pose_tests.path.parent) if self.pose_tests else None
         if self.presets:self.presets.voice=PresetVoice(self.presets)
+        self.camera_calibration=CameraCalibration(self,self.pose_tests.path.parent) if self.pose_tests else None
 
     def start(self):
         if self.settings.ros_pc_ip and self.task is None:
@@ -447,6 +449,7 @@ router.include_router(scenario_router)
 router.include_router(preset_router)
 router.include_router(preset_voice_router)
 router.include_router(hand_router)
+router.include_router(camera_calibration_router)
 
 
 @router.get("/status")

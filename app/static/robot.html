@@ -9,6 +9,7 @@
   <link rel="stylesheet" href="/static/robot.css">
   <link rel="stylesheet" href="/static/dashboard-camera.css">
   <script type="module" src="/static/robot.js"></script>
+  <link rel="stylesheet" href="/static/robot-camera-calibration.css">
 </head>
 <body class="station-shell" data-workspace="robot">
   <aside class="station-rail" id="station-rail"></aside>
@@ -240,6 +241,28 @@ docker compose run --rm --no-deps doosan-driver timeout 15 check-e0509</pre>
                 </div>
                 <details class="plane-view-options"><summary>고급 3D 보기 설정</summary><div data-view-tabs></div><p class="meta">거리 가이드와 예시 객체는 이 브라우저의 보기 설정입니다. 실제 작업 좌표는 이동 프리셋에 저장합니다.</p></details>
                 <section id="plane-camera-settings" role="tabpanel" aria-labelledby="plane-camera-tab" tabindex="0">
+                  <section id="camera-calibration" class="marker-calibration" aria-labelledby="camera-calibration-title">
+                    <h3 id="camera-calibration-title">카메라 · BASE 캘리브레이션</h3>
+                    <p>고정 마커로 카메라와 로봇의 좌표를 맞춥니다. 카메라 또는 마커를 옮기면 다시 캘리브레이션하세요. 보정 중에는 카메라·마커·로봇을 고정하세요.</p>
+                    <p data-marker="status" role="status" aria-live="polite">등록 상태 확인 중</p>
+                    <form data-marker="form">
+                      <div class="marker-settings">
+                        <label><input type="checkbox" data-marker="enabled"> 마커·깊이 BASE 좌표 사용</label>
+                        <label>마커 ID <input type="number" data-marker="id" min="0" max="49" value="0" required></label>
+                        <label>검은 사각형 한 변 (mm) <input type="number" data-marker="side" min="40" max="400" step="any" value="100" required></label>
+                        <a data-marker="print" href="/api/camera/marker/marker.svg?marker_id=0&amp;side_mm=100" download="robot-marker.svg">출력용 마커 받기</a>
+                      </div>
+                      <details data-marker="registration" open><summary>고정 마커의 BASE 좌표 등록</summary>
+                        <p>SVG를 배율 100%로 출력하고 검은 사각형의 실제 길이를 확인하세요. 인쇄물의 0→1→2→3 모서리에 해당하는 BASE XYZ(mm)를 입력하세요. 흰 여백은 길이에 포함하지 않습니다. ‘현재 TCP’는 끝점이 보정된 공구로 해당 모서리를 정확히 교시했을 때만 사용하세요.</p>
+                        <div class="marker-table-wrap"><table class="marker-table"><thead><tr><th scope="col">모서리</th><th scope="col">X (mm)</th><th scope="col">Y (mm)</th><th scope="col">Z (mm)</th><th scope="col">좌표 읽기</th></tr></thead><tbody data-marker="corners"></tbody></table></div>
+                        <button type="submit" data-marker="save">마커 좌표 저장</button>
+                      </details>
+                    </form>
+                    <div class="marker-actions"><button type="button" data-marker="run" disabled>캘리브레이션</button><button type="button" data-marker="preview">영상·로봇 중첩 보기</button><button type="button" data-marker="reload">저장값 불러오기</button></div>
+                    <p data-marker="quality"></p>
+                    <div data-marker="view" hidden><div class="marker-image"><img data-marker="image" alt="현재 카메라 영상"><canvas data-marker="overlay" aria-label="보정된 카메라 좌표로 투영한 E0509 모델"></canvas></div><p data-marker="view-status" role="status"></p><p class="meta">민트색은 현재 수신 관절값으로 투영한 E0509 CAD 선입니다. 정지 상태에서 정렬을 확인하세요. 영상과 관절 수신 시각이 다를 수 있으며 충돌 판정에는 사용하지 않습니다.</p></div>
+                    <p class="meta">마커를 가리거나 깊이·자세 검증이 실패하면 재보정이 필요합니다. YOLO 좌표는 깊이가 측정된 표면 기준이며, 프리셋의 두께로 중심을 계산합니다. 기존 경유점과 박스 좌표는 BASE 기준을 유지합니다.</p>
+                  </section>
                   <div class="pick-steps" data-pick="steps" role="group" aria-label="교시할 모서리"></div>
                   <h3 data-pick="positionTitle">1번 모서리 위치</h3>
                   <div class="pick-position-body">

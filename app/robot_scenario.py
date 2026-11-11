@@ -118,12 +118,17 @@ class Scenario:
     def picks(self):return self.robot.picks
 
     def require_idle(self):
+        if getattr(self.robot,"camera_calibration",None) and self.robot.camera_calibration.busy:
+            raise DomainError("카메라 캘리브레이션이 끝난 뒤 실행하거나 설정하세요.")
         if self.picks.busy or self.robot.hand.busy or self.robot.pose_tests.snapshot()["busy"]:
             raise DomainError("진행 중인 로봇 작업이 끝난 뒤 설정하거나 준비하세요.")
 
     def versions(self):
-        return dict(config=self.config.value["revision"],box=self.robot.work_points.points["box"]["revision"],
+        versions=dict(config=self.config.value["revision"],box=self.robot.work_points.points["box"]["revision"],
                     hand=self.robot.hand.table["revision"],contact=self.robot.hand.contact["revision"],stop=self.stop_generation)
+        calibration=getattr(self.robot,"camera_calibration",None)
+        if calibration and calibration.enabled:versions["camera_calibration"]=calibration.value["revision"]
+        return versions
 
     def idle_width(self,config,virtual=False):
         width=config["standby_opening_mm"]
@@ -519,6 +524,8 @@ class Scenario:
                 self.picks.record(identifier,"unknown","중단 응답 미확인 · 실제 장치 상태를 확인하세요.")
 
     def stop_all(self):
+        calibration=getattr(self.robot,"camera_calibration",None)
+        if calibration and calibration.busy:calibration.invalidate("글로벌 중단으로 카메라 보정을 취소했습니다.")
         if getattr(self.robot,"presets",None):
             self.robot.presets.voice.stop_serial+=1
             self.robot.presets.voice.invalidate("중단 요청으로 실행 확인을 취소했습니다.")

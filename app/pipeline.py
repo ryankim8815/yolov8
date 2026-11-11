@@ -71,6 +71,8 @@ class Pipeline:
         self.jpeg = None
         self.preview_result = None
         self.preview_packet = None
+        self.sensor_history = deque(maxlen=16)
+        self.capture_packet = None
         # Keep only metadata for frames that the dashboard can actually display.
         self.preview_history = deque(maxlen=1024)
         self.subscribers = 0
@@ -103,6 +105,8 @@ class Pipeline:
             self.jpeg = None
             self.preview_result = None
             self.preview_packet = None
+            self.capture_packet = None
+            self.sensor_history.clear()
 
     def _count(self, name):
         # Caller holds self.lock.
@@ -137,6 +141,7 @@ class Pipeline:
                     failures = 0
                     packet = FramePacket(frame_id, generation, captured_ns,
                                          datetime.now(timezone.utc).isoformat(), frame, sensors)
+                    with self.lock:self.capture_packet=packet
                     self.input_slot.put(packet)
             except Exception as exc:
                 log.warning("Camera unavailable: %s", exc)
@@ -194,6 +199,7 @@ class Pipeline:
                     self.result, self.result_ns = result, packet.captured_ns
                     result.update(camera_id=self.camera_id, camera_generation=packet.generation)
                     self.result_generation = packet.generation
+                    self.sensor_history.append((packet,result))
                     self._count("detected")
                     self.latencies.append(result["timing_ms"]["capture_to_result"])
                 if self.result_callback is not None:
@@ -249,6 +255,21 @@ class Pipeline:
     def latest_result(self):
         with self.lock:
             return self.result
+
+    def sensor_snapshot(self, session_id=None, frame_id=None):
+        """Bounded raw RGB-D snapshots; never combine another frame's depth and boxes."""
+        with self.lock:
+            if session_id is not None and session_id!=self.session_id:
+                raise DomainError("카메라 세션이 변경되었습니다. 다시 보정하세요.",412)
+            pair=next(((p,r) for p,r in reversed(self.sensor_history) if p.frame_id==frame_id),None) if frame_id is not None else (self.capture_packet,None)
+            if not pair or pair[0] is None:raise DomainError("깊이 영상을 기다리고 있습니다.",503)
+            packet,result=pair
+            if (not self.camera_online or self.stop_event.is_set() or self.fatal_error or packet.generation!=self.generation
+                    or time.monotonic_ns()-packet.captured_ns>self.settings.stale_seconds*1e9):
+                raise DomainError("RGB-D 영상이 만료되었습니다. 카메라를 확인하세요.",503)
+            binding=dict(session_id=self.session_id,camera_generation=packet.generation,camera_id=self.camera_id,
+                         width=packet.frame.shape[1],height=packet.frame.shape[0])
+            return packet,result,binding
 
     def pick_frame(self, session_id=None, frame_id=None):
         with self.lock:

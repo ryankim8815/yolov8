@@ -47,6 +47,35 @@ class PresetDetections:
     @property
     def robot(self):return self.engine.robot
 
+    @property
+    def spatial(self):
+        value=getattr(self.robot,"camera_calibration",None)
+        return value if value and value.enabled else None
+
+    async def depth_target(self,p,packet,index):
+        value=await self.spatial.object(packet,index)
+        xyz=value["surface_base_mm"];region=p["region"]
+        normal=[0,0,1] if region=="floor" else [-1,0,0]
+        if region=="shelf" and sum(a*b for a,b in zip(normal,xyz))>0:normal=[-n for n in normal]
+        abc=[0,180,0] if region=="floor" else [180,90,90]
+        size=copy.deepcopy(p["context"]["virtual"][region]["size_mm"])
+        normal_axis=max(range(3),key=lambda i:abs(normal[i]))
+        # Depth measures a visible surface. The preset supplies the hidden thickness.
+        center=[x-normal[i]*size[normal_axis]/2 for i,x in enumerate(xyz)]
+        points=value["points_base_mm"]+value["bbox_base_mm"]
+        spans=[max(pt[i] for pt in points)-min(pt[i] for pt in points) for i in range(3)]
+        for i in range(3):
+            if i!=normal_axis:size[i]=max(.001,spans[i])
+        a,b,c=map(math.radians,abc)
+        tool_x=[math.cos(a)*math.cos(b)*math.cos(c)-math.sin(a)*math.sin(c),
+                math.sin(a)*math.cos(b)*math.cos(c)+math.cos(a)*math.sin(c),-math.sin(b)*math.cos(c)]
+        # Conservative bbox spans about the TCP, with the existing 5 mm per-side clearance.
+        width=2*max(abs(sum((point[i]-center[i])*tool_x[i] for i in range(3))) for point in points)
+        return dict(pose=center+abc,normal=normal,size_mm=size,width_mm=width,opening_mm=width+10,
+                    planar_size_mm=[spans[i] for i in range(3) if i!=normal_axis],surface_base_mm=xyz,
+                    coordinate_source="marker_depth",depth_mm=value["depth_mm"],thickness_source="preset",
+                    calibration_revision=self.spatial.value["revision"])
+
     def criteria(self,p):
         if p["object_source"]!="yolo":raise DomainError("YOLOv8 탐지값을 선택한 프리셋에서 사용하세요.")
         if sum(s["kind"]=="grasp" for s in p["steps"])!=1:
@@ -94,8 +123,11 @@ class PresetDetections:
         if snap.get("voice_choice"):self.check_choice(p,snap["voice_choice"],approved=approved)
         if snap["versions"]!=self.engine.legacy.versions() or snap["floor_revision"]!=self.robot.floor.value["revision"]:
             raise DomainError("중단 요청 또는 장비·공통 설정 변경으로 YOLO 확인을 취소했습니다.",412)
-        current=self.robot.picks.calibration(snap["camera"],p["region"])
-        if current["revision"]!=snap["calibration_revision"]:
+        revision=(self.spatial.value["revision"] if self.spatial else None) if snap.get("spatial") else self.robot.picks.calibration(snap["camera"],p["region"])["revision"]
+        if snap.get("spatial"):
+            if not self.spatial:raise DomainError("카메라 BASE 보정이 변경되었습니다.",412)
+            self.spatial.require_valid()
+        if revision!=snap["calibration_revision"]:
             raise DomainError("작업면 보정이 변경되었습니다. 대상을 다시 확인하세요.",412)
         return snap
 
@@ -110,7 +142,7 @@ class PresetDetections:
         return dict(snapshot_id=snap["id"],preset_id=snap["preset_id"],revision=snap["revision"],
                     expires_in=max(0,snap["deadline"]-time.monotonic()),frame_id=snap["frame_id"],
                     camera=snap["camera"].model_dump(),model_version=snap["model"],region=snap["region"],
-                    calibration_revision=snap["calibration_revision"],captured_at=snap["captured_at"],
+                    calibration_revision=snap["calibration_revision"],captured_at=snap["captured_at"],coordinate_source="marker_depth" if snap.get("spatial") else "plane",
                     candidates=copy.deepcopy(snap["candidates"]),selected_id=selected,
                     state="no_match" if not valid else "selected" if selected else "selection_required",message=message)
 
@@ -128,38 +160,48 @@ class PresetDetections:
         camera=CameraFrame.from_packet(packet)
         if packet["model_version"]!=selected["model_version"]:
             raise DomainError("탐지 프레임의 YOLO 모델이 선택한 모델과 다릅니다. 최신 모델의 클래스를 다시 선택하세요.")
-        calibration=self.robot.picks.calibration(camera,p["region"])
-        if not calibration["revision"]:raise DomainError("이 카메라·해상도의 상품 파지 영역을 먼저 보정하세요.")
-        plane=PickPlane(Calibration(**calibration));candidates=[];targets={};identifier=uid()
+        spatial=self.spatial
+        if spatial:
+            spatial.require_valid();calibration=dict(revision=spatial.value["revision"]);plane=None
+        else:
+            calibration=self.robot.picks.calibration(camera,p["region"])
+            if not calibration["revision"]:raise DomainError("이 카메라·해상도의 상품 파지 영역을 먼저 보정하세요.")
+            plane=PickPlane(Calibration(**calibration))
+        candidates=[];targets={};identifier=uid()
         for index,obj in enumerate(packet["objects"]):
             if obj["class_id"]!=selected["class_id"] or obj["confidence"]<p["yolo"]["min_confidence"]:continue
             pixel=robot_pick.center(obj)
-            if not plane.contains(pixel):continue
+            if plane and not plane.contains(pixel):continue
             key=uid();pose=None;estimate={};reason=None
             try:
-                region,_,_=self.robot.picks.region_for(camera,pixel)
-                if region!=p["region"]:continue
-                pose=plane.target(pixel);estimate=plane.gripper_estimate(obj["xyxy"],tcp=pose[:3])
-                if estimate.get("reason"):raise DomainError(estimate["reason"])
-                # Planar extents are estimated; the normal-axis depth remains a preset value.
-                normal_axis=max(range(3),key=lambda axis:abs(plane.normal[axis]))
-                spans=[max(pt[i] for pt in estimate["footprint_base_mm"])-min(pt[i] for pt in estimate["footprint_base_mm"]) for i in range(3)]
-                size=copy.deepcopy(p["context"]["virtual"][p["region"]]["size_mm"])
-                for i in range(3):
-                    if i!=normal_axis:size[i]=max(.001,spans[i])
-                resolved=dict(pose=pose,normal=list(plane.normal),size_mm=size,width_mm=estimate["width_mm"],opening_mm=estimate["opening_mm"],
-                              planar_size_mm=[spans[i] for i in range(3) if i!=normal_axis],camera=camera.model_dump(),
+                if spatial:
+                    geometry=await self.depth_target(p,packet,index);pose=geometry["pose"];estimate=geometry
+                else:
+                    region,_,_=self.robot.picks.region_for(camera,pixel)
+                    if region!=p["region"]:continue
+                    pose=plane.target(pixel);estimate=plane.gripper_estimate(obj["xyxy"],tcp=pose[:3])
+                    if estimate.get("reason"):raise DomainError(estimate["reason"])
+                    normal_axis=max(range(3),key=lambda axis:abs(plane.normal[axis]))
+                    spans=[max(pt[i] for pt in estimate["footprint_base_mm"])-min(pt[i] for pt in estimate["footprint_base_mm"]) for i in range(3)]
+                    size=copy.deepcopy(p["context"]["virtual"][p["region"]]["size_mm"])
+                    for i in range(3):
+                        if i!=normal_axis:size[i]=max(.001,spans[i])
+                    geometry=dict(pose=pose,normal=list(plane.normal),size_mm=size,width_mm=estimate["width_mm"],opening_mm=estimate["opening_mm"],
+                                  planar_size_mm=[spans[i] for i in range(3) if i!=normal_axis])
+                resolved=dict(**geometry,camera=camera.model_dump(),
                               label=selected.get("class_label") or obj["label"],class_id=obj["class_id"],confidence=obj["confidence"],candidate_id=key,snapshot_id=identifier,
-                              frame_id=packet["frame_id"],model_version=packet["model_version"],calibration_revision=calibration["revision"])
+                              frame_id=packet["frame_id"],model_version=packet["model_version"])
+                resolved["calibration_revision"]=calibration["revision"]
                 targets[key]=dict(resolved=resolved,pose=pose,plane=plane,xyxy=copy.deepcopy(obj["xyxy"]),class_id=obj["class_id"],
                                   camera=camera,model=packet["model_version"],revision=calibration["revision"],region=p["region"])
             except DomainError as exc:reason=str(exc)
             candidates.append(dict(id=key,object_index=index,label=selected.get("class_label") or obj["label"],confidence=obj["confidence"],xyxy=copy.deepcopy(obj["xyxy"]),
                                    pose=pose,width_mm=estimate.get("width_mm"),opening_mm=estimate.get("opening_mm"),
-                                   planar_size_mm=targets[key]["resolved"]["planar_size_mm"] if key in targets else None,reason=reason))
+                                   planar_size_mm=targets[key]["resolved"]["planar_size_mm"] if key in targets else None,
+                                   surface_base_mm=estimate.get("surface_base_mm"),depth_mm=estimate.get("depth_mm"),reason=reason))
         if versions!=self.engine.legacy.versions() or floor!=self.robot.floor.value["revision"]:
             raise DomainError("대상 확인 중 설정 또는 중단 상태가 변경되었습니다.",412)
-        if self.robot.picks.calibration(camera,p["region"])["revision"]!=calibration["revision"]:
+        if (spatial.value["revision"] if spatial else self.robot.picks.calibration(camera,p["region"])["revision"])!=calibration["revision"]:
             raise DomainError("대상 확인 중 작업면 보정이 변경되었습니다.",412)
         self.engine.legacy.require_idle()
         if choice:self.check_choice(p,choice)
@@ -168,7 +210,7 @@ class PresetDetections:
         snap=dict(id=identifier,preset_id=p["id"],revision=p["revision"],signature=signature(p),versions=versions,floor_revision=floor,
                   deadline=time.monotonic()+30,camera=camera,model=packet["model_version"],frame_id=packet["frame_id"],
                   captured_at=packet.get("captured_at"),region=p["region"],calibration_revision=calibration["revision"],
-                  policy=p["yolo"]["selection"],candidates=candidates,targets=targets,reader=reader,voice_choice=choice)
+                  policy=p["yolo"]["selection"],candidates=candidates,targets=targets,reader=reader,voice_choice=choice,spatial=bool(spatial))
         self.snapshots[identifier]=snap
         return self.public(snap)
 
@@ -184,6 +226,20 @@ class PresetDetections:
     async def revalidate(self,p,binding,*,approved=False):
         self.check(p,binding["snapshot_id"],approved=approved)
         frame=await asyncio.to_thread(binding["reader"],binding["camera"].session_id)
+        if binding["resolved"].get("coordinate_source")=="marker_depth":
+            if CameraFrame.from_packet(frame)!=binding["camera"] or frame["model_version"]!=binding["model"]:
+                raise DomainError("카메라 또는 모델이 변경되었습니다.",412)
+            matches=[]
+            for index,obj in enumerate(frame["objects"]):
+                if obj["class_id"]!=binding["class_id"] or obj["confidence"]<binding["min_confidence"]:continue
+                current=await self.depth_target(p,frame,index)
+                if math.dist(current["pose"][:3],binding["pose"][:3])<=10:matches.append((obj,current))
+            if len(matches)!=1:raise DomainError("선택한 BASE 위치의 10 mm 이내에 동일 클래스 한 개가 필요합니다.")
+            obj,current=matches[0]
+            if current["opening_mm"]>binding["resolved"]["opening_mm"]+1:
+                raise DomainError("필요한 그리퍼 벌림이 달라졌습니다. 경로를 다시 승인하세요.")
+            self.check(p,binding["snapshot_id"],approved=approved)
+            return obj
         obj=self.robot.picks.revalidate({**binding,"approved":approved},frame)
         if obj["confidence"]<binding["min_confidence"]:raise DomainError("대상의 신뢰도가 낮아졌습니다. YOLO 대상을 다시 확인하세요.")
         estimate=binding["plane"].gripper_estimate(obj["xyxy"],tcp=binding["pose"][:3])

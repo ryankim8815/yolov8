@@ -14,7 +14,7 @@ def send_frame(connection, value):
     arrays = [value.color, value.depth, value.infrared]
     header = json.dumps({"version": 1, "shape": list(value.color.shape),
                          "depth": value.depth is not None, "infrared": value.infrared is not None,
-                         "intrinsics": value.intrinsics}).encode()
+                         "intrinsics": value.intrinsics, "calibration": value.calibration}).encode()
     connection.sendall(struct.pack("!I", len(header)) + header)
     for array in arrays:
         if array is not None:
@@ -82,4 +82,11 @@ def receive_frame(connection, timeout, stop=None):
     depth = array(np.uint16 if storage=="u16" else np.float32, (height,width)) if header["depth"] else None
     if depth is not None and storage=="u16":depth=depth.astype(np.float32)*scale
     infrared = array(np.uint8, (height,width)) if header["infrared"] else None
-    return SensorFrame(color, depth, infrared, tuple(intrinsics) if intrinsics else None)
+    optics=header.get("calibration")
+    if optics is not None:
+        if (not isinstance(optics,dict) or not isinstance(optics.get("model"),str) or len(optics["model"])>64
+                or not isinstance(optics.get("coeffs"),list) or len(optics["coeffs"])!=5
+                or any(type(n) not in (int,float) or not np.isfinite(n) for n in optics["coeffs"])
+                or optics.get("depth_coordinates")!="color_z"):
+            raise RuntimeError("지원하지 않는 RealSense 광학 보정 정보입니다.")
+    return SensorFrame(color, depth, infrared, tuple(intrinsics) if intrinsics else None,optics)

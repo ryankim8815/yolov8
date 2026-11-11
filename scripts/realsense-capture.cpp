@@ -10,6 +10,9 @@
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <vector>
+#include <cmath>
+#include <algorithm>
 
 static void send_all(int socket,const void* bytes,size_t size){
     auto data=static_cast<const char*>(bytes);
@@ -46,7 +49,7 @@ static void capture(int socket){
         catch(const rs2::error& error){last_error=error.what();}
     }
     if(!started)throw std::runtime_error(last_error);
-    rs2::align align(RS2_STREAM_COLOR);
+    rs2::pointcloud pointcloud;
     auto intr=profile.get_stream(RS2_STREAM_COLOR).as<rs2::video_stream_profile>().get_intrinsics();
     float scale=depth?profile.get_device().first<rs2::depth_sensor>().get_depth_scale():0;
     std::cerr<<"RealSense "<<profile.get_device().get_info(RS2_CAMERA_INFO_NAME)<<" USB "
@@ -54,16 +57,33 @@ static void capture(int socket){
     while(true){
         auto frames=pipeline.wait_for_frames(5000);
         auto color=frames.get_color_frame();
-        rs2::depth_frame distances=depth?align.process(frames).as<rs2::frameset>().get_depth_frame():rs2::depth_frame{rs2::frame{}};
+        auto distances=frames.get_depth_frame();
         auto ir=infrared?frames.get_infrared_frame(1):rs2::video_frame{rs2::frame{}};
         if(!color||(depth&&!distances)||(infrared&&!ir))continue;
         int width=color.get_width(),height=color.get_height();
+        // Aligned Z16 retains depth-camera Z. Calibration needs color optical Z.
+        std::vector<float> color_z(width*height,0);
+        if(depth){
+            pointcloud.map_to(color);auto points=pointcloud.calculate(distances);
+            auto vertices=points.get_vertices();auto texture=points.get_texture_coordinates();
+            auto extr=distances.get_profile().get_extrinsics_to(color.get_profile());
+            for(size_t i=0;i<points.size();i++){
+                if(vertices[i].z<=0)continue;
+                float z=extr.rotation[2]*vertices[i].x+extr.rotation[5]*vertices[i].y+extr.rotation[8]*vertices[i].z+extr.translation[2];
+                int x=std::lround(texture[i].u*width),y=std::lround(texture[i].v*height);
+                if(z<=0||x<0||y<0||x>=width||y>=height)continue;
+                auto& value=color_z[y*width+x];if(value==0||z<value)value=z;
+            }
+        }
         std::ostringstream out;
         out<<"{\"version\":1,\"shape\":["<<height<<','<<width<<",3],\"depth\":"<<(depth?"true":"false")
-           <<",\"infrared\":"<<(infrared?"true":"false")<<",\"depth_storage\":\"u16\",\"depth_scale\":"<<scale<<",\"intrinsics\":";
+           <<",\"infrared\":"<<(infrared?"true":"false")<<",\"depth_storage\":\"f32\",\"depth_scale\":"<<scale<<",\"intrinsics\":";
         if(depth)out<<'['<<intr.fx<<','<<intr.fy<<','<<intr.ppx<<','<<intr.ppy<<']';else out<<"null";
-        out<<'}';header(socket,out.str());pixels(socket,color,3,width,height);
-        if(depth)pixels(socket,distances,2,width,height);
+        out<<",\"calibration\":{\"model\":"<<quote(rs2_distortion_to_string(intr.model))<<",\"coeffs\":[";
+        for(int i=0;i<5;i++){if(i)out<<',';out<<intr.coeffs[i];}
+        out<<"],\"depth_coordinates\":\"color_z\",\"serial\":"<<quote(serial)<<"}}";
+        header(socket,out.str());pixels(socket,color,3,width,height);
+        if(depth)send_all(socket,color_z.data(),color_z.size()*sizeof(float));
         if(infrared)pixels(socket,ir,1,width,height);
     }
 }

@@ -31,7 +31,7 @@ export function connectPresetDetection(root,{getDraft,onChange,onPrepare,signal}
       ${yolo?`<p><strong>대상 클래스는 실행할 때 음성으로 선택합니다.</strong></p>
         <p class="scenario-caption">${catalog?esc(catalog.model_name)+(catalog.ready?' · 탐지 중':' · 카메라 탐지 필요'):esc(catalogError||(catalogLoading?'클래스 조회 중…':'클래스 목록을 불러오세요.'))}</p>
         <div class="preset-class-list" aria-label="현재 모델의 클래스 목록">${(catalog?.classes||[]).map(c=>`<span>${esc(c.name)}</span>`).join('')}</div>
-        <p class="scenario-caption">목록의 클래스 한 개만 선택할 수 있으며 이번 실행에만 적용합니다. 위치·벌림은 탐지값과 작업면 보정으로 계산하고, 두께·깊이는 아래 저장값을 사용합니다.</p>
+        <p class="scenario-caption">목록의 클래스 한 개만 선택할 수 있으며 이번 실행에만 적용합니다. <a href="/robot#camera-calibration">마커 BASE 보정</a>을 켜면 RealSense 깊이로 표면 좌표·벌림을 계산합니다. 숨겨진 두께는 아래 저장값을 사용해 객체 중심으로 환산합니다. 마커 BASE 보정 사용을 끄면 기존 작업면 보정을 사용합니다.</p>
         <div class="pose-actions"><button type="button" data-detection-action="catalog">클래스 새로고침</button><button type="button" data-detection-action="prepare">인식 자세 실제 준비…</button></div>`:
         '<p class="scenario-caption">저장한 객체 위치·크기로 자동 파지 묶음을 계산합니다.</p>'}`;
     controls();
