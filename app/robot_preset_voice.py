@@ -169,7 +169,7 @@ class PresetVoice:
                                     detection=capture,generation=self.generation,session=self.session)
             return
         binding=self.engine.detections.bind(p,capture["snapshot_id"],capture["selected_id"])
-        recipe=self.engine.compile(self.scoped(p),binding["resolved"])
+        recipe=self.engine.compile(self.scoped(p),binding["resolved"],simulation=self.target=="simulation")
         await self.make_pending(p,recipe,self.generation,self.session,c["versions"],c["floor_revision"],binding)
 
     def scoped(self,p):
@@ -196,11 +196,11 @@ class PresetVoice:
                 raise
         self.release_session=None
 
-    def match(self,text):
+    def match(self,text,*,simulation=None):
         word=normalized(text)
         matches=[p for p in self.engine.library.load()["presets"] if p["voice_enabled"] and word in {normalized(a) for a in p["aliases"]}]
         if len(matches)!=1:raise DomainError("미등록 또는 중복 명령입니다. 실행할 작업이 없습니다.")
-        p=copy.deepcopy(matches[0]);recipe=self.engine.compile(p)
+        p=copy.deepcopy(matches[0]);recipe=self.engine.compile(p,simulation=self.target=="simulation" if simulation is None else simulation)
         if p["object_source"]=="yolo":self.engine.detections.criteria(p)
         elif recipe["errors"]:raise DomainError(" ".join(recipe["errors"]))
         return p,recipe
@@ -209,7 +209,7 @@ class PresetVoice:
         # Deliberately does not modify the real microphone confirmation state.
         if normalized(text) in {normalized(s) for s in ("로봇 실행","로봇 중단","중단","로봇 취소","음성 대기 종료")}:
             raise DomainError("공통 제어 명령은 문장 테스트로 실행하지 않습니다.")
-        p,recipe=self.match(text)
+        p,recipe=self.match(text,simulation=True)
         if p["object_source"]=="yolo":
             if snapshot_id is None:
                 catalog=await self.engine.catalog()
@@ -221,7 +221,7 @@ class PresetVoice:
                 snapshot_id=capture["snapshot_id"];candidate_id=capture["selected_id"]
             binding=self.engine.detections.bind(p,snapshot_id,candidate_id)
             await self.engine.detections.revalidate(p,binding)
-            recipe=self.engine.compile(p,binding["resolved"])
+            recipe=self.engine.compile(p,binding["resolved"],simulation=True)
             if recipe["errors"]:raise DomainError(" ".join(recipe["errors"]))
         return dict(name=p["name"],revision=p["revision"],preset_id=p["id"],recipe=recipe,simulation_only=True)
 
@@ -248,7 +248,7 @@ class PresetVoice:
         self.selection=None
         preset=self.engine.library.get(selected["preset_id"])
         binding=self.engine.detections.bind(preset,selected["detection"]["snapshot_id"],candidate_id)
-        recipe=self.engine.compile(self.scoped(preset),binding["resolved"])
+        recipe=self.engine.compile(self.scoped(preset),binding["resolved"],simulation=self.target=="simulation")
         await self.make_pending(preset,recipe,self.generation,self.session,self.engine.legacy.versions(),self.engine.robot.floor.value["revision"],binding)
         return self.status()
 

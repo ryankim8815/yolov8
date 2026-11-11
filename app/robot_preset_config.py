@@ -10,7 +10,7 @@ from uuid import uuid4, uuid5, NAMESPACE_URL
 from pydantic import Field, FiniteFloat, model_validator
 
 from .pick_plane import Input
-from .robot_scenario_config import ScenarioInput, Six, Three, VirtualProduct, HandSpeed, check_joints, speed_for
+from .robot_scenario_config import ScenarioInput, Six, Three, VirtualProduct, HandSpeed, check_joints, speed_for, simulation_box_pose
 from .robot_grasp_pose import grasp_abc,tool_x
 from .robot_scenario import approach_pose, compile_steps
 from .store import DomainError, atomic_json
@@ -224,14 +224,38 @@ def compile_preset(preset, hand, floor_z=0, *, selected_range=True, detected=Non
                 detected=copy.deepcopy(detected))
 
 
-def compile_simulation(preset,hand,floor_z=0):
+def compile_simulation(preset,hand,floor_z=0,*,box=None,defaults=False,simulation_object=True,detected=None):
     """Explicit preview-only override. Hardware always calls compile_preset."""
     p=MotionPreset.model_validate(preset) if isinstance(preset,dict) else preset
-    obj=p.simulation_objects[p.region]
-    if obj is None:return compile_preset(p,hand,floor_z)
-    draft=p.model_copy(deep=True);draft.object_source="saved";draft.context.virtual[p.region]=obj.model_copy(deep=True)
-    recipe=compile_preset(draft,hand,floor_z)
-    recipe.update(example=True,name="모의 객체 · "+p.name,object_source=p.object_source)
+    draft=p.model_copy(deep=True);virtual_defaults=[]
+    if box:
+        draft.box_size=copy.deepcopy(box["size_mm"]);draft.box_center=copy.deepcopy(box["center_base_mm"])
+    obj=p.simulation_objects[p.region] if simulation_object else None
+    if obj is not None:
+        draft.object_source="saved";draft.context.virtual[p.region]=obj.model_copy(deep=True)
+    if defaults:
+        def flatten(steps):
+            return [item for step in steps for item in [step,*flatten(step.children)]]
+        roots=draft.steps
+        if draft.range_start:
+            ids=[step.id for step in roots];roots=roots[ids.index(draft.range_start):ids.index(draft.range_end)+1]
+        nodes=flatten(roots);by_id={step.id:step for step in flatten(draft.steps)}
+        for step in list(nodes):
+            seen=set()
+            while step.reference_id and step.reference_id not in seen:
+                seen.add(step.reference_id);step=by_id[step.reference_id];nodes.append(step)
+        if draft.context.waypoint1_joints is None and any(step.source in {"waypoint1","waypoint2"} for step in nodes):
+            draft.context.waypoint1_joints=[-180,0,60,0,120,0]
+            virtual_defaults.append(dict(field="context.waypoint1_joints",label="1차 경유 관절각",value=list(draft.context.waypoint1_joints)))
+        if draft.box_pose is None and any(step.kind=="place" or step.source in {"box","above_box"} for step in nodes):
+            geometry=dict(size_mm=draft.box_size,center_base_mm=draft.box_center)
+            draft.box_pose=simulation_box_pose(geometry)
+            draft.context.box_clearance_mm=max(draft.context.box_clearance_mm,draft.box_center[2]+draft.box_size[2]+50-draft.box_pose[2])
+            virtual_defaults.append(dict(field="box_pose",label="박스 놓기 TCP",value=list(draft.box_pose)))
+    recipe=compile_preset(draft,hand,floor_z,detected=detected)
+    recipe["simulation_defaults"]=virtual_defaults
+    if box:recipe.update(box_source="parcel_box",box_revision=box.get("revision"))
+    if obj is not None:recipe.update(example=True,name="모의 객체 · "+p.name,object_source=p.object_source)
     return recipe
 
 

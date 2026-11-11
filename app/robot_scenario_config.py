@@ -149,14 +149,22 @@ class ScenarioConfig:
         return value
 
 
-def example_scenario():
+def simulation_box_pose(box):
+    """A virtual drop point inside the configured carton; never a taught TCP."""
+    x,y,z=box["center_base_mm"]
+    return [x,y,z+min(120,box["size_mm"][2]/2),0,180,0]
+
+
+def example_scenario(box=None):
     """A complete, repeatable browser-only recipe; never persisted as robot teaching."""
     config=ScenarioInput().model_dump()
     config.update(waypoint1_joints=[-180,0,60,0,120,0],standby_opening_mm=80,box_clearance_mm=200)
     config["virtual"]["shelf"]["center_base_mm"][2]=450
     config["stages"]["8"]["via_pose"]=[-421.975537,.000449,290.654122,44.999991,179.999802,0]
-    return dict(config=config,box_pose=[450,0,120,0,180,0],
-                box=dict(size_mm=[400,300,250],center_base_mm=[450,0,0]),floor_z_mm=0)
+    box=copy.deepcopy(box or dict(size_mm=[400,300,250],center_base_mm=[450,0,0]))
+    goal=simulation_box_pose(box)
+    config["box_clearance_mm"]=max(config["box_clearance_mm"],box["center_base_mm"][2]+box["size_mm"][2]+50-goal[2])
+    return dict(config=config,box_pose=goal,box=box,floor_z_mm=0)
 
 
 def speed_for(config,number,kind):

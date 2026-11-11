@@ -143,7 +143,7 @@ export function connectRobotArm(el,signal,onOrbit) {
     ui.canvas.setAttribute("aria-label","E0509 6축 매니퓰레이터. "+display.reason+". 관절각 "+display.angles.map(mm).join(", ")+"도. BASE 원점 고정. "+(preview||idleExample?"시뮬레이션 TCP와 공구 방향 표시.":tcp?"실측 TCP와 공구 방향 표시.":"TCP 수신 없음. 모델 플랜지 방향 표시."));
     ui.parcelBox.hidden=!displayBox;
     if(displayBox){
-      ui.boxTitle.textContent=(exampleContext?'예시 택배 박스':sceneRecipe?'프리셋 택배 박스':"택배 박스")+(displayBox.draft?" · 저장 전":"");
+      ui.boxTitle.textContent=(sceneRecipe?.box_source==='parcel_box'?'택배 박스 설정':exampleContext?'예시 택배 박스':sceneRecipe?'프리셋 택배 박스':"택배 박스")+(displayBox.draft?" · 저장 전":"");
       ui.boxSize.textContent="가로 × 세로 × 높이 · "+displayBox.size_mm.join(" × ")+" mm";
       ui.boxCenter.textContent="바닥면 중심 · BASE ("+displayBox.center_base_mm.join(", ")+") mm";
       ui.canvas.setAttribute("aria-label",ui.canvas.getAttribute("aria-label")+" "+ui.boxSize.textContent+". "+ui.boxCenter.textContent+".");

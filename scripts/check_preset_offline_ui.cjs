@@ -11,6 +11,8 @@ const assert=require('node:assert/strict'),fs=require('node:fs');
   const seed=(await api('GET','presets')).presets[0],preset=await api('POST','presets/'+seed.id+'/copy',{revision:seed.revision});
   preset.name='오프라인 미설정 경로';preset.object_source='saved';preset.context.waypoint1_joints=null;preset.box_pose=null;
   preset.simulation_objects={floor:null,shelf:null};const original=await api('PUT','presets/'+preset.id,preset);
+  const box=await api('GET','parcel-box');box.center_base_mm=[-500,0,0];
+  let common=await api('PUT','parcel-box',{revision:box.revision,center_base_mm:box.center_base_mm,size_mm:box.size_mm});
   await page.routeWebSocket('**/ws/*',s=>s.close());
   await page.route('**/*',async route=>{
    const r=route.request(),u=new URL(r.url());assert.equal(u.origin,base);
@@ -25,30 +27,46 @@ const assert=require('node:assert/strict'),fs=require('node:fs');
     return route.fulfill({response});
    }
    const response=await route.fetch({headers:{...r.headers(),...headers}});
-   if(u.pathname==='/api/robot/parcel-box'){const data=await response.json();data.center_base_mm=[-500,0,0];return route.fulfill({response,json:data});}
-   if(u.pathname==='/api/robot/status'){const data=await response.json();data.config.access_backend='mac-sdk';data.bridge_connected=false;data.state='offline';data.parcel_box.center_base_mm=[-500,0,0];return route.fulfill({response,json:data});}
+   if(u.pathname==='/api/robot/status'){const data=await response.json();data.config.access_backend='mac-sdk';data.bridge_connected=false;data.state='offline';return route.fulfill({response,json:data});}
    return route.fulfill({response});
   });
   const root=page.locator('#scenario-editor'),action=name=>page.locator(`[data-action="${name}"]`),canvas=page.locator('[data-arm=canvas]');
   const state=()=>page.locator('[data-p=simulation]').getAttribute('data-state');
-  const waitState=value=>page.waitForFunction(value=>document.querySelector('[data-p=simulation]').dataset.state===value&&(['idle','error'].includes(value)||document.querySelector('[data-arm=canvas]').dataset.simulation===value),value,{timeout:60000});
+  const waitState=async value=>{
+   await page.waitForFunction(value=>{const state=document.querySelector('[data-p=simulation]').dataset.state;return state==='error'||state===value&&(['idle','error'].includes(value)||document.querySelector('[data-arm=canvas]').dataset.simulation===value);},value,{timeout:60000});
+   assert.equal(await state(),value,await page.locator('[data-p=simulation]').textContent());
+  };
   const seek=async value=>page.locator('[data-p=progress]').evaluate((el,value)=>{el.value=value;el.dispatchEvent(new Event('input',{bubbles:true}));},value);
   await page.goto(base+'/robot?preset='+preset.id+'#preset-execution');
   await page.waitForFunction(()=>document.querySelectorAll('[data-configure-field]').length===2);
   assert.equal(await root.locator('[data-action=play]').count(),0);assert.equal(await page.locator('[data-action=play]').count(),1);
   assert.equal(await page.locator('[data-preset-controls] > #preset-execution').count(),1);
-  assert.equal(await action('play').isDisabled(),true);assert.equal(await action('demo').isEnabled(),true);
+  assert.equal(await action('play').isEnabled(),true);assert.equal(await action('demo').isEnabled(),true);
   assert.match(await page.locator('[data-p=simulation-connection]').textContent(),/로봇 미연결.*가상 테스트 가능/);
-  assert.match(await page.locator('[data-p=simulation]').textContent(),/필수 좌표 2개/);
+  assert.match(await page.locator('[data-p=simulation-context]').textContent(),/가상 기본값 사용.*1차 경유 관절각.*박스 놓기 TCP/);
+  assert.match(await page.locator('[data-p=simulation-context]').textContent(),/택배 박스 설정 사용/);
   assert.equal(await action('pause').isDisabled(),true);assert.equal(await action('sim-stop').isDisabled(),true);
   assert.equal(await page.locator('[data-pick=sizing]').isVisible(),false);
   assert.equal(await page.locator('.plane-heights').isVisible(),false);
   await page.locator('[data-p=rate]').selectOption('20');
+  const assertCommonBox=async()=>{
+   const displayed=JSON.parse(await canvas.getAttribute('data-parcel-box'));
+   assert.deepEqual(displayed.center_base_mm,common.center_base_mm);assert.deepEqual(displayed.size_mm,common.size_mm);
+   assert.equal(await page.locator('[data-arm=boxTitle]').textContent(),'택배 박스 설정');
+  };
+  await action('play').click();await waitState('running');await assertCommonBox();
+  await action('pause').click();await waitState('paused');await seek(500);await assertCommonBox();
+  await seek(0);await action('pause').click();
+  await waitState('complete');await assertCommonBox();assert.equal(await page.locator('[data-p=percent]').textContent(),'100%');
+  assert.deepEqual(await api('GET','presets/'+preset.id),original);
+  await action('sim-stop').click();await waitState('idle');await assertCommonBox();
+  assert.equal(await action('play').isEnabled(),true);
+  console.log('PASS: incomplete offline preset uses temporary defaults for full 17-step playback and the common box throughout.');
   for(const region of ['floor','shelf']){
    await page.locator('[data-p=demo-region]').selectOption(region);await action('demo').click();await waitState('running');
    assert.equal(await action('play').isDisabled(),true);assert.equal(await action('demo').isDisabled(),true);
    assert.match(await page.locator('[data-p=simulation-context]').textContent(),/현재 프리셋과 별개/);
-   assert.equal(await page.locator('[data-arm=hand]').isVisible(),false);
+   assert.equal(await page.locator('[data-arm=hand]').isVisible(),false);await assertCommonBox();
    if(region==='floor'){
     const count=demoCalls;await action('demo').evaluate(el=>el.click());assert.equal(demoCalls,count);
     await action('pause').click();await waitState('paused');assert.equal(await action('pause').textContent(),'계속 재생');
@@ -63,11 +81,17 @@ const assert=require('node:assert/strict'),fs=require('node:fs');
    await page.locator('.gripper-panel').screenshot({path:'.cache/offline-preset-ui/'+region+'-grip.png'});
    await action('confirm-simulation').click();await waitState('awaiting_open');await action('confirm-simulation').click();await waitState('complete');
    assert.equal(await page.locator('[data-p=percent]').textContent(),'100%');assert.equal(await action('sim-stop').isEnabled(),true);
-   assert.equal(JSON.parse(await canvas.getAttribute('data-virtual-product')).released,true);
+   assert.equal(JSON.parse(await canvas.getAttribute('data-virtual-product')).released,true);await assertCommonBox();
    assert.deepEqual(await api('GET','presets/'+preset.id),original);
    console.log('PASS: disconnected '+region+' 17-step playback, pause/seek/confirm/complete, unchanged preset.');
    await action('sim-stop').click();await waitState('idle');assert.equal(await page.locator('[data-p=percent]').textContent(),'0%');
   }
+  // A saved common-box change invalidates the old virtual route and reloads its geometry.
+  await action('play').click();await waitState('running');await action('pause').click();await waitState('paused');
+  common=await api('PUT','parcel-box',{revision:common.revision,center_base_mm:[-480,20,5],size_mm:[380,280,240]});
+  await waitState('idle');
+  await page.waitForFunction(center=>JSON.stringify(JSON.parse(document.querySelector('[data-arm=canvas]').dataset.parcelBox).center_base_mm)===JSON.stringify(center),common.center_base_mm);
+  await page.waitForFunction(()=>!document.querySelector('[data-action=play]').disabled);await assertCommonBox();
   // Abort an in-flight example response; it must never start playback afterwards.
   const started=new Promise(resolve=>{requestStarted=resolve;});delayDemo=true;await action('demo').click();await started;
   assert.equal(await action('sim-stop').isEnabled(),true);await action('sim-stop').click();releaseDemo();
@@ -79,15 +103,14 @@ const assert=require('node:assert/strict'),fs=require('node:fs');
   await page.locator('[data-op=execute]').first().click();await waitState('complete');
   assert.match(await page.locator('[data-p=simulation-context]').textContent(),/저장 전 변경/);
   assert.match(await page.locator('[data-p=simulation]').textContent(),/기본 자세에서 재생/);
-  assert.deepEqual(JSON.parse(await canvas.getAttribute('data-parcel-box')).center_base_mm,original.box_center);
-  assert.equal(await page.locator('[data-arm=boxTitle]').textContent(),'프리셋 택배 박스');
+  await assertCommonBox();
   assert.equal(await page.locator('[data-arm=hand]').isVisible(),false);
-  assert.equal(await action('play').isDisabled(),true);assert.equal(Number((await canvas.getAttribute('data-joints')).split(',')[0]),1);
+  await page.waitForFunction(()=>!document.querySelector('[data-action=play]').disabled);assert.equal(Number((await canvas.getAttribute('data-joints')).split(',')[0]),1);
   await action('sim-stop').click();await action('discard').click();
   await page.locator('#manipulator-box-tab').click();assert.equal(await page.locator('#preset-execution').isVisible(),false);
-  await page.waitForFunction(()=>JSON.parse(document.querySelector('[data-arm=canvas]').dataset.parcelBox).center_base_mm[0]===-500);
+  await page.waitForFunction(center=>JSON.stringify(JSON.parse(document.querySelector('[data-arm=canvas]').dataset.parcelBox).center_base_mm)===JSON.stringify(center),common.center_base_mm);
   await page.locator('#manipulator-points-tab').click();assert.equal(await page.locator('#preset-execution').isVisible(),true);
-  await page.waitForFunction(()=>JSON.parse(document.querySelector('[data-arm=canvas]').dataset.parcelBox).center_base_mm[0]!==-500);
+  await page.waitForFunction(()=>document.querySelector('[data-arm=boxTitle]').textContent==='택배 박스 설정');await assertCommonBox();
   await page.locator('[data-p=voice-target]').selectOption('hardware');
   assert.equal(await action('play').isDisabled(),true);assert.equal(await action('demo').isDisabled(),true);
   assert.equal(await page.locator('[data-op=execute]').first().isDisabled(),true);
@@ -100,6 +123,7 @@ const assert=require('node:assert/strict'),fs=require('node:fs');
    await page.locator('.gripper-panel').screenshot({path:'.cache/offline-preset-ui/player-'+width+'.png'});
   }
   await page.reload();await page.waitForFunction(()=>Boolean(document.querySelector('[data-action=demo]')));
+  await page.waitForFunction(()=>!document.querySelector('[data-action=play]').disabled);await assertCommonBox();
   assert.equal(await state(),'idle');assert.deepEqual(await api('GET','presets/'+preset.id),original);
   assert.deepEqual(forbidden,[]);assert.deepEqual(errors,[]);
   console.log('PASS: pending cancellation, unsaved single-stage preview, offline hardware disabled, 320–1440px, reload, no device or microphone requests.');

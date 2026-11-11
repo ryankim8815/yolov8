@@ -125,7 +125,8 @@ class Scenario:
 
     def versions(self):
         versions=dict(config=self.config.value["revision"],box=self.robot.work_points.points["box"]["revision"],
-                    hand=self.robot.hand.table["revision"],contact=self.robot.hand.contact["revision"],stop=self.stop_generation)
+                    hand=self.robot.hand.table["revision"],contact=self.robot.hand.contact["revision"],stop=self.stop_generation,
+                    parcel_box=self.robot.parcel_box.value["revision"])
         calibration=getattr(self.robot,"camera_calibration",None)
         if calibration and calibration.enabled:versions["camera_calibration"]=calibration.value["revision"]
         return versions
@@ -139,7 +140,8 @@ class Scenario:
         return width
 
     def virtual_preview(self,body):
-        demo=example_scenario() if body.example else None
+        common={key:copy.deepcopy(self.robot.parcel_box.value[key]) for key in ("size_mm","center_base_mm")}
+        demo=example_scenario(common) if body.example else None
         config=body.config.model_dump() if body.config else copy.deepcopy(demo["config"] if demo else self.config.value)
         product=config["virtual"][body.region];pose=[*product["center_base_mm"],*( [0,180,0] if body.region=="floor" else [180,90,90])]
         a,b,c=map(math.radians,pose[3:]);tool_x=[math.cos(a)*math.cos(b)*math.cos(c)-math.sin(a)*math.sin(c),
@@ -155,7 +157,7 @@ class Scenario:
             if motion_for(config,n)=="movec" and config["stages"][str(n)].get("via_pose") is None:
                 errors.append(f"{n}단계 movec의 원호 경유 TCP를 설정하세요.")
         return dict(simulation_only=True,example=body.example,region=body.region,product=product,pose=pose,approach=approach,config=config,
-                    box=demo["box"] if demo else self.robot.parcel_box.value,box_pose=box,floor_z_mm=0 if demo else self.robot.floor.value["z_mm"],
+                    box=common,box_source="parcel_box",box_revision=self.robot.parcel_box.value["revision"],box_pose=box,floor_z_mm=0 if demo else self.robot.floor.value["z_mm"],
                     opening_mm=opening,width_mm=width,clearance_per_side_mm=5,
                     idle_opening_mm=self.idle_width(config,True),errors=errors,
                     steps=compile_steps(config,pose,approach,box,opening,self.idle_width(config,True)))

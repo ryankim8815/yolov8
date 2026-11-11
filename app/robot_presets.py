@@ -30,6 +30,7 @@ class DetectionRequest(PresetPreview):
 
 class PresetSimulation(PresetPreview):
     simulation_object: bool = False
+    simulation_defaults: bool = False
 
 
 class Approval(Input):
@@ -45,7 +46,10 @@ class PresetEngine:
         self.robot=robot;self.legacy=robot.scenario;self.library=PresetLibrary(directory,robot)
         self.voice=None;self.detections=PresetDetections(self)
 
-    def compile(self,preset,detected=None):
+    def compile(self,preset,detected=None,*,simulation=False,defaults=False,simulation_object=False):
+        if simulation:
+            return compile_simulation(preset,self.robot.hand,self.robot.floor.value["z_mm"],box=self.robot.parcel_box.value,
+                                      defaults=defaults,simulation_object=simulation_object,detected=detected)
         return compile_preset(preset,self.robot.hand,self.robot.floor.value["z_mm"],detected=detected)
 
     async def catalog(self):return await asyncio.to_thread(read_yolo_catalog)
@@ -239,10 +243,10 @@ async def simulation(identifier:str,body:PresetSimulation,request:Request):
     p=p.model_dump() if isinstance(p,MotionPreset) else p
     if body.simulation_object:
         if body.snapshot_id:raise DomainError("모의 객체와 탐지 스냅샷을 함께 사용할 수 없습니다.",422)
-        return compile_simulation(p,e.robot.hand,e.robot.floor.value["z_mm"])
+        return e.compile(p,simulation=True,simulation_object=True,defaults=body.simulation_defaults)
     binding=e.detections.bind(p,body.snapshot_id,body.candidate_id) if body.snapshot_id else None
     if binding:await e.detections.revalidate(p,binding)
-    return e.compile(p,binding["resolved"] if binding else None)
+    return e.compile(p,binding["resolved"] if binding else None,simulation=True,defaults=body.simulation_defaults)
 
 @router.get("/sources/yolo")
 async def yolo_catalog():return await asyncio.to_thread(read_yolo_catalog)

@@ -29,7 +29,7 @@ function createParcelBoxEditor() {
     reload.hidden=!conflict && Boolean(saved) && online;reload.disabled=pending;
     hint.textContent=box ? `바닥면 중심 (${box.center_base_mm.join(", ")}) mm · 윗면 Z ${Number((box.center_base_mm[2]+box.size_mm[2]).toFixed(3))} mm · ${dirty?"저장 전 미리보기":saved?.revision?"저장된 박스":"기본 박스"}`
       : "크기는 0보다 큰 값, 위치는 유효한 BASE 좌표로 모두 입력하세요. 입력이 완성되면 박스가 표시됩니다.";
-    const next=box ? {...box,draft:dirty} : null, key=JSON.stringify(next);
+    const next=box ? {...box,revision:saved?.revision??null,draft:dirty} : null, key=JSON.stringify(next);
     if(key!==signature){signature=key;parcelPreview=next;for(const listener of parcelListeners)listener(next);}
   }
   function receive(next) {

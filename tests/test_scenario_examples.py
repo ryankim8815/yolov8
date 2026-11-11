@@ -13,6 +13,7 @@ def test_zero_setup_example_is_complete_without_sdk_camera_or_teaching_writes(tm
     with TestClient(create_robot_app()) as client:
         # The complete example is independent of a previously taught physical floor.
         assert client.put('/api/robot/floor-reference',json={'revision':None,'z_mm':1000}).status_code==200
+        assert client.put('/api/robot/parcel-box',json={'revision':None,'size_mm':[400,300,250],'center_base_mm':[450,0,0]}).status_code==200
         before=client.get('/api/robot/pick-scenario').json();points=client.get('/api/robot/status').json()['work_points']
         parcel=client.get('/api/robot/parcel-box').json();files={p:p.read_bytes() for p in tmp_path.rglob('*.json')}
         assert before['waypoint1_joints'] is None and points['box']['pose'] is None
@@ -30,4 +31,5 @@ def test_zero_setup_example_is_complete_without_sdk_camera_or_teaching_writes(tm
         assert client.post('/api/robot/pick/prepare/approve',json={'approval_id':'example'}).status_code==409
         assert not client.app.state.robot.picks.busy
         fixture=json.loads((Path(__file__).parent/'fixtures'/f'scenario-{region}.json').read_text())
+        assert example.pop('box_source')=='parcel_box' and example.pop('box_revision')==parcel['revision']
         assert example==fixture  # These exact response fixtures are replayed by the JS kinematics tests.
