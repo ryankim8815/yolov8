@@ -30,78 +30,29 @@ function measured(opening_mm = 65) {
   return {opening_mm, footprint_base_mm:[[0,-20,15],[0,20,15],[0,20,-15],[0,-20,-15]]};
 }
 
-test('the floor stays level in BASE and extends from the wall towards the camera', async () => {
+test('the floor stays fixed in BASE across camera directions, teaching points and heights', async () => {
   const {workSurfaces} = await import('../app/static/gripper-depth.js');
-  const s = Math.SQRT1_2;
-  const camera = [[s,0,s],[0,1,0],[-s,0,s]];
-  for (const [floorZ,tcpZ,relativeZ] of [[0,null,0],[-120,null,-120],[25,null,25],[-120,30,-150],[30,30,0],[40,15,25]]) {
-    for (const wallX of [70,120]) {
-      const {floor,wall} = workSurfaces(camera,wallX,floorZ,tcpZ);
-      assert.equal(floor.baseZ,floorZ);
-      const span = (a,b) => Math.hypot(...a.map((v,i)=>v-b[i]));
-      assert.ok(Math.abs(span(floor.points[0],floor.points[1])-450)<1e-9);
-      assert.ok(Math.abs(span(floor.points[0],floor.points[3])-500)<1e-9);
-      assert.ok(span(wall.points[0],wall.points[3])>=150-1e-9);
-      assert.deepEqual(floor.points.slice(0,2),wall.points.slice(0,2));
-      assert.ok(wall.points.every(p=>p[0]===wallX));
-      assert.ok(floor.points.slice(2).every(p=>p[0]<wallX));
-      for (const p of [...floor.points, ...floor.lines.flat()]) {
-        const dz = p.reduce((sum,v,i)=>sum+v*camera[i][2],0);
-        assert.ok(Math.abs(dz-relativeZ)<1e-9);
-      }
-    }
+  const {cameraPointToBase,floorGuide} = await import('../app/static/robot-arm.js');
+  const s=Math.SQRT1_2;
+  const cameras=[[[1,0,0],[0,1,0],[0,0,1]],[[s,0,s],[0,1,0],[-s,0,s]],
+    [[0,0,1],[0,1,0],[-1,0,0]],[[s,s,0],[-s,s,0],[0,0,1]]];
+  for(const camera of cameras)for(const anchor of [null,[null,100,0],[300,-80,120],[-500,200,-30]])for(const z of [-120,0,25]){
+    const surfaces=workSurfaces(camera,z,anchor),floor=surfaces.floor;
+    assert.equal('wall' in surfaces,false);assert.equal(floor.baseZ,z);
+    const expected=floorGuide(z,{width:450,depth:500,spacing:50});
+    const base=point=>cameraPointToBase(point,camera,anchor);
+    const close=(actual,wanted)=>actual.forEach((v,i)=>assert.ok(Math.abs(v-wanted[i])<1e-8));
+    floor.points.forEach((point,i)=>close(base(point),expected.points[i]));
+    floor.lines.flat().forEach(point=>{assert.ok(point.every(Number.isFinite));assert.ok(Math.abs(base(point)[2]-z)<1e-8);});
   }
-  assert.equal(workSurfaces(camera,70,null,null).floor,null);
+  assert.equal(workSurfaces(cameras[0],null,null).floor,null);
 });
 
-test('parallel and nearly parallel walls give a finite floor at the projection of the wall center', async () => {
-  const {workSurfaces} = await import('../app/static/gripper-depth.js');
-  for (const pitch of [Math.PI/2,Math.PI/2-1e-5]) {
-    const s=Math.sin(pitch), c=Math.cos(pitch);
-    const camera=[[c,0,s],[0,1,0],[-s,0,c]];
-    const {floor,wall}=workSurfaces(camera,70,-120,30);
-    const rear = floor.points[0].map((v,i)=>(v+floor.points[1][i])/2);
-    assert.ok(Math.abs(rear[0]*c-rear[2]*s-70*c)<1e-8);
-    for (const p of floor.points) {
-      assert.ok(Math.abs(p[0]*s+p[2]*c+150)<1e-8);
-      assert.ok(Math.hypot(...p)<700);
-    }
-    assert.ok(wall.points.every(p=>p[0]===70));
-  }
-});
-
-test('BASE sliders respect the full box at every endpoint of the floor and wall guides', async () => {
-  const {defaultExample,workSurfaces} = await import('../app/static/gripper-depth.js');
-  const {exampleGuide,constrainExample} = await import('../app/static/gripper-example.js');
-  const s = Math.SQRT1_2;
-  for (const camera of [[[1,0,0],[0,1,0],[0,0,1]], [[s,s,0],[-s,s,0],[0,0,1]], [[s,0,s],[0,1,0],[-s,0,s]]]) {
-    const anchor = [300,-80,120];
-    const surfaces = workSurfaces(camera,70,0,anchor[2]);
-    const guide = exampleGuide(camera,anchor,surfaces);
-    for (const preferred of [defaultExample,{...defaultExample,x:10000,sizeX:1000,sizeZ:1000}]) {
-      const fit = constrainExample(guide,preferred);
-      for (const [name,range] of Object.entries(fit.ranges)) {
-        for (const endpoint of [range.min,range.max]) {
-          const value = {...fit.value,[name]:endpoint};
-          for (const sx of [-1,1]) for (const sy of [-1,1]) for (const sz of [-1,1]) {
-            const p = [value.x+sx*value.sizeX/2,value.y+sy*value.sizeY/2,value.z+sz*value.sizeZ/2];
-            assert.ok(guide.every(({n,b})=>p.reduce((sum,v,i)=>sum+v*n[i],0)<=b+1e-5),name);
-          }
-        }
-      }
-    }
-  }
-  const upright=[[1,0,0],[0,1,0],[0,0,1]];
-  const standard=exampleGuide(upright,[0,0,0],workSurfaces(upright,70,0,0));
-  const {ranges}=constrainExample(standard,defaultExample);
-  assert.deepEqual(ranges.x,{min:-405,max:45});
-  assert.deepEqual(ranges.y,{min:-196,max:196});
-  assert.deepEqual(ranges.z,{min:32,max:118});
-  assert.equal(ranges.sizeX.max,50);
-  assert.equal(constrainExample(null,defaultExample),null);
-  const parallel=[[0,0,-1],[0,1,0],[1,0,0]];
-  const empty=exampleGuide(parallel,[0,0,0],workSurfaces(parallel,70,0,0));
-  assert.equal(constrainExample(empty,defaultExample),null);
+test('example scene contains a floor without a background wall', async () => {
+  const {exampleScenarioGuides}=await import('../app/static/robot-arm.js');
+  const guides=exampleScenarioGuides();
+  assert.equal('wall' in guides,false);assert.equal(guides.floor.baseZ,0);
+  assert.deepEqual(guides.floor.points,[[-900,-650,0],[900,-650,0],[900,650,0],[-900,650,0]]);
 });
 
 test('camera depth uses the taught face normal, independent of BASE origin and teaching order', async () => {
@@ -116,7 +67,7 @@ test('camera depth uses the taught face normal, independent of BASE origin and t
     const result = depthModel(defaultScene, toolAxes([90,90,0]), basis, measured());
     assert.ok(Math.abs(result.gap-20)<1e-10);
     assert.deepEqual(result.lens, [-defaultScene.tcpDepth,0,0]);
-    assert.equal(result.wallX-result.lens[0], defaultScene.distance);
+    assert.equal(result.frontX,20);
   }
   // Invalid/incomplete teaching must not masquerade as a measured camera direction.
   assert.equal(cameraBasis(points.slice(1)),null);
@@ -128,15 +79,16 @@ test('camera depth uses the taught face normal, independent of BASE origin and t
   assert.equal(cameraBasis(degenerate),null);
 });
 
-test('the lens stays on the sight axis through the TCP, including when the TCP reaches the lens or passes the wall', async () => {
+test('camera distance changes only the camera guide, while old wall distances are ignored', async () => {
   const {depthModel,defaultScene} = await import('../app/static/gripper-depth.js');
   const {toolAxes} = await import('../app/static/gripper-orientation.js');
   for (const tcpDepth of [0,410,1000]) {
     const settings = {...defaultScene, tcpDepth};
     const model = depthModel(settings,toolAxes([10,120,5]),undefined,measured());
     assert.equal(Math.hypot(...model.lens), tcpDepth);
-    assert.equal(model.wallX-model.lens[0], settings.distance);
-    assert.equal(model.frontX-model.lens[0], settings.distance-settings.protrusion);
+    assert.equal(model.frontX,20);
+    assert.equal(model.frontDepth,20+tcpDepth);
+    assert.deepEqual(depthModel({...settings,distance:700},toolAxes([10,120,5]),undefined,measured()),model);
   }
 });
 
@@ -147,9 +99,10 @@ test('signed depth is measured to the foremost finger pad, not to the TCP or the
   assert.equal(model().frontDepth,430);
   const near = (value, expected) => assert.ok(Math.abs(value-expected)<1e-9, value+' should equal '+expected);
   near(model().gap,20);
-  near(model({distance:510}).gap,50);
-  near(model({tcpDepth:432}).gap,-2);
-  near(model({protrusion:90}).gap,-20);
+  near(model({tcpDepth:432}).gap,20);
+  near(model({objectDepth:90}).gap,20);
+  const deeper=model({objectDepth:90});
+  near(Math.max(...deeper.objectPoints.map(p=>p[0]))-deeper.frontX,90);
   // With local X along sight, the positive pad ends at opening/2 + 12 mm.
   near(model({},[0,0,0]).gap,20-65/2-12);
   near(model({},[0,0,0],0).gap,20-12);

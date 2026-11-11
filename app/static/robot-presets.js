@@ -203,7 +203,7 @@ export function connectPresets(root,arm,signal){
     if(!draft||signal.aborted)return;const version=++epoch;
     try{
       const p=await api(`presets/${draft.id}/preview`,'POST',{preset:draft,simulation_object:usesSimulationObject(),...(draft.object_source==='yolo'?detection.payload():{})},signal);
-      if(version!==epoch)return;recipe=p;arm.setScenarioPreview(p.product?.center_base_mm?.every(Number.isFinite)?p:null);ui.count.textContent=p.steps.length+'단계';
+      if(version!==epoch)return;p.region??=draft.region;recipe=p;arm.setScenarioPreview(p.product?.center_base_mm?.every(Number.isFinite)?p:null);ui.count.textContent=p.steps.length+'단계';
       ui.simulation.textContent=p.errors.length?p.errors.join(' '):p.example?'모의 객체 · 시뮬레이션 전용 · 실제 장비 목표와 다를 수 있습니다.':p.object_source==='yolo'&&!p.detected?'시작 버튼을 누르고 대상 클래스를 말씀하세요. 탐지 객체 선택 후 경로를 계산하고 별도로 승인합니다.':'재생 준비 완료 · 실제 장치 명령 없음';
       renderSteps();controls();
     }catch(error){if(version===epoch){recipe=null;arm.setScenarioPreview(null);ui.simulation.textContent=error.message;controls();}}
@@ -213,6 +213,7 @@ export function connectPresets(root,arm,signal){
   async function save(){if(!draft||busy||realBusy)return;busy=true;controls();try{const p=await api('presets/'+draft.id,'PUT',draft,signal);presets=presets.map(item=>item.id===p.id?p:item);draft=p;dirty=false;conflict=false;snapshot();invalidate();render();await preview();message('프리셋을 저장했습니다.');}catch(error){if(error.status===412)conflict=true;message(error.message,true);}finally{busy=false;controls();}}
   async function create(copy=false){busy=true;controls();try{const p=copy?await api(`presets/${draft.id}/copy`,'POST',{revision:presets.find(p=>p.id===draft.id).revision},signal):await api('presets','POST',{id:uid(),name:'새 이동 경로'},signal);presets.push(p);await choose(p.id);}catch(error){message(error.message,true);}finally{busy=false;controls();}}
   async function playRecipe(path){
+    path={...path,region:path.region??draft.region};
     playingRecipe=path;ui.simulation.dataset.playback=String(++playbackSerial);
     arm.simulationAction('rate',Number(ui.rate.value));await arm.simulateRecipe(path);
   }

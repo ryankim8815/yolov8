@@ -123,7 +123,7 @@ export function connectArmRenderer(canvas,overlay,graphics,signal,onOrbit) {
     if(data.product){label(transformPoint(data.product.frame,[0,0,0]),data.product.holding?"가상 상품 · 파지":data.product.released?"가상 상품 · 놓임":"가상 상품",[12,24]);label(data.product.approach.slice(0,3),data.product.region==='floor'?'수직 접근':'수평 접근',[12,-18]);}
     if(!ready&&data.simulation?.path)nodes.push(svgNode("polyline",{points:data.simulation.path.map(p=>screen(p).join(",")).join(" "),fill:"none",stroke:"#85e8cf","stroke-width":2}));
     if(data.guides){
-      const g=data.guides;label(g.lens,"카메라 · 가이드",[-25,-22]);if(data.product?.region==='shelf')label(data.product.initial,'가상 선반',[20,-28]);else label(g.wall.points[2],"벽",[0,-10]);
+      const g=data.guides;label(g.lens,"카메라 · 가이드",[-25,-22]);if(data.product?.region==='shelf')label(data.product.initial,'가상 선반',[20,-28]);
       if(g.target&&!data.product)label(g.target,"교시 TCP",[18,22]);
       if(g.objectPoints.length&&!data.product)label(g.objectPoints[3],g.exampleObject?"예시 객체":"탐지 물체",[8,-17]);
       if(g.floor)nodes.push(svgNode("text",{x:width-10,y:height-22,"text-anchor":"end"},"바닥 0 mm · BASE Z "+g.floor.baseZ+" mm"));
@@ -146,11 +146,9 @@ export function connectArmRenderer(canvas,overlay,graphics,signal,onOrbit) {
     if(data.product)bounds.push(transformPoint(camera,transformPoint(data.product.frame,[0,0,0])));
     if(data.simulation?.bounds)bounds.push(...data.simulation.bounds.map(p=>transformPoint(camera,p)));
     if(data.guides){
-      const g=data.guides,p=g.wall.points;
-      // Match the mockup framing: fit the arm, camera and wall context. The
-      // guide planes may extend past the viewport without shrinking the arm.
-      const wallContext=p[0].map((v,i)=>(v+p[1][i])/2+(p[3][i]-v)*650/760+(p[1][i]-v)*50/760);
-      bounds.push(...[g.lens,wallContext,...g.objectPoints].map(p=>transformPoint(camera,p)));
+      const g=data.guides;
+      // Fit the robot, camera and task; the floor may extend beyond the view.
+      bounds.push(...[g.lens,...g.objectPoints].map(p=>transformPoint(camera,p)));
       if(g.target)bounds.push(transformPoint(camera,g.target));
     }
     if(data.tcp)bounds.push(transformPoint(camera,data.tcp.slice(0,3)));
@@ -163,9 +161,8 @@ export function connectArmRenderer(canvas,overlay,graphics,signal,onOrbit) {
       const g=data.guides;
       if(g){
         gl.depthMask(false);if(g.floor){plate(g.floor.points,[.15,.32,.29,.8]);lines(g.floor.lines.flat(),[.43,.62,.59,.5]);}
-        if(!data.product||data.product.region!=="shelf"){plate(g.wall.points,[.19,.32,.35,.65]);lines(g.wall.lines.flat(),[.43,.62,.59,.5]);}gl.depthMask(true);
-        const wallCenter=[0,1,2].map(i=>g.wall.points.reduce((sum,p)=>sum+p[i],0)/4);
-        lines([g.lens,wallCenter],[.6,.8,.94,.3]);
+        gl.depthMask(true);
+        lines([g.lens,g.target||[0,0,0]],[.6,.8,.94,.3]);
       }
       for(const part of parts){const gray=part.link===0||/_1_[14]$|_[2345]_2$/.test(part.name),base=gray?[.52,.58,.58,1]:[.91,.95,.94,1];
         draw(part,frames[part.link],part.link===data.selected+1?base.map((v,i)=>i<3?v*.9+[.15,.9,.73][i]*.1:v):base);
