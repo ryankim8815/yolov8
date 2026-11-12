@@ -49,12 +49,14 @@ class PresetStep(Input):
     prepare_motion: Literal["movej", "movel", "movec"] = "movej"
     prepare_hand_speed: HandSpeed | None = None
     prepare_hand_id: str | None = Field(default=None,min_length=1,max_length=64,pattern=r"^[a-zA-Z0-9_-]+$")
+    prepare_names: list[str] = Field(default_factory=lambda:["", ""],min_length=2,max_length=2)
     module_slot: int | None = Field(default=None,ge=0,le=4)
     module_id: str | None = Field(default=None,min_length=1,max_length=64,pattern=r'^[a-zA-Z0-9_-]+$')
     children: list["PresetStep"] = Field(default_factory=list, max_length=5)
 
     @model_validator(mode="after")
     def valid(self):
+        if any(len(name)>80 for name in self.prepare_names):raise ValueError('단계 이름은 80자 이내로 입력하세요.')
         if self.module_id and self.kind not in {'prepare','grasp','place'}:raise ValueError('모듈 정의는 모듈 동작에만 연결할 수 있습니다.')
         if self.kind == "gripper" and "acceleration" not in self.model_fields_set:
             self.acceleration = 3000
@@ -181,7 +183,7 @@ class MotionPreset(Input):
             s=self.steps[index];tail=self.steps[index+1:]
             if s.kind in {"movej","movel","movec"} and s.source=="standby" and tail and tail[0].kind=="gripper" and tail[0].opening_source=="idle" and not tail[0].contact:
                 hand=tail[0];module_range([s.id,hand.id],s.id)
-                modules.append(s.model_copy(update=dict(kind="prepare",prepare_motion=s.kind,prepare_hand_id=hand.id,prepare_hand_speed=HandSpeed(**physical_speed(hand,True)),children=[])))
+                modules.append(s.model_copy(update=dict(kind="prepare",prepare_motion=s.kind,prepare_hand_id=hand.id,prepare_hand_speed=HandSpeed(**physical_speed(hand,True)),prepare_names=[s.name,hand.name],children=[])))
                 index+=2;continue
             group=self.steps[index:index+4]
             if len(group)==4 and [c.source for c in group]==["above_box","box","box","above_box"] and group[0].kind in {"movej","movel","movec"} and [c.kind for c in group[1:]]==["movel","gripper","movel"]:
@@ -247,9 +249,9 @@ def compile_preset(preset, hand, floor_z=0, *, selected_range=True, detected=Non
             settings=(module_settings or {}).get(s.id,{}).get('settings')
             goal=settings['joints'] if settings else cfg['standby_joints']
             standby_width=(settings['opening_mm'] or max((x['width_mm'] for x in hand.table['points']),default=80)) if settings else idle
-            movement=s.model_copy(update={"kind":s.prepare_motion,"source":"standby","target":None,"reference_id":None,"space":"joint","j1_only":False})
+            movement=s.model_copy(update={"kind":s.prepare_motion,"name":s.prepare_names[0] or s.name or '대기 자세',"source":"standby","target":None,"reference_id":None,"space":"joint","j1_only":False})
             append(movement, s.id,forced_target=goal)
-            h=PresetStep(id=s.prepare_hand_id or child_id(s.id,"hand"),kind="gripper",name="대기 벌림 복원",opening_mm=standby_width,percent=s.percent,acceleration=3000,legacy_speed=s.prepare_hand_speed)
+            h=PresetStep(id=s.prepare_hand_id or child_id(s.id,"hand"),kind="gripper",name=s.prepare_names[1] or "대기 벌림 복원",opening_mm=standby_width,percent=s.percent,acceleration=3000,legacy_speed=s.prepare_hand_speed)
             append(h,s.id);return
         if kind in {"grasp","place"}:
             module_pose,module_approach,module_width,module_opening=pose,approach,width,opening

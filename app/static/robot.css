@@ -367,7 +367,13 @@
 .preset-node-menu { position:relative; text-align:left; }
 .preset-node-menu summary { cursor:pointer; padding:4px 7px; border:1px solid var(--border,#33434b); border-radius:6px; font-size:12px; }
 .preset-node-menu[open] > div { display:flex; flex-wrap:wrap; gap:4px; padding:6px 0; }
-.preset-drag-handle { display:inline-grid;place-items:center;min-width:30px;min-height:30px;margin-right:8px;padding:2px 6px!important;font-size:20px!important;line-height:1;cursor:grab;touch-action:none;color:var(--mint);vertical-align:middle; }
+.preset-drag-handle { display:inline-flex;align-items:center;justify-content:center;gap:4px;min-width:30px;min-height:30px;margin-right:8px;padding:2px 6px!important;font-size:20px!important;line-height:1;cursor:grab;touch-action:none;color:var(--mint);vertical-align:middle; }
+.preset-drag-handle span { font-size:11px; }
+.preset-order-controls { display:inline-flex;gap:4px; }.preset-order-controls button { min-width:30px;min-height:30px; }
+.preset-stage-label { display:flex;align-items:center;gap:6px;min-width:0; }.preset-stage-number { color:var(--sub);font-variant-numeric:tabular-nums; }
+.preset-table input.preset-step-name { position:static;inset:auto;height:auto;width:100%;max-width:none;min-width:0;min-height:38px;margin:0;padding:7px 6px;border:1px solid var(--line);border-radius:5px;background:var(--surface);color:var(--ink);font:inherit;font-weight:500; }
+.preset-table th[scope=row] { min-width:260px; }.preset-table .preset-module-header input.preset-step-name { display:inline-block;width:240px;max-width:100%;margin:4px 8px 4px 0; }.preset-stage-label .preset-step-name { flex:1; }
+.preset-play-disabled { margin:10px 0;padding:10px 14px;border:1px solid var(--line);border-left:3px solid var(--mint);border-radius:6px;color:var(--sub);font-size:13px; }.preset-play-disabled strong { color:var(--ink); }.preset-play-disabled ul { margin:6px 0 0;padding-left:20px; }.preset-play-disabled li + li { margin-top:4px; }
 .preset-drag-handle:active { cursor:grabbing; }.preset-drag-handle:disabled { cursor:default; }
 .preset-module-header strong { display:inline;vertical-align:middle; }.preset-module-lock { display:inline-block;margin:0 10px;padding:3px 7px;border:1px solid var(--line);border-radius:5px;font-size:11px; }
 .preset-module-header .scenario-caption { margin:0 8px;color:var(--sub);font-weight:400; }
