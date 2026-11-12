@@ -1,4 +1,5 @@
 export const destinations = [
+  { id: "kiosk", label: "키오스크 주문", icon: "shopping-bag" },
   { id: "dashboard", label: "대시보드", icon: "layout-dashboard" },
   { id: "orders", label: "주문·배송", icon: "package-check" },
   { id: "robot", label: "로봇 모니터링", icon: "robot-arm" },
@@ -22,6 +23,7 @@ export function icon(name) {
 const training = document.body.dataset.workspace === "training";
 
 export function currentDestination() {
+  if (document.body.dataset.workspace === "kiosk") return destinations.find(page => page.id === "kiosk");
   if (document.body.dataset.workspace === "robot") {
     const id = location.hash.slice(1);
     if(id==='camera-calibration')return robotPages.find(page=>page.id==='work-plane');
@@ -31,7 +33,7 @@ export function currentDestination() {
   }
   if (training) return destinations.find(item => item.id === "models");
   const route = location.hash.slice(1);
-  return destinations.find(item => item.id === route) || destinations[0];
+  return destinations.find(item => item.id === route) || destinations.find(item => item.id === "dashboard");
 }
 
 function highlightDestination() {
@@ -64,15 +66,15 @@ for (const page of robotPages) {
   children.append(link);
 }
 for (const item of destinations) {
-  if (item.id === "dashboard" || item.id === "people") {
+  if (["kiosk","dashboard","people"].includes(item.id)) {
     const group = document.createElement("div");
     group.className = "nav-group";
-    group.textContent = item.id === "dashboard" ? "운영" : "관리";
+    group.textContent = item.id === "kiosk" ? "구매" : item.id === "dashboard" ? "운영" : "관리";
     nav.append(group);
   }
   if (item.id === "people") nav.append(toggle,children);
   const link = document.createElement("a");
-  link.href = item.id === "robot" ? "/robot" : item.id === "models" ? "/training#models" : "/#" + item.id;
+  link.href = item.id === "kiosk" ? "/kiosk" : item.id === "robot" ? "/robot" : item.id === "models" ? "/training#models" : "/#" + item.id;
   link.dataset.page = item.id;
   link.innerHTML = icon(item.icon) + item.label;
   nav.append(link);
@@ -87,6 +89,7 @@ const controls=document.createElement('div');controls.className='rail-controls';
 const stop=document.createElement('button');stop.type='button';stop.id='robot-global-stop';stop.className='rail-stop';stop.textContent='■ 로봇 중단';stop.setAttribute('aria-label','로봇 작업 중단');
 const stopState=document.createElement('p');stopState.className='rail-stop-state';stopState.setAttribute('role','status');stopState.hidden=true;
 const standby=document.createElement('button');standby.type='button';standby.id='robot-standby';standby.className='rail-standby';standby.textContent='STANDBY 복구';
+if(document.body.dataset.workspace==='kiosk')standby.hidden=true;
 const standbyState=document.createElement('p');standbyState.className='rail-standby-state';standbyState.setAttribute('role','status');standbyState.hidden=true;
 const recoveryDialog=document.createElement('dialog');recoveryDialog.id='robot-standby-dialog';recoveryDialog.className='rail-recovery-dialog';recoveryDialog.setAttribute('aria-labelledby','robot-standby-title');
 recoveryDialog.innerHTML='<h2 id="robot-standby-title">STANDBY로 복구할까요?</h2><p id="robot-standby-description"></p><p>정지 원인을 해소하고 작업 공간과 제어기 알람을 확인하세요. 중단된 작업은 자동 재개하지 않습니다.</p><form method="dialog"><button value="cancel" autofocus>복구 요청 취소</button><button id="robot-standby-confirm" value="confirm">STANDBY 전환 요청</button></form>';

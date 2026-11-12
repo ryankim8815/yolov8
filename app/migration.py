@@ -8,7 +8,7 @@ from uuid import uuid4
 
 from .relational import Relations, TABLES
 
-VERSION = 5
+VERSION = 7
 # Preserve v0 insertion order within each entity. Resolve class names before bindings.
 ORDER = ("class", "group", "collection", "sample", "dataset", "job", "model", "setting",
          "model_alias", "operation", "product", "packing_order", "packing_event", "product_class")
@@ -166,7 +166,10 @@ def initialize(db, root):
             version = db.execute("PRAGMA user_version").fetchone()[0]
             if version == VERSION:
                 return Relations(db)
-            if version == 4:
+            if version in (5, 6):
+                backup(root, db, version)
+                repository = Relations(db)
+            elif version == 4:
                 backup(root, db, version)
                 db.execute("ALTER TABLE training_jobs ADD COLUMN class_plan TEXT CHECK(class_plan IS NULL OR json_valid(class_plan))")
                 repository = Relations(db)
@@ -198,6 +201,27 @@ def initialize(db, root):
                     db.execute("DROP TABLE records")
             else:
                 raise ValueError(f"Unsupported metadata schema version: {version}")
+            # Separate tables preserve the product/order document contract.
+            statement = ""
+            for line in Path(__file__).with_name("kiosk_schema.sql").read_text().splitlines(keepends=True):
+                statement += line
+                if sqlite3.complete_statement(statement):
+                    db.execute(statement)
+                    statement = ""
+            if statement.strip():
+                raise ValueError("Incomplete kiosk schema definition")
+            if "kiosk_guest" not in {r[1] for r in db.execute("PRAGMA table_info(customers)")}:
+                db.execute("ALTER TABLE customers ADD COLUMN kiosk_guest INTEGER NOT NULL DEFAULT 0 CHECK(kiosk_guest IN (0,1))")
+            # Identify the previous shared kiosk customer without changing any order owner.
+            db.execute("""UPDATE customers SET kiosk_guest=1 WHERE name='키오스크 방문 고객'
+                          AND EXISTS (SELECT 1 FROM orders o JOIN kiosk_orders k ON k.order_id=o.id
+                                      WHERE o.customer_id=customers.id)""")
+            if "customer_name" not in {r[1] for r in db.execute("PRAGMA table_info(kiosk_orders)")}:
+                db.execute("ALTER TABLE kiosk_orders ADD COLUMN customer_name TEXT")
+            db.execute("""UPDATE kiosk_orders SET customer_name=(
+                           SELECT c.name FROM orders o JOIN customers c ON c.id=o.customer_id
+                           WHERE o.id=kiosk_orders.order_id) WHERE customer_name IS NULL""")
+            repository = Relations(db)
             check_database(db)
             db.execute(f"PRAGMA user_version={VERSION}")
             return repository

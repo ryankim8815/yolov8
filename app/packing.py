@@ -52,6 +52,8 @@ class Packing:
             FROM customers c LEFT JOIN customer_rfid r ON r.customer_id=c.id ORDER BY c.id""")]
 
     def add_user(self, name):
+        if name == "키오스크 방문 고객":
+            raise DomainError("공용 방문 고객 이름 대신 실제 사용자 이름을 입력하세요.", 422)
         with self.store.write_transaction() as write:
             user_id = self.store.db.execute("INSERT INTO customers(name) VALUES (?)", (name,)).lastrowid
             self.log(write, "사용자", f"{name} · 사용자 등록")
@@ -187,6 +189,10 @@ class Packing:
             owners = dict(self.store.db.execute("SELECT number,customer_id FROM orders"))
             for order in orders:
                 order["customer_id"] = owners[order["number"]]
+                sale = self.store.db.execute("SELECT k.order_id FROM kiosk_orders k JOIN orders o ON o.id=k.order_id WHERE o.number=?",
+                                             (order["number"],)).fetchone()
+                if sale:
+                    order.update(source="kiosk")
             return {"users": self.users(), "products": self.products(), "orders": orders, "model": self.model_classes(model_id),
                     "events": self.store.list("packing_event")}
 

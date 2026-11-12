@@ -14,6 +14,7 @@ from .camera_views import DisplayMode
 from .camera_monitor import router as camera_monitor_router
 from .camera_marker_api import router as camera_marker_router
 from .packing_api import router as packing_router
+from .kiosk import router as kiosk_router
 from .pipeline import Pipeline
 from .runtime import Runtime
 from .robot_web import install_robot_routes, robot_runtime
@@ -90,6 +91,7 @@ def create_app(settings=None, pipeline_factory=Pipeline, state_root=None):
     application = FastAPI(title="YOLOv8 Local Camera", version="0.1.0", lifespan=lifespan)
     application.include_router(router())
     application.include_router(packing_router)
+    application.include_router(kiosk_router)
     application.include_router(voice_router)
     application.include_router(camera_marker_router)
     application.include_router(camera_monitor_router)
@@ -112,6 +114,10 @@ def create_app(settings=None, pipeline_factory=Pipeline, state_root=None):
     @application.get("/healthz")
     async def health():
         return {"status": "ok"}
+
+    @application.get("/kiosk", include_in_schema=False)
+    async def kiosk_workspace():
+        return FileResponse(STATIC / "kiosk.html", headers={"Cache-Control": "no-store"})
 
     @application.get("/api/status")
     async def status():

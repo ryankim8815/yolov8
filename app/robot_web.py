@@ -74,6 +74,10 @@ def create_robot_app():
     async def dashboard():
         return FileResponse(STATIC/'index.html',headers={'Cache-Control':'no-store'})
 
+    @application.get('/kiosk',include_in_schema=False)
+    async def kiosk():
+        return FileResponse(STATIC/'kiosk.html',headers={'Cache-Control':'no-store'})
+
     @application.exception_handler(DomainError)
     async def domain_error(request, exc):
         return JSONResponse({"detail": str(exc)}, status_code=exc.status)
