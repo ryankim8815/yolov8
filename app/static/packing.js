@@ -1,6 +1,6 @@
 import { currentDestination, icon } from "./station-nav.js";
 import { demo, legacyUsers, record } from "./packing-demo.js";
-import { connectDashboardCamera } from "./dashboard-camera.js";
+import { connectDashboardMonitor } from "./dashboard-monitor.js";
 
 const root = document.getElementById("packing-station");
 const view = document.getElementById("demo-view");
@@ -133,7 +133,7 @@ function renderDashboard() {
     view.replaceChildren(document.getElementById("dashboard-layout").content.cloneNode(true));
   }
   // Keep the camera mounted across inventory and order updates.
-  stopCamera ??= connectDashboardCamera(document.getElementById("live-camera"), () => station);
+  stopCamera ??= connectDashboardMonitor(document.getElementById("dashboard-monitor"), () => station);
   if (!station) {
     document.getElementById("dashboard-order").textContent = "주문 조회 대기 중";
     return;

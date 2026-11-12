@@ -1,13 +1,13 @@
 import { armTelemetry, armFrames, framePose, gripperVisualState, planArmSimulation, planScenarioSimulation, sampleArmSimulation, poseFrame, multiply, inverseRigid, defaultArmJoints, simulationToolPose, exampleScenarioGuides } from "./robot-arm.js";
 import { connectArmRenderer } from "./robot-arm-renderer.js";
 
-export function connectRobotArm(el,signal,onOrbit) {
+export function connectRobotArm(el,signal,onOrbit,options={}) {
   const root=el.armView,ui=Object.fromEntries([...root.querySelectorAll("[data-arm]")].map(n=>[n.dataset.arm,n]));
   const renderer=connectArmRenderer(ui.canvas,ui.labels,ui.graphics,signal,onOrbit);
   let active=false,data=null,arrived=performance.now(),sample=armTelemetry(null),guides=null,parcelBox=null,selected=2,tcp=null,tcpAt=0;
   let pending=null,lastRead=0,source="",signature="",tcpMessage="수신 대기",compact;
   let simulation=null,simulationRate=1;
-  let scenarioPreview=null,scenarioVisible=false;
+  let scenarioPreview=null,scenarioVisible=false,pathVisible=true;
   const exampleGuides=exampleScenarioGuides(),exampleTcp=framePose(multiply(armFrames(defaultArmJoints)[6],poseFrame(simulationToolPose)));
   const simulationObservers=new Set();
   const simulationState=()=>simulation?{state:simulation.state,progress:simulation.frame?.progress||0,message:simulation.message,route:simulation.route,step:(simulation.frame?.segment||0)+1,seedSource:simulation.seedSource}:
@@ -50,7 +50,7 @@ export function connectRobotArm(el,signal,onOrbit) {
       job.message=(document.hidden?"시뮬레이션 일시정지 · ":"시뮬레이션 재생 중 · ")+route[0].title;
       notifySimulation();publish();
       if(job.state==="running"){
-        animateSimulation(job);root.closest(".gripper-panel").scrollIntoView({block:"start",behavior:"smooth"});
+        animateSimulation(job);if(!options.noScroll)root.closest(".gripper-panel")?.scrollIntoView({block:"start",behavior:"smooth"});
       }
     }catch(error){
       if(simulation!==job||signal.aborted)return;
@@ -93,7 +93,7 @@ export function connectRobotArm(el,signal,onOrbit) {
     }catch{if(tableRequest===controller){table=null;tableError="실측 벌림표를 조회하지 못했습니다.";}}
     finally{clearTimeout(timeout);if(tableRequest===controller){tableRequest=null;publish();}}
   }
-  function canReadHand(){return active&&attached&&!simulation?.frame&&!readRequest&&handStatus?.config?.access_backend==="mac-sdk"&&
+  function canReadHand(){return !options.readOnly&&active&&attached&&!simulation?.frame&&!readRequest&&handStatus?.config?.access_backend==="mac-sdk"&&
     handAccess?.connection==="connected"&&handAccess.gripper_supported&&handAccess.can_move&&handAccess.session_id&&handAccess.motion_token&&
     !handStatus.pick_active&&!handStatus.hand_busy&&!handStatus.pose_tests?.busy;}
   ui.handRead.addEventListener("click",async()=>{
@@ -165,13 +165,14 @@ export function connectRobotArm(el,signal,onOrbit) {
     if(recipe){
       let frame=poseFrame([...recipe.product.center_base_mm,0,0,0]);
       if(preview?.holding){const relative=multiply(inverseRigid(poseFrame(recipe.pose)),frame);frame=multiply(poseFrame(preview.tcp),relative);}
-      else if(preview?.released){frame=poseFrame([...(recipe.steps[10].target?.slice(0,3)||recipe.product.center_base_mm),0,0,0]);
+      else if(preview?.released){const place=recipe.steps.slice(0,(preview.segment??recipe.steps.length-1)+1).findLast(s=>s.calculation_source==='box'&&s.target);
+        frame=poseFrame([...(place?.target?.slice(0,3)||recipe.box_pose?.slice(0,3)||recipe.product.center_base_mm),0,0,0]);
         const box=recipe.box;if(box?.center_base_mm&&Math.abs(frame[12]-box.center_base_mm[0])<box.size_mm[0]/2&&Math.abs(frame[13]-box.center_base_mm[1])<box.size_mm[1]/2)frame[14]=box.center_base_mm[2]+recipe.product.size_mm[2]/2;}
       product={frame,size:recipe.product.size_mm,region:recipe.region,initial:recipe.product.center_base_mm,approach:recipe.approach,pick:recipe.pose,holding:Boolean(preview?.holding),released:Boolean(preview?.released)};
     }
     ui.canvas.dataset.simulatedOpening=preview&&simulation.recipe?preview.opening_mm??"":idleExample?sceneRecipe.idle_opening_mm:'';
     renderer.update({angles:display.angles,live:display.live,tcp:shownTcp,selected,guides:exampleContext?exampleGuides:guides,gripper:hand,parcelBox:displayBox,product,
-      simulation:preview?{state:simulation.state,segment:preview.segment,...(simulation.plan||{})}:null});
+      simulation:preview?{state:simulation.state,segment:preview.segment,...(simulation.plan||{}),pathVisible}:null});
   }
   async function readTcp() {
     if(!active||simulation?.frame||scenarioVisible&&scenarioPreview?.example||!sample.live||pending||document.hidden||performance.now()-lastRead<1800)return;
@@ -201,7 +202,7 @@ export function connectRobotArm(el,signal,onOrbit) {
   }
   const interval=setInterval(tick,250);
   const observer=new ResizeObserver(()=>{
-    const next=root.clientWidth<650||innerHeight<540;
+    const next=options.compact||root.clientWidth<650||innerHeight<540;
     if(next!==compact){compact=next;ui.readings.open=!compact;}
   });observer.observe(root);
   document.addEventListener("visibilitychange",()=>{if(document.hidden){simulationAction("pause");data=null;handAccess=null;cancelHandRequests();cancelTcp("화면 비활성");tick();}},{signal});
@@ -226,6 +227,7 @@ export function connectRobotArm(el,signal,onOrbit) {
     },
     setGuides(value){guides=value;publish();},
     setParcelBox(value){parcelBox=value;publish();},
+    setPathVisible(value){pathVisible=Boolean(value);publish();},
     setView:renderer.setView,getView:renderer.getView
   };
 }

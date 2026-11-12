@@ -194,7 +194,7 @@ function cameraSource(fields) {
   return { update(next) { status = next; render(); }, dispose() { lifetime.abort(); } };
 }
 
-export function connectDashboardCamera(panel, getStation) {
+export function connectDashboardCamera(panel, getStation, callbacks={}) {
   const fields = Object.fromEntries([...panel.querySelectorAll("[data-camera]")].map(node => [node.dataset.camera, node]));
   const classes = createClassSummary(fields, getStation);
   const source = cameraSource(fields);
@@ -219,9 +219,8 @@ export function connectDashboardCamera(panel, getStation) {
     }catch(error){if(!lifetime.signal.aborted)launcher.status.textContent=error.message;}
     finally{launcher.refresh.disabled=false;}
   }
-  launcher.select.addEventListener('change',selection,{signal:lifetime.signal});
-  launcher.refresh.addEventListener('click',loadPresets,{signal:lifetime.signal});
-  void loadPresets();
+  if(launcher.select){launcher.select.addEventListener('change',selection,{signal:lifetime.signal});
+    launcher.refresh.addEventListener('click',loadPresets,{signal:lifetime.signal});void loadPresets();}
   let stop, disposed = false;
   let displayMode = "detections";
 
@@ -240,6 +239,7 @@ export function connectDashboardCamera(panel, getStation) {
     image: fields.image,
     matchedPreview: true,
     onStatus(status, label, reset) {
+      callbacks.onStatus?.(status);
       source.update(status);
       fields.mode.disabled = !status.ready;
       const modes = status.camera?.display_modes?.length ? status.camera.display_modes : ["detections"];
@@ -269,6 +269,7 @@ export function connectDashboardCamera(panel, getStation) {
       }
     },
     onDetections(packet, jpeg) {
+      callbacks.onFrame?.(packet);
       classes.update(packet);
       fields.image.parentElement.style.aspectRatio = packet.source_size.width + "/" + packet.source_size.height;
       fields.count.textContent = String(packet.objects.length);

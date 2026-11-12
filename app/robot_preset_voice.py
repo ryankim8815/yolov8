@@ -8,7 +8,7 @@ from contextlib import suppress
 from http.client import HTTPConnection
 from typing import Literal
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Query, Request
 from pydantic import Field
 
 from .pick_plane import Input
@@ -36,6 +36,8 @@ def native_voice(action, after=0, *, session_id=None):
 
 class PresetVoice:
     def __init__(self,engine):
+        from .conversation import ConversationHistory
+        self.history=ConversationHistory(engine.library.path.parent/'robot-voice-history.json')
         self.engine=engine;self.task=None;self.session=None;self.cursor=0;self.generation=0
         self.target="simulation";self.pending=None;self.message="음성 대기를 시작하세요.";self.transcript=""
         self.simulation=None;self.ui_seen=0;self.native_state="idle"
@@ -43,6 +45,15 @@ class PresetVoice:
         self.lifecycle_lock=asyncio.Lock()
         self.release_session=None
         self.selection=None;self.needs_preparation=None;self.class_request=None;self.catalog_checked=0
+
+    @property
+    def message(self):return self._message
+
+    @message.setter
+    def message(self,value):
+        if value!=getattr(self,'_message',None) and (getattr(self,'session',None) or getattr(self,'transcript','')):
+            self.history.append('assistant',value,context='robot',session_id=self.session,source='robot-guidance')
+        self._message=value
 
     def invalidate(self,message="확인 대기를 취소했습니다.",*,keep_class=False):
         self.generation+=1
@@ -254,6 +265,9 @@ class PresetVoice:
 
     async def hear(self,event):
         text=event["text"];word=normalized(text);self.transcript=text
+        session_id=event.get('session_id',self.session)
+        self.history.append('user',text,context='robot',session_id=session_id,turn=event.get('turn'),
+                            key=f"{session_id}:{event['sequence']}:user",created_at=event.get('created_at'))
         if word in {normalized("로봇 중단"),normalized("중단")}:
             self.engine.robot.scenario.stop_all();self.message="로봇 작업 중단을 요청했습니다.";return
         if word==normalized("음성 대기 종료"):await self.stop();return
@@ -406,6 +420,10 @@ def voice(request):
 
 @router.get("/status")
 async def status(request:Request,heartbeat:bool=False):return voice(request).status(heartbeat=heartbeat)
+
+@router.get('/history')
+async def history(request:Request,after:int=Query(default=0,ge=0)):
+    return voice(request).history.snapshot(after)
 
 @router.post("/start",dependencies=[Depends(local_json)])
 async def start(body:Listening,request:Request):return await voice(request).start(body.target)

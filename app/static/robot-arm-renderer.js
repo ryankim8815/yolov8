@@ -191,7 +191,7 @@ export function connectArmRenderer(canvas,overlay,graphics,signal,onOrbit) {
       }
       const tool=data.tcp?poseFrame(data.tcp):frames[6],origin=transformPoint(tool,[0,0,0]);gl.disable(gl.DEPTH_TEST);
       if(data.product){const a=data.product.approach.slice(0,3),b=data.product.pick.slice(0,3),dir=norm(sub(b,a)),side=norm(cross(dir,Math.abs(dir[2])<.9?[0,0,1]:[0,1,0])),arrow=[a,b];for(const sign of [-1,1])arrow.push(b,b.map((v,i)=>v-dir[i]*15+side[i]*7*sign));lines(arrow,[.95,.76,.4,.95]);}
-      if(data.simulation?.path){
+      if(data.simulation?.path&&data.simulation.pathVisible!==false){
         const path=data.simulation.path;lines(path.slice(1).flatMap((p,i)=>[path[i],p]),[.5,.93,.78,.85]);
         const marks=[];for(const point of data.simulation.route)for(let i=0;i<3;i++){
           const a=point.pose.slice(0,3),b=[...a];a[i]-=9;b[i]+=9;marks.push(a,b);

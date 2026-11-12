@@ -7,6 +7,7 @@
   <link rel="stylesheet" href="/static/station-shell.css">
   <link rel="stylesheet" href="/static/packing.css">
   <link rel="stylesheet" href="/static/dashboard-camera.css">
+  <link rel="stylesheet" href="/static/dashboard-monitor.css">
   <script type="module" src="/static/packing.js"></script>
 </head>
 <body class="station-shell" data-workspace="demo">
@@ -28,10 +29,35 @@
     </main>
   </div>
   <template id="dashboard-layout">
-    <div class="duo">
+    <div id="dashboard-monitor">
+      <section class="dashboard-workbar" aria-label="모니터링할 이동 프리셋">
+        <label>이동 프리셋 <select data-dashboard="preset" disabled><option>목록 조회 중</option></select></label>
+        <span class="pill" data-dashboard="mode">가상 경로</span><span data-dashboard="execution" role="status">경로 조회 중</span>
+        <a data-dashboard="edit" href="/robot#work-points-title">경로 확인·편집 →</a><button type="button" data-monitor="reload">새로고침</button>
+      </section>
+      <div class="dashboard-workgrid">
+        <section class="panel dashboard-robot" aria-labelledby="dashboard-robot-title">
+          <div class="panel-head"><h2 id="dashboard-robot-title">3D 시뮬레이션</h2><span class="meta" data-dashboard="robot-state">로봇 상태 조회 중</span><button type="button" data-monitor="path" aria-pressed="true">경로 표시</button></div>
+          <div data-dashboard="arm-view" class="dashboard-arm">
+            <div class="dashboard-arm-scene"><canvas data-arm="canvas" aria-label="E0509 6축 로봇의 가상 작업면"></canvas><svg data-arm="labels" aria-hidden="true"></svg><span data-arm="graphics" hidden></span><span class="dashboard-arm-hint">드래그하여 둘러보기 · 표시 전용</span></div>
+            <p class="dashboard-model-hint" data-dashboard="model-hint"></p>
+            <div data-arm="simulation" hidden><span data-arm="simulationStage"></span><small data-arm="simulationMetrics" hidden></small></div>
+            <div class="dashboard-simulation-controls">
+              <div class="row"><strong data-dashboard="stage">저장된 경로를 선택하세요.</strong><output data-dashboard="step-count">—</output></div>
+              <div class="buttons"><button type="button" data-monitor="play" disabled aria-describedby="dashboard-play-reason">시뮬레이션 시작</button><button type="button" data-monitor="pause" disabled>일시정지</button><button type="button" data-monitor="sim-stop" disabled>가상 재생 종료</button><button type="button" data-monitor="confirm" hidden>가상 파지 확인 후 이송</button><label>배속 <select data-dashboard="rate"><option>1</option><option>5</option><option selected>10</option><option>20</option></select></label></div>
+              <p id="dashboard-play-reason" data-dashboard="reason" role="status"></p>
+              <div class="dashboard-step-controls"><button type="button" data-monitor="previous" disabled aria-label="이전 가상 단계">←</button><input type="range" min="0" max="1000" value="0" data-dashboard="progress" aria-label="가상 경로 진행" disabled><button type="button" data-monitor="next" disabled aria-label="다음 가상 단계">→</button></div>
+              <p class="meta" data-dashboard="simulation-context">브라우저 시뮬레이션 · 실제 장비 명령 없음</p>
+            </div>
+            <details class="dashboard-readings" data-arm="readings"><summary>관절·좌표 <span data-arm="array"></span></summary><div data-arm="joints" class="dashboard-joints" role="group" aria-label="강조할 관절"></div><p class="meta" data-arm="received"></p><h3>모델 플랜지 · BASE 계산값</h3><dl data-arm="flange" class="dashboard-pose"></dl><h3><span data-arm="tcpTitle">실측 TCP</span> <small data-arm="tcpState"></small></h3><dl data-arm="tcp" class="dashboard-pose"></dl><span class="meta" data-arm="source"></span></details>
+            <div data-arm="parcelBox" class="dashboard-box-meta" hidden><strong data-arm="boxTitle"></strong><span data-arm="boxSize"></span><span data-arm="boxCenter"></span></div>
+            <div data-arm="hand" class="dashboard-hand-meta" hidden><span data-arm="handStatus"></span><span data-arm="handTarget" hidden></span><span data-arm="handPosition" hidden></span><span data-arm="handOpening"></span><span data-arm="handObserved"></span><span data-arm="handNote"></span><button data-arm="handRead" type="button" disabled hidden>상태 읽기</button></div>
+          </div>
+        </section>
+        <div class="dashboard-cameras">
       <section class="panel" id="live-camera">
         <div class="panel-head camera-panel-head"><h2 class="camera-heading"><svg class="station-icon" aria-hidden="true"><use href="/static/station-icons.svg#scan-line"></use></svg>탐지 카메라</h2><a class="work-plane-link" data-pick="planeLink" href="/robot#work-plane" aria-label="캘리브레이션">캘리브레이션</a><span class="camera-state" data-camera="state" role="status">서버 연결 중</span></div>
-        <form class="camera-source" data-camera="source">
+        <details class="dashboard-camera-settings"><summary>카메라 입력·표시 설정</summary><form class="camera-source" data-camera="source">
           <label for="camera-device">입력 카메라</label>
           <select id="camera-device" data-camera="device" disabled><option value="">목록 조회 중…</option></select>
           <button type="submit" data-camera="apply" disabled>적용</button>
@@ -48,7 +74,7 @@
           </label>
           <p id="camera-mode-note" data-camera="modeNote" hidden></p>
           <p data-camera="notice" role="status" hidden></p>
-        </form>
+        </form></details>
         <figure class="camera">
           <img data-camera="image" alt="활성 모델의 탐지 상자, 클래스 및 신뢰도가 표시된 실시간 카메라 영상" hidden>
           <svg class="class-overlay" data-camera="overlay" aria-hidden="true" hidden>
@@ -67,12 +93,6 @@
           </div>
           <figcaption class="lens-label" data-camera="caption" hidden></figcaption>
         </figure>
-        <section class="dashboard-preset-launcher" aria-label="이동 프리셋 실행">
-          <label>이동 프리셋 <select data-preset-launch="select" disabled></select></label>
-          <a data-preset-launch="open" href="/robot#work-points-title">경로 확인·실행 →</a>
-          <button type="button" data-preset-launch="refresh">목록 새로고침</button>
-          <p data-preset-launch="status" role="status">저장된 프리셋 조회 중</p>
-        </section>
         <section class="class-summary" aria-label="현재 프레임의 탐지 클래스">
           <div class="class-heading"><h3>탐지 클래스</h3><span data-camera="classCount">—</span></div>
           <div class="class-chips" data-camera="chips" role="group" aria-label="강조할 클래스 선택"></div>
@@ -84,15 +104,21 @@
           <div><span>탐지 객체</span><strong><b data-camera="count">—</b> <em>개</em></strong></div>
         </div>
       </section>
+          <section class="panel dashboard-depth" aria-labelledby="dashboard-depth-title"><div class="panel-head"><h2 id="dashboard-depth-title">Depth 카메라</h2><span data-depth="state" class="meta" role="status">연결 확인 중</span></div><figure class="camera dashboard-depth-image"><img data-depth="image" alt="컬러 좌표에 정렬된 실시간 깊이 영상" hidden><canvas data-depth="last" aria-label="마지막으로 수신한 깊이 영상" hidden></canvas><svg data-depth="marker" aria-hidden="true"></svg><div class="camera-empty" data-depth="empty"><p data-depth="message">Depth 영상을 기다리고 있습니다.</p><a href="/training#live">카메라 설정 →</a></div></figure><div class="dashboard-depth-readout"><div class="dashboard-depth-legend"><span>0 m</span><span aria-hidden="true"></span><span>6 m</span></div><p class="meta">검정: 깊이 없음 · 영상의 지점을 누르면 거리 조회</p><p data-depth="value" role="status">선택한 지점 없음</p><p class="meta" data-depth="frame">프레임 수신 대기</p><p class="meta" data-depth="sync">RGB·Depth 정렬 정보 대기</p></div></section>
+        </div>
+        <section class="panel dashboard-conversation" aria-labelledby="dashboard-conversation-title"><div class="panel-head"><h2 id="dashboard-conversation-title">음성 대화 내역</h2><span data-conversation="state" class="meta" role="status">연결 확인 중</span></div><div class="dashboard-conversation-mode"><span data-conversation="context">주문·재고 / 로봇 명령</span><button type="button" class="link" data-action="voice">음성 설정</button></div><p class="dashboard-conversation-notice" data-conversation="notice" role="status"></p><div data-conversation="log" class="dashboard-chat-log" role="log" aria-label="최종 음성 인식문과 응답" aria-live="polite"><p class="dashboard-chat-empty" data-conversation="empty">음성 대화를 시작하면 최종 인식문과 응답이 시간순으로 표시됩니다.</p></div><div class="dashboard-conversation-footer"><button type="button" data-conversation="latest" hidden>새 대화 · 최신으로</button><span class="meta">서비스별 최근 200개 · 이 장비에 저장</span><span class="meta">실제 로봇 승인·실행은 <a href="/robot#work-points-title">이동 프리셋</a>에서 확인하세요.</span></div></section>
+      </div>
+    </div>
+    <div class="dashboard-lower-grid">
       <section class="panel">
         <div class="panel-head"><h2>현재 주문</h2><button type="button" class="link" data-action="order-detail">상세 ↗</button></div>
         <div class="pad order-pad" id="dashboard-order"></div>
       </section>
-    </div>
-    <section class="panel">
+      <section class="panel">
       <div class="panel-head"><h2>최근 작업 기록</h2><button type="button" class="link" data-action="all-logs">전체 기록 →</button></div>
       <div id="dashboard-events"></div>
-    </section>
+      </section>
+    </div>
   </template>
 </body>
 </html>

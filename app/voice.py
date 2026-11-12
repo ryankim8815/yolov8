@@ -6,11 +6,13 @@ from collections import deque
 from contextlib import suppress
 from uuid import uuid4
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Query, Request
 
 from .config import ROOT
 from .store import DomainError
 from .voice_commands import INTENTS, normalized, packing_answer
+from .conversation import ConversationHistory
+from .store import now
 
 log = logging.getLogger(__name__)
 HELPER = ROOT / ".cache/voice/packing-voice"
@@ -49,6 +51,7 @@ class Voice:
         self.context = "packing"
         self.robot_events = deque(maxlen=256)
         self.robot_sequence = 0
+        self.history=ConversationHistory(packing.store.root/'voice-history.json' if packing is not None else None)
 
     def status(self):
         return {"state": self.state, "can_stop": self.session is not None,
@@ -57,6 +60,8 @@ class Voice:
                 "context": self.context, "session_id": self.session}
 
     def finish(self, error=""):
+        if error and self.session and self.context=='packing':
+            self.history.append('system',error,context=self.context,session_id=self.session,turn=self.turn)
         self.session = None
         self.confirming = False
         self.state = "error" if error else "idle"
@@ -172,14 +177,17 @@ class Voice:
             self.transcript = data["text"]
             if self.context == "robot":
                 self.robot_sequence += 1
-                self.robot_events.append(dict(sequence=self.robot_sequence,session_id=self.session,text=self.transcript))
+                self.robot_events.append(dict(sequence=self.robot_sequence,session_id=self.session,text=self.transcript,created_at=now(),turn=self.turn))
                 self.turn += 1
                 self.state = "preparing"
                 await self.send("listen")
                 return
+            self.history.append('user',self.transcript,context='packing',session_id=self.session,turn=self.turn,
+                                key=f'{self.session}:{self.turn}:user')
             intent = INTENTS.get(normalized(self.transcript))
             if intent == "end":
                 self.reply = "대화를 종료했습니다."
+                self.history.append('assistant',self.reply,context='packing',session_id=self.session,turn=self.turn)
                 self.finish()
                 return
             try:
@@ -190,6 +198,8 @@ class Voice:
             if self.session != data["session"]:
                 return
             self.reply, self.confirming = reply, confirming
+            self.history.append('assistant',reply,context='packing',session_id=self.session,turn=self.turn,
+                                key=f'{self.session}:{self.turn}:assistant')
             self.state = "preparing_reply" if self.barge_in else "speaking"
             await self.send("speak_listen" if self.barge_in else "speak", text=self.reply)
 
@@ -197,6 +207,12 @@ class Voice:
 @router.get("/status")
 async def status(request: Request):
     return request.app.state.voice.status()
+
+
+@router.get('/history')
+async def history(request:Request,after:int=Query(default=0,ge=0)):
+    voice=request.app.state.voice
+    return {**voice.history.snapshot(after),'status':voice.status()}
 
 
 @router.get("/robot/events")
