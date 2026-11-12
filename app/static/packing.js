@@ -290,6 +290,10 @@ async function updateVoice(action = "status") {
     renderVoice();
   }
   try {
+    if(action==='stop'&&previous?.context==='robot'&&previous.can_stop){
+      const stopped=await fetch('/api/robot/preset-voice/stop',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
+      if(!stopped.ok)throw Error('로봇 음성 대기 종료를 확인하지 못했습니다.');action='status';
+    }
     const response = await fetch("/api/voice/" + action,
       {method: action === "status" ? "GET" : "POST", cache: "no-store"});
     const data = await response.json();

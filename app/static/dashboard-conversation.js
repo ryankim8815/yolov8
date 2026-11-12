@@ -1,4 +1,4 @@
-export function connectDashboardConversation(root,{signal,onRobotVoice=()=>{}}){
+export function connectDashboardConversation(root,{signal,onRobotVoice=()=>{},onNativeVoice=()=>{}}){
   const ui=Object.fromEntries([...root.querySelectorAll('[data-conversation]')].map(n=>[n.dataset.conversation,n]));
   const sources=[{name:'주문·재고',url:'/api/voice/history',cursor:0,epoch:null},{name:'로봇 명령',url:'/api/robot/preset-voice/history',cursor:0,epoch:null}];
   let timer,busy=false,messages=new Map(),shown=new Map(),unread=0;
@@ -12,7 +12,7 @@ export function connectDashboardConversation(root,{signal,onRobotVoice=()=>{}}){
     let previous=ui.empty;
     for(const m of list){let node=shown.get(m.id);if(!node){node=document.createElement('article');node.className='dashboard-chat-turn';node.dataset.role=m.role;
       const meta=document.createElement('div'),who=document.createElement('span'),stamp=document.createElement('time'),bubble=document.createElement('p');meta.className='dashboard-chat-meta';bubble.className='dashboard-chat-bubble';
-      who.textContent=(m.role==='user'?'사용자 · 최종 인식':m.role==='system'?'상태 안내':m.context==='robot'?'로봇 안내':'Yuna 응답')+' · '+(m.context==='robot'?'로봇 명령':'주문·재고');stamp.dateTime=m.created_at;stamp.textContent=time(m.created_at);bubble.textContent=m.text;meta.append(who,stamp);node.append(meta,bubble);shown.set(m.id,node);added++;}
+      who.textContent=(m.role==='user'?(m.source==='button'?'사용자 · 버튼 입력':'사용자 · 최종 인식'):m.role==='system'?'상태 안내':m.context==='robot'?'로봇 안내':m.source==='button'?'시스템 응답':'Yuna 응답')+' · '+(m.context==='robot'?'로봇 명령':'주문·재고');stamp.dateTime=m.created_at;stamp.textContent=time(m.created_at);bubble.textContent=m.text;meta.append(who,stamp);node.append(meta,bubble);shown.set(m.id,node);added++;}
       if(previous.nextElementSibling!==node)ui.log.insertBefore(node,previous.nextElementSibling);previous=node;
     }
     ui.empty.hidden=list.length>0;
@@ -29,6 +29,7 @@ export function connectDashboardConversation(root,{signal,onRobotVoice=()=>{}}){
         source.epoch=data.epoch;source.cursor=data.cursor;for(const m of data.messages||[])messages.set(m.id,m);if(i===0)native=data.status;
       });
       if(results[2].status==='fulfilled'){robot=results[2].value;onRobotVoice(robot);}else failures.push('로봇 음성 상태 조회 실패');
+      onNativeVoice(native);
       render();const current=native?.can_stop?native:robot?.listening?robot:native;
       ui.context.textContent=current?.context==='robot'||robot?.listening?'로봇 명령 모드':'주문·재고 대화';
       ui.state.textContent=!native&&!robot?'서비스 연결 안 됨':current?.state==='disabled'?'음성 기능 꺼짐':current?.can_stop||robot?.listening?({listening:'듣는 중',speaking:'응답 중',processing:'명령 처리 중',preparing:'마이크 준비 중',permission:'마이크 권한 확인 필요'}[current.state]||'음성 대기 중'):'청취 종료';

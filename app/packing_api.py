@@ -4,7 +4,7 @@ from fastapi import APIRouter, Request
 from pydantic import BaseModel, ConfigDict, Field
 
 from .store import DomainError
-from .voice_commands import packing_answer
+from .voice_commands import PHRASES, packing_answer
 
 
 class Input(BaseModel):
@@ -51,8 +51,14 @@ router = APIRouter(prefix="/api/packing")
 @router.post("/command")
 def button_command(body: ButtonCommand, request: Request):
     # An explicit confirm click has the same authority as the existing receive-order button.
-    return packing_answer(request.app.state.pipeline.packing, body.action,
-                          confirming=body.action in ("confirm-order", "discard-order"))
+    history=request.app.state.voice.history
+    history.append('user',PHRASES[body.action][0],context='packing',source='button')
+    try:answer=packing_answer(request.app.state.pipeline.packing, body.action,
+                             confirming=body.action in ("confirm-order", "discard-order"))
+    except DomainError as exc:
+        history.append('system',str(exc),context='packing',source='button');raise
+    history.append('assistant',answer.text,context='packing',source='button')
+    return answer
 
 
 @router.get("")
