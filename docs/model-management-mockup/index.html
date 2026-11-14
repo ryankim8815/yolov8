@@ -32,7 +32,7 @@ dialog{width:min(420px,calc(100% - 36px));padding:24px;border:1px solid #465966;
         <div class="scroll"><table><thead><tr><th>실행 형식</th><th>상태</th><th>mAP50–95</th><th>추론 p95</th></tr></thead><tbody id="formats"></tbody></table></div>
         <p class="muted" id="metrics-note"></p></section>
       <details id="lineage"><summary>학습 이력 및 파일 정보</summary><dl id="metadata"></dl></details>
-      <footer class="actions"><div><strong>실시간 탐지 모델</strong><p>적용하면 연결된 모든 화면에서 사용합니다.</p></div><button type="button" id="apply" class="primary">MPS에 적용</button></footer>
+      <footer class="actions"><div><strong>실시간 탐지 모델</strong><p>적용하면 연결된 모든 화면에서 사용합니다.</p></div><button type="button" id="apply" class="primary">Chrome WebGPU에 적용</button></footer>
     </article>
   </div>
   <p class="footnote">모든 값은 예시입니다. 시안의 변경 사항은 현재 페이지에서만 유지되며 카메라와 서버에 연결하지 않습니다.</p>
@@ -52,9 +52,9 @@ function el(tag, value, cls) {
 const parts = ["베어링", "육각 너트", "와셔"];
 const coco = "person|bicycle|car|motorcycle|airplane|bus|train|truck|boat|traffic light|fire hydrant|stop sign|parking meter|bench|bird|cat|dog|horse|sheep|cow|elephant|bear|zebra|giraffe|backpack|umbrella|handbag|tie|suitcase|frisbee|skis|snowboard|sports ball|kite|baseball bat|baseball glove|skateboard|surfboard|tennis racket|bottle|wine glass|cup|fork|knife|spoon|bowl|banana|apple|sandwich|orange|broccoli|carrot|hot dog|pizza|donut|cake|chair|couch|potted plant|bed|dining table|toilet|tv|laptop|mouse|remote|keyboard|cell phone|microwave|oven|toaster|sink|refrigerator|book|clock|vase|scissors|teddy bear|hair drier|toothbrush".split("|");
 const models = [
-  {id:"demo-parts-02",name:"작업대 부품 탐지",v:"v2",at:"2026.11.05 14:32",parent:"demo-parts-01",classes:parts,data:"부품 촬영 세트 02 · 학습 96장 / 검증 24장",job:"demo-train-02",train:"입력 640 × 640 · batch 4 · 32 epochs",scores:[["82.4%","43 ms"],["82.0%","35 ms"]],hash:"a49b31e82ce8f5d079c8b68fd288decb7012dd25066501c50f6c7557cb71ff92"},
-  {id:"demo-parts-01",name:"작업대 부품 탐지",v:"v1",at:"2026.10.28 09:16",parent:"coco-yolov8n",classes:parts,data:"부품 촬영 세트 01 · 학습 50장 / 검증 14장",job:"demo-train-01",train:"입력 640 × 640 · batch 4 · 25 epochs",scores:[["75.6%","45 ms"],null],hash:"88fb9387bc0f7563c03997559cf6bbb68891d1d5f9486c51f04b350087de0048"},
-  {id:"coco-yolov8n",name:"COCO 객체 탐지",v:"기본",at:null,parent:null,classes:coco,scores:[["—","—"],["—","—"]],hash:null}
+  {id:"demo-parts-02",name:"작업대 부품 탐지",v:"v2",at:"2026.11.05 14:32",parent:"demo-parts-01",classes:parts,data:"부품 촬영 세트 02 · 학습 96장 / 검증 24장",job:"demo-train-02",train:"입력 640 × 640 · batch 4 · 32 epochs",score:["82.4%","43 ms"],hash:"a49b31e82ce8f5d079c8b68fd288decb7012dd25066501c50f6c7557cb71ff92"},
+  {id:"demo-parts-01",name:"작업대 부품 탐지",v:"v1",at:"2026.10.28 09:16",parent:"coco-yolov8n",classes:parts,data:"부품 촬영 세트 01 · 학습 50장 / 검증 14장",job:"demo-train-01",train:"입력 640 × 640 · batch 4 · 25 epochs",score:["75.6%","45 ms"],hash:"88fb9387bc0f7563c03997559cf6bbb68891d1d5f9486c51f04b350087de0048"},
+  {id:"coco-yolov8n",name:"COCO 객체 탐지",v:"기본",at:null,parent:null,classes:coco,score:["—","—"],hash:null}
 ];
 let selected=models[0], active=models[1], action=null, timer;
 const byId = id => models.find(m => m.id===id);
@@ -85,7 +85,7 @@ function renderClasses() {
 }
 function render() {
   const m=selected, base=builtin(m);renderList();
-  $("total").textContent=models.length+"개";$("active-name").textContent=active.name+" "+active.v+" · MPS";
+  $("total").textContent=models.length+"개";$("active-name").textContent=active.name+" "+active.v+" · Chrome WebGPU";
   $("model-name").textContent=m.name;$("version").textContent=m.v;$("kind").textContent=kind(m);
   $("active-state").textContent=m===active?"● 실시간 적용 중":"미적용";$("active-state").className=m===active?"accent":"";
   $("date").textContent=m.at||"미기록";$("parent").replaceChildren();
@@ -93,18 +93,17 @@ function render() {
   else $("parent").append(el("strong","기본 배포 가중치"));
   $("nclasses").textContent=m.classes.length+"개";$("search-box").hidden=m.classes.length<10;renderClasses();
   $("formats").replaceChildren();
-  m.scores.forEach((score,i)=>{const row=el("tr"),state=el("td");state.append(el("span",score?"사용 가능":"검증 실패",score?"ready":"wait"));
-    row.append(el("td",["MPS · PT","Core ML · FP16"][i]),state,el("td",score?score[0]:"—"),el("td",score?score[1]:"—"));$("formats").append(row);
-  });
-  $("metrics-note").textContent=base?"기본 모델의 비교 결과는 이 시안에 없습니다. ‘—’는 측정값이 없다는 뜻입니다.":(m.scores[1]?"":"Core ML은 변환 검증 실패로 선택할 수 없습니다. " )+"예시 · 해당 버전의 사용자 검증 세트 기준. p95는 추론 시간입니다.";
-  const rows=[["모델 ID",m.id,true],["데이터셋",m.data||"COCO 사전 학습"],["학습 작업",m.job||"해당 없음"],["학습 설정",m.train||"미기록"],["PT SHA-256",m.hash||"미기록",true]];
+  const row=el("tr"),state=el("td");state.append(el("span","사용 가능","ready"));
+  row.append(el("td","Chrome WebGPU · ONNX"),state,el("td",m.score[0]),el("td",m.score[1]));$("formats").append(row);
+  $("metrics-note").textContent=base?"기본 모델의 측정값은 미기록입니다.":"예시 · 해당 버전의 사용자 검증 세트 기준. p95는 추론 시간입니다.";
+  const rows=[["모델 ID",m.id,true],["데이터셋",m.data||"COCO 사전 학습"],["학습 작업",m.job||"해당 없음"],["학습 설정",m.train||"미기록"],["ONNX SHA-256",m.hash||"미기록",true]];
   $("metadata").replaceChildren();for(const [k,v,c] of rows)$("metadata").append(el("dt",k),el("dd",v,c?"code":""));
-  $("apply").disabled=m===active;$("apply").textContent=m===active?"MPS에 적용 중":"MPS에 적용";
+  $("apply").disabled=m===active;$("apply").textContent=m===active?"Chrome WebGPU에 적용 중":"Chrome WebGPU에 적용";
 }
 function openAction(mode) {
   action=mode;const rename=mode==="rename";
   $("dialog-title").textContent=rename?"모델 이름 변경":"실시간 탐지에 적용";
-  $("dialog-copy").textContent=rename?"이 버전의 표시 이름만 바뀝니다. 버전 번호, 클래스, 가중치는 그대로 유지됩니다.":"선택한 모델: "+selected.name+" "+selected.v+". 시안의 MPS 적용 표시만 변경합니다.";
+  $("dialog-copy").textContent=rename?"이 버전의 표시 이름만 바뀝니다. 버전 번호, 클래스, 가중치는 그대로 유지됩니다.":"선택한 모델: "+selected.name+" "+selected.v+". 시안의 Chrome WebGPU 적용 표시만 변경합니다.";
   $("field").hidden=!rename;$("error").textContent="";$("new-name").removeAttribute("aria-invalid");
   $("new-name").value=selected.name;$("submit").textContent=rename?"저장":"적용";$("dialog").showModal();
   if(rename){$("new-name").focus();$("new-name").select();}else $("cancel").focus();

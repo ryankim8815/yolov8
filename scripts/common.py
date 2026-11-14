@@ -24,7 +24,7 @@ def digest(path):
 
 def environment():
     packages = {}
-    for name in ("torch", "torchvision", "ultralytics", "coremltools", "numpy", "opencv-python", "fastapi"):
+    for name in ("torch", "torchvision", "ultralytics", "onnx", "numpy", "opencv-python", "fastapi"):
         try:
             packages[name] = importlib.metadata.version(name)
         except importlib.metadata.PackageNotFoundError:

@@ -1,8 +1,5 @@
-"""One controller owns the camera, model transitions, collection and child jobs."""
-import json
+"""One controller owns the camera, model transitions, collection and browser training jobs."""
 import os
-import signal
-import subprocess
 import threading
 import time
 from dataclasses import replace
@@ -29,9 +26,8 @@ class Runtime:
     def __init__(self, settings, pipeline_factory, state_root):
         self.settings = settings
         self.factory = pipeline_factory
-        self.train_python = ROOT/".conda/train/bin/python"
         self.store = Store(state_root)
-        self.registry = ModelRegistry(self.store)
+        self.registry = ModelRegistry(self.store, chrome_only=settings.backend == "chrome")
         self.lock = threading.RLock()
         self.video_lock = threading.Lock()
         self.shutdown_lock = threading.Lock()
@@ -42,8 +38,6 @@ class Runtime:
         self.busy = None
         self.error = None
         self.subscribers = 0
-        self.process = None
-        self.cancel_event = threading.Event()
         self.tasks = []
         self.active_job = None
         try:
@@ -61,24 +55,30 @@ class Runtime:
         return ([] if self.pipeline is None else self.pipeline.threads) + self.tasks + [self.collector.thread]
 
     def _register_defaults(self):
-        formats = {}
-        for backend in ("mps", "cpu", "coreml"):
-            path = ROOT / "models" / ("yolov8n.mlpackage" if backend == "coreml" else "yolov8n.pt")
-            if path.exists():
-                formats[backend] = {"state": "ready", "path": str(path), "sha256": artifact_hash(path)}
         from .chrome_model import BUILTIN_ONNX
-        formats["chrome"] = dict(state="ready",path=str(BUILTIN_ONNX),sha256=artifact_hash(BUILTIN_ONNX))
-        attach_benchmarks(formats)
-        self.store.put("model", {"id": BUILTIN, "name": "COCO80 · YOLOv8n", "classes": coco_classes(),
-                                 "kind": "builtin", "formats": formats, "created_at": "builtin"})
+        default = BUILTIN_ONNX
+        sha = artifact_hash(default) if default.is_file() else None
+        formats = {"chrome": {"state": "ready" if sha else "unavailable", "path": str(default), "sha256": sha}}
+        if self.settings.backend == "cpu":
+            default = ROOT / "models/yolov8n.pt"
+            if default.is_file():
+                formats["cpu"] = {"state": "ready", "path": str(default), "sha256": artifact_hash(default)}
+                attach_benchmarks({"cpu": formats["cpu"]})
+        with self.store.write_transaction() as write:
+            try:
+                previous_formats = self.store.get("model", BUILTIN)["formats"]
+            except DomainError:
+                previous_formats = {}
+            # Keep older artifact metadata for version history and checkpoint migration.
+            refreshed = {"chrome", self.settings.backend}
+            preserved = {b: f for b, f in previous_formats.items() if b not in refreshed}
+            write("model", {"id": BUILTIN, "name": "COCO80 · YOLOv8n", "classes": coco_classes(),
+                            "kind": "builtin", "formats": {**preserved, **formats}, "created_at": "builtin"})
         current = self.settings.model_path.resolve()
-        default = ROOT / "models" / ("yolov8n.mlpackage" if self.settings.backend == "coreml" else "yolov8n.pt")
-        if self.settings.backend == "chrome":
-            default = BUILTIN_ONNX
         self.model_id = BUILTIN
         if current != default.resolve():
             self.model_id = "configured-" + __import__("hashlib").sha256(str(current).encode()).hexdigest()[:12]
-            digest = artifact_hash(current)
+            digest = artifact_hash(current) if current.is_file() else None
             try:
                 previous = self.store.get("model", self.model_id)
             except DomainError:
@@ -86,16 +86,20 @@ class Runtime:
             # Paths can be reused for different weights. Cache labels by content.
             same = digest and previous.get("formats", {}).get(self.settings.backend, {}).get("sha256") == digest
             classes = previous.get("classes", []) if same else []
+            available = bool(digest)
             if digest and self.settings.backend == "chrome":
                 from .chrome_model import model_metadata
                 try:
                     classes = model_metadata(current)["classes"]
                 except Exception as exc:
+                    available = False
+                    classes = []
                     self.error = f"Chrome 모델 메타데이터 로드 실패: {exc}"
+            updated_formats = {**previous.get("formats", {}), self.settings.backend: {
+                "state": "ready" if available else "unavailable", "path": str(current), "sha256": digest}}
             self.store.put("model", {"id": self.model_id, "name": current.name, "kind": "configured",
                                      "classes": classes,
-                                     "formats": {self.settings.backend: {"state": "ready" if digest else "unavailable",
-                                                 "path": str(current), "sha256": digest}},
+                                     "formats": updated_formats,
                                      "created_at": previous.get("created_at") or now()})
         if not self.settings.model_path_explicit:
             try:
@@ -396,10 +400,11 @@ class Runtime:
 
     def training_parent(self, identifier):
         parent = self.registry.get(identifier or BUILTIN)
-        backend = "chrome" if self.settings.backend == "chrome" else "mps"
-        fmt = parent.get("formats", {}).get(backend, {})
-        parent = {**parent, "training_format": backend}
-        if parent.get("kind") not in {"builtin", "custom"} or fmt.get("state") != "ready" or not fmt.get("sha256") or not Path(fmt.get("path", "")).is_file():
+        fmt = parent.get("formats", {}).get("chrome", {})
+        if parent.get("kind") not in {"builtin", "custom"} or fmt.get("state") != "ready" or not fmt.get("sha256"):
+            raise DomainError("학습 가능한 ONNX 모델을 선택하세요.", 422)
+        path = Path(fmt.get("path") or "")
+        if path.suffix.lower() != ".onnx" or not path.is_file():
             raise DomainError("클래스와 해시가 등록된 학습 가능한 기본·사용자 모델을 선택하세요.", 422)
         return parent
 
@@ -431,45 +436,14 @@ class Runtime:
                 verify_dataset(dataset)
             except (OSError, ValueError) as exc:
                 raise DomainError(f"데이터셋 스냅샷 검증 실패: {exc}", 422) from exc
-            if self.settings.backend == "chrome":
-                parent = self.training_parent(values.get("initial_model_id"))
-                fmt = parent["formats"]["chrome"]
-                if artifact_hash(fmt["path"]) != fmt["sha256"]:
-                    raise DomainError("기반 ONNX 해시가 변경되었습니다.",422)
-                if resolved:
-                    dataset = freeze_plan(self.store, resolved)
-                    values.update(dataset_id=dataset["id"],class_plan={**resolved[0],"output_dataset_id":dataset["id"]})
-                return self._create_chrome_job(values, dataset, fmt)
-            initial = ROOT/"models/yolov8n.pt"
-            if values.get("initial_model_id"):
-                parent = self.registry.get(values["initial_model_id"])
-                if (not resolved and parent["classes"] != dataset["classes"]) or parent["formats"].get("mps", {}).get("state") != "ready":
-                    raise DomainError("같은 클래스 매핑을 가진 사용자 PT 모델만 초기 모델로 선택할 수 있습니다", 422)
-                initial = Path(parent["formats"]["mps"]["path"])
-                expected_hash = parent["formats"]["mps"].get("sha256")
-                if expected_hash and artifact_hash(initial) != expected_hash:
-                    raise DomainError("초기 사용자 모델 파일의 해시가 변경되었습니다", 422)
-            if not initial.is_file():
-                raise DomainError("로컬 초기 가중치가 없습니다. scripts.prepare를 실행하세요", 422)
-            python = self.train_python
-            if not python.is_file():
-                raise DomainError("학습 환경이 없습니다. bash scripts/setup.sh train을 실행하세요", 422)
+            parent = self.training_parent(values.get("initial_model_id"))
+            fmt = parent["formats"]["chrome"]
+            if artifact_hash(fmt["path"]) != fmt["sha256"]:
+                raise DomainError("기반 ONNX 해시가 변경되었습니다.",422)
             if resolved:
-                try:dataset = freeze_plan(self.store, resolved)
-                except (OSError,ValueError) as exc:raise DomainError(f"선택 자료 검증 실패: {exc}",422) from exc
-                values["dataset_id"] = dataset["id"]
-                values["class_plan"] = {**resolved[0],"output_dataset_id":dataset["id"]}
-            job = {**values, "id": uid("job"), "state": "queued", "created_at": now(),
-                   "initial_weights": str(initial), "initial_sha256": artifact_hash(initial),
-                   "dataset": dataset, "model_id": uid("custom"), "error": None}
-            job["directory"] = str(self.store.root/"jobs"/job["id"])
-            Path(job["directory"]).mkdir(parents=True)
-            atomic_json(Path(job["directory"])/"request.json", job)
-            self.store.put("job", job)
-            self.busy, self.active_job = "training", job["id"]
-            self.cancel_event.clear()
-            self._spawn(self._job, job, python)
-            return job
+                dataset = freeze_plan(self.store, resolved)
+                values.update(dataset_id=dataset["id"],class_plan={**resolved[0],"output_dataset_id":dataset["id"]})
+            return self._create_chrome_job(values, dataset, fmt)
 
     def _create_chrome_job(self, values, dataset, fmt):
         from .chrome_model import prepare_template
@@ -500,115 +474,6 @@ class Runtime:
                 self.store.update("job", identifier, state=state, error=error, ended_at=now())
                 self.active_job = self.busy = None
 
-    def _run_child(self, python, job, mode):
-        directory = Path(job["directory"])
-        # Clear the prior child's progress before polling, so export cannot briefly
-        # regress to the training/evaluation stage while importing its runtime.
-        atomic_json(directory/"progress.json", {"stage": "preparing" if mode == "train" else "exporting"})
-        last_progress = None
-        # EOF watchdog does not depend on PID reuse or graceful parent shutdown.
-        read_fd, write_fd = os.pipe()
-        process = None
-        env = {**os.environ, "PYTHONUNBUFFERED": "1", "PYTORCH_ENABLE_MPS_FALLBACK": "0", "YOLO_AUTOINSTALL": "false", "YOLO_OFFLINE": "true"}
-        try:
-            with (directory/f"{mode}.log").open("w") as output:
-                process = subprocess.Popen([str(python), "-m", "scripts.training_worker", "--request", str(directory/"request.json"),
-                    "--mode", mode, "--parent-fd", str(read_fd)], cwd=ROOT, env=env, stdin=subprocess.DEVNULL,
-                    stdout=output, stderr=subprocess.STDOUT, start_new_session=True, pass_fds=(read_fd,))
-                with self.lock:
-                    self.process = process
-                os.close(read_fd)
-                read_fd = None
-                while process.poll() is None:
-                    if self.cancel_event.wait(.2) or self.stop_event.is_set():
-                        self._terminate(process)
-                        raise InterruptedError("사용자가 작업을 취소했습니다")
-                    progress = directory/"progress.json"
-                    if progress.exists():
-                        try:
-                            data = json.loads(progress.read_text())
-                            if data != last_progress:
-                                self.store.update("job", job["id"], state=data["stage"],
-                                                  progress={k: v for k, v in data.items() if k != "stage"})
-                                last_progress = data
-                        except (OSError, ValueError):
-                            pass
-                if self.cancel_event.is_set() or self.stop_event.is_set():
-                    raise InterruptedError("작업 취소")
-                if process.returncode:
-                    detail = (directory/"error.json")
-                    message = json.loads(detail.read_text())["error"] if detail.exists() else f"자식 프로세스 종료 코드 {process.returncode}"
-                    raise RuntimeError(message)
-        finally:
-            try:
-                # Includes errors in parent-side progress/DB handling, before the
-                # child has necessarily installed its EOF watchdog.
-                if process is not None:
-                    self._terminate(process)
-            finally:
-                if read_fd is not None:
-                    os.close(read_fd)
-                os.close(write_fd)
-                with self.lock:
-                    self.process = None
-
-    @staticmethod
-    def _terminate(process):
-        if process.poll() is not None:
-            return
-        try:
-            os.killpg(process.pid, signal.SIGTERM)
-            process.wait(timeout=4)
-        except subprocess.TimeoutExpired:
-            os.killpg(process.pid, signal.SIGKILL)
-            process.wait(timeout=3)
-        except ProcessLookupError:
-            pass
-
-    def _job(self, job, python):
-        model = None
-        try:
-            with self.lock:
-                self.collector.stop("training")
-                self._stop_pipeline()
-            self.store.update("job", job["id"], state="preparing")
-            self._run_child(python, job, "train")
-            result = json.loads((Path(job["directory"])/"pt-result.json").read_text())
-            model = {"id": job["model_id"], "name": "사용자 모델 · " + job["created_at"][:19], "kind": "custom",
-                     "created_at": now(), "classes": job["dataset"]["classes"], "dataset_id": job["dataset_id"],
-                     "initial_model_id": job.get("initial_model_id"), "initial_sha256": job["initial_sha256"],
-                     "job_id": job["id"], "training": result["training"], "environment": result["environment"],
-                     "formats": {"mps": result["format"], "cpu": result["format"]}}
-            # PT is kept even if export fails. Cancellation never registers a new version.
-            warning = None
-            self.store.update("job", job["id"], state="exporting")
-            try:
-                self._run_child(ROOT/".conda/coreml/bin/python", job, "export")
-                exported = json.loads((Path(job["directory"])/"coreml-result.json").read_text())
-                model["formats"]["coreml"] = exported
-                if exported["state"] != "ready":
-                    warning = exported["error"]
-            except InterruptedError:
-                raise
-            except Exception as exc:
-                warning = str(exc)
-                model["formats"]["coreml"] = {"state": "unavailable", "error": warning}
-            with self.lock:
-                if self.cancel_event.is_set() or self.stop_event.is_set():
-                    raise InterruptedError("작업 취소")
-                completed = {**self.store.get("job", job["id"]), "state": "completed_with_warnings" if warning else "completed",
-                             "warning": warning, "ended_at": now()}
-                self.registry.publish(model, completed)
-        except InterruptedError as exc:
-            self.store.update("job", job["id"], state="cancelled", error=str(exc), ended_at=now())
-        except Exception as exc:
-            self.store.update("job", job["id"], state="failed", error=str(exc), ended_at=now())
-        finally:
-            with self.lock:
-                self.busy, self.active_job = None, None
-                if self.camera_desired and not self.stop_event.is_set() and self.pipeline is None:
-                    self._new_pipeline(self.settings, self.model_id)
-
     def cancel_job(self, identifier):
         with self.lock:
             job = self.store.get("job", identifier)
@@ -616,11 +481,8 @@ class Runtime:
                 return job
             if identifier != self.active_job:
                 raise DomainError("실행 중인 작업이 아닙니다")
-            if self.settings.backend == "chrome":
-                self.finish_chrome_job(identifier,"cancelled")
-                return self.store.get("job",identifier)
-            self.cancel_event.set()
-            return self.store.update("job", identifier, state="cancelling")
+            self.finish_chrome_job(identifier, "cancelled")
+            return self.store.get("job", identifier)
 
     def events(self):
         return {"event": "snapshot", "status": self.status(), "collection": self.collector.snapshot(),
@@ -632,10 +494,11 @@ class Runtime:
             if self.closed:
                 return
             self.stop_event.set()
-            self.cancel_event.set()
             errors = []
             with self.lock:
                 self.camera_desired = False
+                if self.active_job:
+                    self.finish_chrome_job(self.active_job, "interrupted", "서버를 종료했습니다.")
                 for cleanup in (self.collector.close, self._stop_pipeline):
                     try:
                         cleanup()

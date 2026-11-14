@@ -68,6 +68,8 @@ const assert = require("node:assert/strict");
     console.log("Trained", completed.model_id, completed.progress);
     const models = await json("/api/models"),
       trained = models.models.find((m) => m.id === completed.model_id);
+    assert.ok(models.models.every((m) => Object.keys(m.formats).length === 1 && m.formats.chrome.path.endsWith(".onnx")));
+    assert.equal(completed.initial_weights.split(".").pop(), "onnx");
     assert.ok(trained.formats.chrome.sha256);
     assert.equal(trained.classes.length, 1);
     await page.goto(base + "/training#models");
@@ -88,6 +90,7 @@ const assert = require("node:assert/strict");
       final.model_version,
       "frame",
       final.frame_id,
+      "detections", final.objects.length,
       "Chrome",
       browser.version(),
     );

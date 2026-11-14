@@ -1,8 +1,6 @@
 """Failure-path regressions found during the post-implementation review."""
 import asyncio
 import sqlite3
-import subprocess
-import sys
 import threading
 from pathlib import Path
 from types import SimpleNamespace
@@ -140,31 +138,6 @@ def test_slow_status_lock_does_not_block_http_event_loop(tmp_path):
     asyncio.run(check())
 
 
-def test_child_is_reaped_before_returning_after_metadata_failure(runtime, monkeypatch):
-    directory = runtime.store.root / "worker-failure"
-    directory.mkdir()
-    job = {"id": "worker-failure", "directory": str(directory)}
-    spawned = []
-    popen = subprocess.Popen
-    def start(*args, **kwargs):
-        child = popen([sys.executable, "-c", "import time; time.sleep(60)"], **kwargs)
-        spawned.append(child)
-        return child
-    def fail(*args, **kwargs):
-        raise sqlite3.OperationalError("database full")
-    with monkeypatch.context() as patch:
-        patch.setattr("app.runtime.subprocess.Popen", start)
-        patch.setattr(runtime.store, "update", fail)
-        try:
-            with pytest.raises(sqlite3.OperationalError):
-                runtime._run_child(Path(sys.executable), job, "train")
-            assert spawned[0].poll() is not None, "Owned GPU worker could overlap resumed inference"
-            assert runtime.process is None
-        finally:
-            for process in spawned:
-                Runtime._terminate(process)
-
-
 def test_shutdown_releases_pipeline_even_if_collection_cleanup_raises(runtime, monkeypatch):
     pipeline = runtime.pipeline
     close = runtime.collector.close
@@ -198,13 +171,10 @@ def test_saved_selection_does_not_load_modified_weights(tmp_path):
 def test_initial_user_model_hash_is_checked_before_training(runtime, monkeypatch):
     values = fake_job(runtime)
     model = runtime.store.get("model", "initial")
-    path = Path(model["formats"]["mps"]["path"])
-    model["formats"]["mps"]["sha256"] = artifact_hash(path)
-    runtime.store.put("model", model)
+    path = runtime.store.root / "modified.onnx"
     path.write_bytes(b"changed weights")
-    def cancelled(*args):
-        raise InterruptedError("test cleanup")
-    monkeypatch.setattr(runtime, "_run_child", cancelled)
+    model["formats"]["chrome"]["path"] = str(path)
+    runtime.store.put("model", model)
     with pytest.raises(DomainError, match="해시"):
         runtime.create_job(values)
 

@@ -11,73 +11,42 @@ YOLO_PYTHON=python3.11 bash scripts/setup.sh chrome
 bash scripts/start.sh
 ```
 
-Chrome에서 [대시보드](http://localhost:8000)를 엽니다. 설치 시 브라우저 라이브러리를 내려받아 해시를 확인하며, 실행 중에는 같은 서버에서 라이브러리와 기본 YOLOv8n ONNX를 제공합니다. Chrome 실행 환경은 PyTorch, Core ML, Ultralytics, conda 설치가 필요하지 않습니다. Docker 게이트웨이·로봇과 함께 사용할 때는 `bash scripts/stack.sh up chrome`을 사용합니다. 다른 컴퓨터에서 접속하려면 HTTPS와 WebSocket 프록시를 구성하세요.
+Chrome에서 [대시보드](http://localhost:8000)를 엽니다. 설치 시 브라우저 라이브러리를 내려받아 해시를 확인하며, 실행 중에는 같은 서버에서 라이브러리와 기본 YOLOv8n ONNX를 제공합니다. Docker 게이트웨이·로봇과 함께 사용할 때는 `bash scripts/stack.sh up chrome`을 사용합니다. 다른 컴퓨터에서 접속하려면 HTTPS와 WebSocket 프록시를 구성하세요.
 
 카메라는 서버에 연결합니다. 활성 Chrome 탭 하나가 추론을 담당하며, 해당 탭을 닫거나 숨기면 다른 열린 탭이 연결할 수 있습니다. 수집·깊이·피킹에 쓰는 프레임 ID와 세대는 서버가 검증합니다. RealSense 드라이버와 로봇 연결 요구 사항은 장비에 따라 적용됩니다.
 
-[학습 화면](http://localhost:8000/training#jobs)에서 승인된 데이터셋, 유지·추가할 클래스, batch, epochs와 patience를 선택하고 **새 버전 학습 시작**을 누르세요. 탭을 열어 둬야 합니다. Chrome은 선택한 학습 분할 전체로 학습하며 검증 손실이 가장 낮은 epoch의 ONNX를 다시 로드해 검증 이미지에 추론합니다. 완료된 버전을 **모델 버전 → Chrome WebGPU에 적용**으로 선택합니다. 브라우저에서 만든 모델로 후속 학습도 가능합니다. 기존 등록 PT 모델은 내보내기 환경에서 한 번 `PYTHONPATH=.cache/webgpu/python .conda/mps/bin/python -m scripts.migrate_chrome_models`로 변환하면 기존 클래스·상품 연결을 유지한 채 Chrome에서 선택할 수 있습니다. 이 명령은 기존 Ultralytics 환경과 ONNX 내보내기 의존성을 사용합니다. 변환 이후의 학습·추론은 Chrome에서 실행합니다.
+[학습 화면](http://localhost:8000/training#jobs)에서 승인된 데이터셋, 유지·추가할 클래스, batch, epochs와 patience를 선택하고 **Chrome 탭에서 새 버전 학습**을 누르세요. 학습 동안 탭을 열어 두세요. Chrome은 학습 분할 전체로 가중치를 갱신한 뒤 검증 손실이 가장 낮은 epoch의 ONNX를 다시 열어 검증 이미지에 추론합니다. **모델 버전 → Chrome WebGPU에 적용**을 누르면 대시보드에서 해당 버전으로 탐지합니다. 후속 학습의 기반 모델로도 선택할 수 있습니다.
+
+Chrome 모드의 모델 목록에는 ONNX가 등록된 버전만 표시됩니다. 기본 모델은 `app/chrome/yolov8n.onnx`이며, 시작 시 `YOLO_MODEL_PATH`로 지정할 추론 모델도 정적 입력과 클래스 이름을 가진 YOLOv8 detect ONNX여야 합니다. 학습 탭의 연결이 끊어지면 작업이 중단되고 마지막으로 등록한 모델을 사용할 수 있습니다.
 
 Chrome 학습기는 융합된 YOLOv8n convolution 가중치 전체를 갱신합니다. Adam, 분류 BCE, IoU 및 DFL 손실과 gradient accumulation을 사용하며, Ultralytics 학습기의 augmentation·optimizer·CIoU 구현과는 차이가 있습니다. 장기 학습의 정확도와 수렴은 별도 평가가 필요합니다. 기본 학습률은 `0.0001`입니다. 입력 크기는 ONNX에 저장된 값을 사용합니다.
 
-실제 Chrome 통합 검증은 COCO128을 준비한 뒤 별도 터미널 두 개에서 실행합니다. Playwright와 데스크톱 Chrome이 필요합니다. 임시 상태와 재생 카메라로 새 클래스 학습, ONNX 등록, 화면에서 모델 전환, 후속 학습 및 탭 종료를 확인합니다.
+실제 Chrome 통합 검증용 COCO128은 `bash scripts/python.sh chrome -m scripts.prepare --dataset-only`로 준비합니다. 다음 명령을 별도 터미널 두 개에서 실행합니다. Playwright와 데스크톱 Chrome이 필요합니다. 임시 상태와 재생 카메라로 새 클래스 학습, ONNX 등록, 화면에서 모델 전환, 후속 학습 및 탭 종료를 확인합니다.
 
 ```bash
 YOLO_ROBOT_WEB_OWNER=compose bash scripts/python.sh chrome -m uvicorn tests.chrome_yolo_qa:create_qa_app --factory --host 127.0.0.1 --port 18280
 node scripts/check_chrome_yolo_ui.cjs
 ```
 
-`CHROME_QA_RETAIN=1`로 테스트를 실행하면 기존 zebra 클래스를 유지한 전이 학습도 검증합니다. `CHROME_QA_EPOCHS=10`은 첫 학습을 10 epoch로 늘립니다. 각 실행은 새 QA 서버에서 시작합니다. 아래 MPS·Core ML 절은 명시적으로 해당 백엔드를 선택할 때의 설치 및 실행 방법입니다.
+`CHROME_QA_RETAIN=1`로 테스트를 실행하면 기존 zebra 클래스를 유지한 전이 학습도 검증합니다. `CHROME_QA_EPOCHS=10`은 첫 학습을 10 epoch로 늘립니다. 각 실행은 새 QA 서버에서 시작합니다.
 
-## 1. conda/mamba 환경 생성
+## CPU 진단 모드
 
-arm64 Miniforge와 macOS 카메라 접근 권한이 필요합니다. Mamba가 있으면 우선 사용하고, 없으면 conda를 사용합니다. 기존 base 환경은 변경하지 않습니다.
-
-```bash
-cd /Users/ryankim/Documents/robotics/yolov8
-bash scripts/setup.sh mps
-bash scripts/setup.sh coreml
-bash scripts/setup.sh train
-```
-
-Python 3.11과 패키지는 프로젝트의 `.conda/mps`, `.conda/coreml`, `.conda/train`에 설치합니다. Python은 conda-forge에서, PyTorch·Ultralytics 등은 각 conda 환경 내부의 pip로 설치합니다. 가상환경이나 Homebrew Python 설치는 필요하지 않습니다.
-
-직접 실행하려면:
+서버 CPU에서 기존 PT 모델을 확인하려면 별도 가상환경을 사용합니다.
 
 ```bash
-mamba env create -p ./.conda/mps -f environment-mps.yml
-mamba env create -p ./.conda/coreml -f environment-coreml.yml
-mamba env create -p ./.conda/train -f environment-train.yml
-```
-
-`mamba` 대신 `conda`도 사용할 수 있습니다. 명령을 찾지 못하면 `YOLO_CONDA_EXE="$HOME/miniforge3/bin/mamba" bash scripts/setup.sh mps`처럼 설치 경로를 지정합니다. 이미 존재하는 환경은 setup 스크립트가 자동으로 변경하지 않습니다.
-
-## 2. 모델과 데이터 준비
-
-```bash
-bash scripts/python.sh mps -m scripts.prepare
-bash scripts/python.sh coreml -m scripts.export_coreml
-```
-
-첫 명령은 공식 YOLOv8n 가중치와 COCO128 이미지·라벨을 다운로드합니다. 두 번째 명령은 NMS를 포함하지 않은 FP16 Core ML 모델을 변환하고 실제 로드·워밍업을 검증합니다. 가중치, 클래스 정보, 변환 설정과 SHA-256은 `models/manifest.json`에 기록합니다. 서버는 실행 중 모델이나 의존성을 자동 다운로드하지 않습니다.
-
-## 3. 서버 실행
-
-Docker와 함께 사용한다면 다음 절의 **통합 실행**을 권장합니다. 이 절은 Mac 추론 서버만 단독 실행하는 방법입니다.
-
-```bash
-# 명시적으로 MPS 사용
-bash scripts/start.sh mps
-
-# 위 서버를 Ctrl+C로 종료한 뒤 Core ML로 실행
-bash scripts/start.sh coreml
-
-# CPU 진단 모드
+YOLO_PYTHON=python3.11 bash scripts/setup.sh cpu
+bash scripts/python.sh cpu -m scripts.prepare --model-only
 bash scripts/start.sh cpu
 ```
 
+CPU 진단 세션에서도 학습은 Chrome 탭에서 ONNX로 수행합니다. 학습 결과를 실시간 탐지에 적용하려면 Chrome 모드로 시작하세요. 기존 레지스트리에 PT만 등록된 사용자 모델은 CPU 환경에서 `bash scripts/python.sh cpu -m scripts.migrate_chrome_models`를 한 번 실행해 같은 모델 ID에 ONNX를 추가할 수 있습니다.
+
+## 서버 실행과 카메라
+
 브라우저에서 [패킹 대시보드](http://127.0.0.1:8000)를 엽니다. **탐지 카메라 → 입력 카메라**에서 Mac에 연결된 장치를 선택하고 **적용**을 누르면 현재 모델이 그 카메라로 탐지를 계속합니다. 카메라가 꺼져 있다면 **탐지 시작**을 누르세요. 장치를 새로 연결했을 때는 **새로고침**으로 목록을 갱신합니다. 선택은 서버를 재시작할 때까지 유지되며, 서버 시작 시에는 `YOLO_CAMERA_INDEX`를 사용합니다.
 
-RealSense를 macOS에서 사용할 때 `failed to set power state` 또는 USB 접근 오류가 나면 `.env`에 `YOLO_REALSENSE_PRIVILEGED=1`을 설정하고 통합 서버를 다시 시작합니다. Mac 서버만 실행할 때는 `YOLO_REALSENSE_PRIVILEGED=1 bash scripts/start.sh coreml`을 사용합니다. RealSense 선택 시 macOS 관리자 인증창에 직접 인증하면 카메라 전용 작업자가 USB를 읽고, 일반 권한의 영상 서버에 로컬 소켓으로 색상·깊이·적외선 프레임을 전달합니다. 웹 서버와 로봇 제어기는 관리자 권한으로 실행하지 않습니다. 카메라를 끄면 센서 작업자도 종료됩니다. 인증 취소·장치 단절 시 자동으로 인증창을 반복하지 않으며, 다시 연결한 후 **탐지 시작**으로 재시도합니다. 현재 D455f 입력은 640×480 / 15 FPS 조합을 요청하며 실제 지원 모드는 카메라 상태에 표시됩니다. [librealsense macOS USB 권한 안내](https://github.com/realsenseai/librealsense/blob/master/doc/installation_osx.md).
+RealSense를 macOS에서 사용할 때 `failed to set power state` 또는 USB 접근 오류가 나면 `.env`에 `YOLO_REALSENSE_PRIVILEGED=1`을 설정하고 통합 서버를 다시 시작합니다. Mac 서버만 실행할 때는 `YOLO_REALSENSE_PRIVILEGED=1 bash scripts/start.sh chrome`을 사용합니다. RealSense 선택 시 macOS 관리자 인증창에 직접 인증하면 카메라 전용 작업자가 USB를 읽고, 일반 권한의 영상 서버에 로컬 소켓으로 색상·깊이·적외선 프레임을 전달합니다. 웹 서버와 로봇 제어기는 관리자 권한으로 실행하지 않습니다. 카메라를 끄면 센서 작업자도 종료됩니다. 인증 취소·장치 단절 시 자동으로 인증창을 반복하지 않으며, 다시 연결한 후 **탐지 시작**으로 재시도합니다. 현재 D455f 입력은 640×480 / 15 FPS 조합을 요청하며 실제 지원 모드는 카메라 상태에 표시됩니다. [librealsense macOS USB 권한 안내](https://github.com/realsenseai/librealsense/blob/master/doc/installation_osx.md).
 
 관리자 인증 모드는 Xcode Command Line Tools와 `brew install librealsense`로 설치한 네이티브 SDK를 사용합니다. SDK 설치 위치가 다르면 `YOLO_REALSENSE_PREFIX`를 지정합니다(Apple Silicon 기본 `/opt/homebrew`). 센서 작업자는 보호된 문서 폴더 밖의 임시 경로에서 실행되며, 웹 서버의 Python 환경과 별도로 동작합니다.
 
@@ -87,17 +56,17 @@ RealSense를 macOS에서 사용할 때 `failed to set power state` 또는 USB �
 
 사용자·RFID, 상품, 모델별 연결, 주문과 작업 기록은 SQLite에 저장됩니다. 처음에는 빼빼로 10개, 생수 5개, 스팸 3개, 물티슈 1개, 인형 2개로 시작합니다. 주문 #123은 빼빼로·생수·물티슈를 각 1개 예약합니다. **놓기 완료 시연**을 누르면 해당 품목을 출고하고 마지막 품목에서 발송 대기로 전환합니다. **로그**에서 사용자·재고·모델·주문별 기록을 조회할 수 있습니다. 버튼으로 실행한 음성 명령 기록은 현재 탭에 보관합니다.
 
-좌측 **모델 관리**에서 상품별 탐지 클래스 연결을 확인합니다. **새 클래스 학습**을 열면 해당 상품명으로 학습 클래스를 등록하거나 기존 라벨을 선택해 사진을 수집할 수 있습니다. 학습 데이터셋에는 유지할 기존 클래스도 포함하세요. 학습 후 모델 버전을 적용하고 **재고에서 클래스 연결**로 돌아가 상품에 연결합니다. [모델 학습 화면](http://127.0.0.1:8000/training#collect)에서 실제 카메라와 학습 서버를 사용합니다. MPS를 사용할 수 없으면 오류를 표시하며 CPU로 자동 전환하지 않습니다. Core ML은 `CPU_AND_NE`를 명시하여 로드합니다. 이 설정은 CPU와 Neural Engine의 사용을 허용하며 모델 전체의 Neural Engine 실행을 보장하지 않습니다.
+좌측 **모델 관리**에서 상품별 탐지 클래스 연결을 확인합니다. **새 클래스 학습**을 열면 해당 상품명으로 학습 클래스를 등록하거나 기존 라벨을 선택해 사진을 수집할 수 있습니다. 학습 데이터셋에는 유지할 기존 클래스도 포함하세요. 학습 후 모델 버전을 적용하고 **재고에서 클래스 연결**로 돌아가 상품에 연결합니다. [모델 학습 화면](http://127.0.0.1:8000/training#collect)에서 사진을 수집하고 Chrome 탭에서 학습합니다.
 
 최초 실행 시 **시스템 설정 → 개인정보 보호 및 보안 → 카메라**에서 실행 앱의 접근을 허용합니다. 권한 변경 후에도 열리지 않으면 서버를 재시작합니다. 카메라가 없거나 모델 로드에 실패해도 상태 화면과 `/healthz`는 응답하며 `/readyz`는 503을 반환합니다.
 
-**카메라는 Mac 추론 서버가 소유합니다.** 단독 실행한 서버는 브라우저를 닫거나 Docker 컨테이너를 내려도 계속 실행됩니다. 해당 터미널에서 `Ctrl+C`를 누르거나 다른 터미널에서 `bash scripts/stop.sh`를 실행하면 서버를 정상 종료하고 카메라를 해제합니다. 종료 스크립트는 이 프로젝트의 conda 인터프리터·작업 폴더·Uvicorn 실행 인자가 모두 일치하는 프로세스만 종료합니다.
+**카메라는 호스트 카메라 서버가 소유합니다.** 단독 실행한 서버는 브라우저를 닫거나 Docker 컨테이너를 내려도 계속 실행됩니다. 해당 터미널에서 `Ctrl+C`를 누르거나 다른 터미널에서 `bash scripts/stop.sh`를 실행하면 서버를 정상 종료하고 카메라를 해제합니다. 종료 스크립트는 이 프로젝트의 가상환경 인터프리터·작업 폴더·Uvicorn 실행 인자가 모두 일치하는 프로세스만 종료합니다.
 
 ### Chrome 패킹·로봇 음성 대화
 
 STT와 TTS는 데스크톱 Chrome의 Web Speech API를 사용합니다. Swift 프로그램이나 macOS 27 SDK는 필요하지 않습니다. 서버는 최종 인식문에 대한 명령 처리, 세션·턴 검증, 주문 확인과 로봇 실행 승인을 담당합니다.
 
-1. `YOLO_VOICE_ENABLED=1 bash scripts/start.sh mps`로 서버를 시작합니다. Core ML은 `mps` 대신 `coreml`, Docker 통합은 `YOLO_VOICE_ENABLED=1 bash scripts/stack.sh up mps`를 사용합니다.
+1. `YOLO_VOICE_ENABLED=1 bash scripts/start.sh chrome`로 서버를 시작합니다. Docker 통합 실행은 `YOLO_VOICE_ENABLED=1 bash scripts/stack.sh up chrome`을 사용합니다.
 2. 최신 데스크톱 Chrome에서 `http://localhost:8000` 또는 Docker의 `http://localhost:8080`을 엽니다. `127.0.0.1`도 가능합니다. 다른 장비에서 IP 주소로 접속할 때는 HTTPS가 필요합니다.
 3. **음성 명령 → 대화 시작**, 대시보드 **음성 대기 시작**, 또는 로봇 이동 프리셋의 **음성 대기 시작**을 누릅니다. 사용자 허용에 따라 기본 STT는 Chrome 온라인 인식을 사용합니다. 음성이 Google 음성 서비스로 전송될 수 있으며 인터넷 연결이 필요합니다. Chrome의 마이크 권한을 허용하고 한국어 읽기 음성을 설치하세요. 지원되지 않는 브라우저·음성·권한은 화면에 오류로 표시됩니다.
 4. “재고 알려줘”, “주문 내역 알려줘”, “예시 주문해줘” 등을 말합니다. 예시 주문은 같은 대화에서 “주문 확정”으로 확인합니다. 로봇 프리셋은 등록한 명령, 클래스 선택, 기존 승인 절차를 그대로 사용합니다.
@@ -112,7 +81,7 @@ STT와 TTS는 데스크톱 Chrome의 Web Speech API를 사용합니다. Swift �
 음성 관련 검증:
 
 ```bash
-bash scripts/python.sh mps -m pytest tests/test_voice.py tests/test_preset_voice_class.py tests/test_dashboard_actions.py
+bash scripts/python.sh chrome -m pytest tests/test_voice.py tests/test_preset_voice_class.py tests/test_dashboard_actions.py
 node --test tests/chrome_voice.test.cjs
 ```
 
@@ -120,7 +89,7 @@ node --test tests/chrome_voice.test.cjs
 
 ```bash
 ROBOT_STATE_DIR="$(mktemp -d /tmp/chrome-voice-qa.XXXXXX)" ROBOT_ACCESS_BACKEND=ros ROBOT_ROS_PC_IP='' YOLO_ROBOT_WEB_OWNER='' \
-  bash scripts/python.sh mps -m uvicorn tests.dashboard_qa:create_qa_app --factory --host 127.0.0.1 --port 8016
+  bash scripts/python.sh chrome -m uvicorn tests.dashboard_qa:create_qa_app --factory --host 127.0.0.1 --port 8016
 # 다른 터미널: 합성 이벤트로 주문·대시보드·로봇 화면, 취소와 페이지 종료 검증
 node scripts/check_chrome_voice_ui.cjs
 # 선택: 무음 구간을 포함해 합성한 “재고 알려줘” PCM WAV를 가짜 마이크로 입력
@@ -141,16 +110,13 @@ VOICE_TEST_WAV=/tmp/chrome-voice-input.wav node scripts/check_chrome_voice_nativ
 
 ```bash
 # 네이티브 서버를 따로 실행하지 않고 이 명령 하나를 실행합니다.
-bash scripts/stack.sh up mps
-
-# Core ML을 사용하려면
-bash scripts/stack.sh up coreml
+bash scripts/stack.sh up chrome
 ```
 
-통합 실행은 Docker 이미지를 빌드하고 중계 컨테이너와 Mac 추론 서버를 실행합니다. 실행 터미널을 유지합니다. 이미 단독 실행 중인 Mac 서버가 있으면 먼저 종료하도록 안내하며 새 서버를 중복 실행하지 않습니다.
+통합 실행은 Docker 이미지를 빌드하고 중계 컨테이너와 호스트 카메라 서버를 실행합니다. 실행 터미널을 유지합니다. 이미 단독 실행 중인 Mac 서버가 있으면 먼저 종료하도록 안내하며 새 서버를 중복 실행하지 않습니다.
 
-- `Ctrl+C`: Mac 추론 서버와 중계 컨테이너를 함께 종료합니다.
-- Docker Desktop에서 컨테이너 Stop, `docker compose stop` 또는 `docker compose down`: 통합 실행 스크립트가 약 1초 간격으로 감지해 Mac 추론 서버도 종료합니다. 요청 정리·작업자 종료에 추가 시간이 걸릴 수 있습니다.
+- `Ctrl+C`: 호스트 카메라 서버와 중계 컨테이너를 함께 종료합니다.
+- Docker Desktop에서 컨테이너 Stop, `docker compose stop` 또는 `docker compose down`: 통합 실행 스크립트가 약 1초 간격으로 감지해 호스트 카메라 서버도 종료합니다. 요청 정리·작업자 종료에 추가 시간이 걸릴 수 있습니다.
 - Docker 연결을 확인할 수 없으면 카메라 서버를 종료합니다.
 - 통합 실행 스크립트를 강제 종료(`kill -9`)하면 정리 절차를 실행할 수 없습니다. 아래 종료 명령을 사용합니다.
 
@@ -162,7 +128,7 @@ bash scripts/stack.sh down
 bash scripts/stop.sh
 ```
 
-Core ML 환경만 생성한 경우 위 종료 명령 마지막에 `coreml`을 추가합니다. 종료 대상은 백엔드와 관계없이 이 프로젝트에서 실행 중인 네이티브 서버입니다. Docker를 실행할 수 없는 상황에서도 통합 종료 명령은 Mac 서버 종료를 먼저 수행합니다.
+종료 대상은 백엔드와 관계없이 이 프로젝트에서 실행 중인 네이티브 서버입니다. Docker를 실행할 수 없는 상황에서도 통합 종료 명령은 Mac 서버 종료를 먼저 수행합니다.
 
 ### 카메라 서버와 Compose를 별도로 관리
 
@@ -177,8 +143,8 @@ docker compose logs --tail=50 gateway
 브라우저에서 [Docker 중계 주소](http://127.0.0.1:8080)를 엽니다.
 
 ```text
-내장 카메라 → Mac conda 환경의 MPS/Core ML 서버 :8000
-           → Docker nginx 중계 :8080 → 브라우저
+내장 카메라 → 호스트 카메라 서버 :8000 → Docker nginx 중계 :8080 → Chrome WebGPU
+Chrome 탐지 결과 → 중계 → 카메라 서버
 ```
 
 - Docker Desktop과 Docker Compose 2.24 이상을 사용합니다. CLI가 PATH에 없으면 `/Applications/Docker.app/Contents/Resources/bin/docker`를 사용합니다. [Compose의 선택적 환경 파일](https://docs.docker.com/reference/compose-file/services/#required)
@@ -202,10 +168,10 @@ Docker가 호스트 서버에 연결되지 않으면 Docker Desktop의 실행 �
 통합 실행에서는 루트 `.env`를 수정한 뒤 스택을 재시작합니다. Mac 서버만 `scripts/start.sh`로 실행할 때는 셸에서 변수를 지정합니다.
 
 ```bash
-YOLO_CAMERA_INDEX=1 YOLO_PREVIEW_FPS=10 bash scripts/start.sh mps
+YOLO_CAMERA_INDEX=1 YOLO_PREVIEW_FPS=10 bash scripts/start.sh chrome
 ```
 
-기본 설정: 카메라 1280×720·30 FPS 요청, 모델 입력 640, confidence 0.25, IoU 0.45, 최대 100개 객체, 미리보기 15 FPS, stale 1초, 전송 제한 시간 5초입니다. 실제 입력 해상도와 관측 FPS는 화면과 API에 표시합니다. Core ML의 `YOLO_IMGSZ`는 변환한 정적 입력 크기와 같아야 합니다.
+기본 설정: 카메라 1280×720·30 FPS 요청, 모델 입력 640, confidence 0.25, IoU 0.45, 최대 100개 객체, 미리보기 15 FPS, stale 1초, 전송 제한 시간 5초입니다. 실제 입력 해상도와 관측 FPS는 화면과 API에 표시합니다. Chrome 입력 크기는 ONNX에서 읽습니다.
 
 | 인터페이스 | 내용 |
 | --- | --- |
@@ -335,7 +301,7 @@ Mac SDK 서버는 시작할 때 `scripts/check_robot_sdk_host.py`의 `lan_settin
 
 ```bash
 # 현재 파일과 현재 셸 환경으로 새로 계산한 SDK 설정
-bash scripts/python.sh coreml -c 'from scripts.check_robot_sdk_host import lan_settings; print(lan_settings())'
+bash scripts/python.sh chrome -c 'from scripts.check_robot_sdk_host import lan_settings; print(lan_settings())'
 # 실행 중인 웹 컨테이너가 사용하는 주소
 docker compose exec -T robot-web python -c 'import os; print({k: os.getenv(k) for k in ("ROBOT_IP", "ROBOT_PORT")})'
 # Mac SDK 서버의 PID 확인
@@ -432,54 +398,19 @@ docker compose -f docker-compose.yml -f rosbridge/compose.host.yml run --build -
 
 **기존 저장 작업점·자세 이관.** 기존 경유점·박스 TCP·송장 위치와 저장 자세 1~3 중 값이 있는 항목은 독립된 한 단계 프리셋으로 한 번만 이관합니다. 각 목표 좌표·관절각과 기존 프리셋 ID·revision을 보존하며 새 프리셋은 음성을 사용하지 않습니다. 적용 전 원본 JSON을 `robot/.../backups/ui-cleanup-*`에 백업합니다. 기존 `work-points`·`poses` API와 저장 파일은 호환용으로 유지합니다. 실제 이동은 프리셋 실행 대상과 일회용 승인을 사용합니다.
 
-## 6. 테스트와 성능 비교
+## 테스트와 성능 측정
 
 ```bash
-bash scripts/python.sh mps -m pytest -q
-bash scripts/python.sh coreml -m pytest -q
-bash scripts/python.sh mps -m scripts.probe --camera
-
-bash scripts/python.sh mps -m scripts.benchmark --backend mps --mode latency
-bash scripts/python.sh mps -m scripts.benchmark --backend mps --mode accuracy
-bash scripts/python.sh coreml -m scripts.benchmark --backend coreml --mode latency
-bash scripts/python.sh coreml -m scripts.benchmark --backend coreml --mode accuracy
+bash scripts/python.sh chrome -m pip install pytest httpx
+bash scripts/python.sh chrome -m pytest -q
+node --test tests/*.test.*
 ```
 
-지연 비교는 50회 워밍업 뒤 같은 이미지 순서로 1,000회 추론합니다. 정확도 비교는 COCO128 전체 이미지와 YOLO 형식 라벨을 COCO 평가 형식으로 변환해 수행합니다. 정확도 측정 confidence는 0.001이며 서비스 confidence는 0.25입니다. COCO128은 학습 데이터의 일부이므로 실사용 정확도를 대표하지 않습니다.
-
-서버를 켠 상태에서 30분 연속 실행을 관측하려면 다음을 사용합니다. `--pid`에는 `/api/status`의 `process_id`를 넣으면 RSS도 수집합니다. MPS/Core ML 서버를 차례로 실행하며 각각 측정하고, GPU 성능 측정 중 두 서버를 동시에 실행하지 않습니다.
-
-```bash
-bash scripts/python.sh mps -m scripts.soak --seconds 1800 --clients 1 --output artifacts/mps-soak.json
-bash scripts/python.sh coreml -m scripts.soak --seconds 1800 --clients 1 --output artifacts/coreml-soak.json
-```
-
-`--clients 0`, `--clients 3`으로 구독자 수에 따른 영향을 확인할 수 있습니다. 이 도구는 원본 프레임을 저장하지 않고 서버 상태와 지표만 기록합니다. 브라우저 표시 지연은 별도 측정 항목입니다.
-
-검증 결과는 `artifacts` 아래 JSON, 읽기 쉬운 결과는 `docs/validation-report.md`에 기록합니다. 목표는 탐지 15 FPS 이상과 서버 내부 지연 p95 150 ms 이하입니다. Core ML은 p95가 10% 이상 개선되고 COCO128 mAP50–95 감소가 1 percentage point 이내일 때 권장합니다.
-
-## 7. 의존성 고정과 재현
-
-```bash
-bash scripts/python.sh mps -m scripts.lock_environment --backend mps
-bash scripts/python.sh coreml -m scripts.lock_environment --backend coreml
-```
-
-`pip check`와 자동 테스트 통과 후 `requirements-*.lock.txt`와 `conda-*.osx-arm64.lock.txt`를 생성합니다. 이 lock은 설치 조합을 고정하며 하드웨어 검증 결과는 별도로 확인해야 합니다.
-
-```bash
-# 새로운 경로에서 동일한 arm64 conda 환경 재현
-conda create -p ./.conda/reproduced-mps --file conda-mps.osx-arm64.lock.txt
-./.conda/reproduced-mps/bin/python -m pip install -r requirements-mps.lock.txt
-```
-
-아키텍처와 초기 설계는 [설계 문서](docs/yolov8-m1-pro-realtime-detection-architecture.md)를 참고하세요.
-
-화면 배치, 상태별 동작과 추가 개선안은 [UI 제안서](docs/ui-proposal.md)를 참고하세요.
+Chrome에서 COCO128 추론 시간을 측정하는 방법과 과거 Mac 비교 수치는 [WebGPU PoC 보고서](docs/webgpu-poc.md)에 있습니다. 실행 중인 서버의 영상 전송과 메모리를 장시간 관찰하려면 Chrome 탐지 탭을 열고 `bash scripts/python.sh chrome -m scripts.soak --seconds 1800 --clients 1`을 실행하세요.
 
 ## 8. 사용자 물체 수집·학습·모델 관리
 
-학습 기능은 [최종 설계 및 API](docs/custom-object-training-proposal.md), 검증 결과는 [학습 검증 보고서](docs/custom-object-training-validation.md)에 정리했습니다.
+초기 네이티브 구현의 설계는 [당시 설계 및 API](docs/custom-object-training-proposal.md), 검증 결과는 [학습 검증 보고서](docs/custom-object-training-validation.md)에 정리했습니다.
 
 추가 오류 재현·수정은 [구현 후 검토 보고서](docs/post-implementation-review.md), 실제 카메라·브라우저·학습 결과와 당시 자동 검사 결과는 [직접 실행 검증 보고서](docs/direct-execution-review.md)를 참고하세요. UI 경합 검사는 Node 설치 시 `node --test tests/training_ui.test.cjs`로 실행할 수 있습니다. 서버 실행에는 Node가 필요하지 않습니다.
 
@@ -487,17 +418,16 @@ conda create -p ./.conda/reproduced-mps --file conda-mps.osx-arm64.lock.txt
 2. 수집 모델을 선택하고 **사진 수집 시작**을 누릅니다. 중앙에 탐지되는 물체 하나가 3프레임 연속 유지되면 기본 250ms 간격으로 원본 사진과 자동 박스를 저장합니다. 탐지되지 않으면 저장하지 않습니다.
 3. **사진 저장 중지** 후 사진을 불러와 개별 또는 선택 일괄 승인/제외합니다. 유사 묶음과 박스를 확인하세요. **카메라 끄기**는 별도 버튼입니다.
 4. **누적 승인 자료로 데이터셋 고정**을 누릅니다. 한 촬영 환경의 사진도 저장되며 **검증 자료 대기**로 표시됩니다. 학습하려면 같은 클래스를 다른 배경·조명에서 추가 촬영·승인한 뒤 다시 고정하세요. 이전 버전을 유지하면서 누적 승인 자료로 새 버전을 만듭니다.
-5. [학습 작업](http://localhost:8080/training#jobs)에서 **데이터셋 선택**을 누릅니다. 원본 자료와 **기반 모델 · 초기 가중치**를 선택한 뒤 **기반 클래스 선택 · 새 클래스 추가**에서 최종 인식 범위를 구성합니다. **최종 클래스·자료 확인**으로 클래스별 학습·검증 장수와 새 ID를 검토하고 확인란을 선택한 뒤 **새 버전 학습 시작**을 누르세요. 기본값은 MPS·640·batch 4·50 epochs·patience 10입니다. 메모리 부족 시 batch를 낮춰 새 작업으로 재시도합니다.
+5. [학습 작업](http://localhost:8080/training#jobs)에서 **데이터셋 선택**을 누릅니다. 원본 자료와 **기반 모델 · 초기 가중치**를 선택한 뒤 **기반 클래스 선택 · 새 클래스 추가**에서 최종 인식 범위를 구성합니다. **최종 클래스·자료 확인**으로 클래스별 학습·검증 장수와 새 ID를 검토하고 확인란을 선택한 뒤 **Chrome 탭에서 새 버전 학습**을 누르세요. 기본값은 동봉된 ONNX 입력 640·batch 4·50 epochs·patience 10입니다. 메모리 부족 시 batch를 낮춰 새 작업으로 재시도합니다.
 
 기반 클래스는 검색·전체 선택·선택 해제가 가능하며, 각각 사용할 사진 라벨을 명시적으로 연결합니다. 예를 들어 COCO의 `cup`을 사진 라벨 `컵`에 연결할 수 있습니다. 기반 사용자 모델의 고정 데이터셋과 선택한 데이터셋을 합쳐 중복 sample ID를 한 번만 사용하고, 환경·이미지 해시·dHash 연결 그룹을 다시 나눕니다. 기존 스냅샷의 train/val을 단순 합쳐 같은 사진이 양쪽에 들어가지 않습니다. 사용하지 않는 클래스는 제외하고 최종 ID는 0부터 새로 발급합니다. 자료가 없는 클래스나 독립 환경이 부족한 클래스는 표시하고 학습을 차단합니다. 원본 모델과 데이터셋은 수정하지 않습니다.
 
-`GET /api/training/class-options`는 기반 클래스와 재사용 가능한 사진 라벨을, `POST /api/training/class-preview`는 선택 클래스·분할·설정 signature를 제공합니다. 학습 요청은 `class_selection: {retained: [{source_class_id, class_uuid}], new_class_uuids: [...]}`와 `class_plan_signature`를 전달합니다. 클래스·자료·기반 가중치가 달라지면 재확인해야 합니다. 새 스냅샷과 명시적 ID·이름 매핑은 작업의 `class_plan`에 저장합니다. 이 필드 없는 기존 API는 종전의 동일 클래스 매핑 검사로 유지합니다.
+`GET /api/training/class-options`는 기반 클래스와 재사용 가능한 사진 라벨을, `POST /api/training/class-preview`는 선택 클래스·분할·설정 signature를 제공합니다. 학습 요청은 `class_selection: {retained: [{source_class_id, class_uuid}], new_class_uuids: [...]}`와 `class_plan_signature`를 전달합니다. 클래스·자료·기반 가중치가 달라지면 재확인해야 합니다. 새 스냅샷과 명시적 ID·이름 매핑은 작업의 `class_plan`에 저장합니다. 클래스 선택을 생략하면 데이터셋의 클래스 이름으로 ONNX 분류 헤드를 초기화합니다.
 
-고정한 Ultralytics 8.4.202의 클래스 행 이전을 사용하며, 선택한 영문 클래스 이름만 메모리에서 명시한 사진 라벨명에 연결합니다. 제외한 클래스가 같은 이름으로 잘못 이전되지 않도록 구분하고, 첫 optimizer 단계 전에 선택한 가중치와 bias를 비교합니다. 기반 파일은 변경하지 않습니다. 학습 후에는 새 검증 세트의 동일한 사진으로 기반 PT와 학습 PT를 비교해 유지 클래스별 mAP·recall 변화를 저장합니다. **모델 버전 → 클래스별 검증 성능**에서 기반 PT·학습 PT·Core ML mAP와 차이를 확인하고 별도로 모델을 적용하세요. 체크만으로 성능 유지가 보장되는 것은 아닙니다. 새 모델 ID의 상품·클래스 연결과 음성 클래스 선택도 최종 목록을 기준으로 확인합니다.
-6. 학습·평가·Core ML 변환 동안 실시간 카메라를 해제합니다. 끝나면 이전 모델의 탐지를 재개합니다. 사진 저장과 새 모델 적용은 자동 실행하지 않습니다. 작업 중 카메라를 끄면 자동 재개도 취소됩니다.
-7. **모델 관리**에서 왼쪽 버전을 선택하면 생성일(KST), 인식 클래스, 기반 모델, 형식별 평가 결과를 확인할 수 있습니다. **이름 변경**으로 이 버전의 표시 이름을 저장합니다. **MPS에 적용** 또는 **Core ML에 적용**을 확인하면 모든 브라우저의 탐지 모델이 전환됩니다. Core ML 변환이 실패한 버전은 MPS에서 검증된 PT를 사용할 수 있습니다.
+6. 학습 탭을 열어 두면 선택한 클래스에 맞춰 ONNX 가중치를 갱신하고 검증 분할로 평가합니다. 검증을 마친 모델은 새 버전으로 등록됩니다.
+7. **모델 관리**에서 생성일, 인식 클래스, 기반 모델과 학습 기록을 확인하세요. **Chrome WebGPU에 적용**을 누르면 실시간 탐지 모델이 전환됩니다.
 
-기본 가중치에서 학습한 모델은 각각 새 계열의 `v1`입니다. 이전 사용자 모델에서 이어 학습하면 같은 계열의 다음 번호를 받습니다. **기반 모델**을 눌러 초기 가중치를 확인하세요. 과거 기록에서 작업과 해시를 대조할 수 없는 경우 **버전 미기록** 및 짧은 ID를 표시합니다. **학습 이력 및 파일 정보**에는 학습·검증 사진 수, 학습 설정과 SHA-256이 표시됩니다. mAP와 추론 p95는 표시된 검증 데이터셋 기준이며, 기본 모델은 가중치·COCO128 해시가 일치하는 로컬 벤치마크를 사용합니다.
+기본 가중치에서 학습한 모델은 각각 새 계열의 `v1`입니다. 이전 사용자 모델에서 이어 학습하면 같은 계열의 다음 번호를 받습니다. **기반 모델**을 눌러 초기 가중치를 확인하세요. 과거 기록에서 작업과 해시를 대조할 수 없는 경우 **버전 미기록** 및 짧은 ID를 표시합니다. **학습 이력 및 파일 정보**에는 학습·검증 사진 수, 학습 설정과 SHA-256이 표시됩니다. mAP와 추론 p95는 표시된 검증 데이터셋 기준이며, CPU 기본 모델은 가중치·COCO128 해시가 일치하는 로컬 벤치마크를 사용합니다.
 
 같은 모델 ID로 표시 이름만 수정할 수 있습니다. `GET /api/models`에서 ID를 찾은 뒤 다음처럼 호출하세요. 앞뒤 공백을 제거한 이름 길이는 1~80자이며 브라우저에는 `/ws/events`로 반영됩니다.
 
@@ -506,30 +436,11 @@ curl -X PATCH http://localhost:8080/api/models/coco-yolov8n \
   -H 'Content-Type: application/json' -d '{"name":"기본 객체 탐지"}'
 ```
 
-카메라를 끈 채 관리 화면만 시작하려면 `YOLO_CAMERA_AUTOSTART=0 bash scripts/stack.sh up coreml`을 사용하세요. 이후 **카메라 켜기**로 실시간 탐지를 시작할 수 있습니다. 기본 실행은 카메라를 자동으로 켭니다.
+카메라를 끈 채 관리 화면만 시작하려면 `YOLO_CAMERA_AUTOSTART=0 bash scripts/stack.sh up chrome`을 사용하세요. 이후 **카메라 켜기**로 실시간 탐지를 시작할 수 있습니다. 기본 실행은 카메라를 자동으로 켭니다.
 
 선택한 모델은 백엔드별로 기억합니다. `YOLO_MODEL_PATH`를 직접 export하면 시작 시 그 경로를 우선합니다. 신규 클래스 모델은 사용자 클래스 전용이며 원본 COCO80 모델을 대체하거나 합치지 않습니다. 사용자 물체의 정확도는 충분한 별도 검증 자료로 확인해야 합니다.
 
-`state/`에 사용자 사진·SQLite DB·데이터셋·모델·로그를 보관하며 Git에서 제외합니다. `YOLO_STATE_DIR`로 경로를 변경할 수 있습니다. 서버를 종료한 뒤 전체 폴더를 백업하세요. 브라우저를 닫으면 10초 안에 **사진 저장만** 중지되고 카메라는 계속 동작합니다. 서버 시작 시 카메라는 자동으로 켜집니다. `bash scripts/stack.sh down` 또는 `bash scripts/stop.sh`는 소유 학습·변환 프로세스도 종료합니다.
-
-### 재현 및 짧은 실장비 검증
-
-```bash
-# 학습 환경 설치 후 자동 검사
-bash scripts/python.sh train -m pytest -q
-
-# 기존 서버를 중지한 뒤 실행. 카메라를 열지 않으며 공개 10장으로 1 epoch 기능 검사
-bash scripts/python.sh train -m scripts.smoke_training
-
-# 테스트와 pip check를 통과한 환경 잠금 파일 생성
-bash scripts/python.sh train -m scripts.lock_environment --backend train
-
-# 제공한 잠금 파일로 새 학습 환경 재현
-conda create -p ./.conda/reproduced-train --file conda-train.osx-arm64.lock.txt
-./.conda/reproduced-train/bin/python -m pip install -r requirements-train.lock.txt
-```
-
-Smoke test의 모델은 `artifacts/training-smoke-*/`의 별도 레지스트리에만 생성되며 실제 서비스 버전 목록에 자동 추가되지 않습니다. 이 모델의 정확도 수치는 사용자 물체 학습 성능으로 해석하지 않습니다.
+`state/`에 사용자 사진·SQLite DB·데이터셋·모델·로그를 보관하며 Git에서 제외합니다. `YOLO_STATE_DIR`로 경로를 변경할 수 있습니다. 서버를 종료한 뒤 전체 폴더를 백업하세요. 브라우저를 닫으면 10초 안에 **사진 저장만** 중지되고 카메라는 계속 동작합니다. 서버 시작 시 카메라는 자동으로 켜집니다. `bash scripts/stack.sh down` 또는 `bash scripts/stop.sh`는 카메라 서버를 종료하며 진행 중인 학습 작업을 중단합니다.
 
 ### 한 환경의 데이터셋 저장과 학습 조건
 
@@ -573,7 +484,7 @@ Smoke test의 모델은 `artifacts/training-smoke-*/`의 별도 레지스트리�
 음성 세션 서버는 다음과 같이 실행합니다. Chrome의 마이크 권한과 한국어 로컬 언어팩이 준비되지 않았으면 화면의 오류 안내를 따르세요. 아래 실행은 카메라를 자동 시작하지 않으며 마이크도 **음성 대기 시작**을 누를 때 열립니다.
 
 ```bash
-YOLO_VOICE_ENABLED=1 YOLO_CAMERA_AUTOSTART=0 bash scripts/stack.sh up coreml
+YOLO_VOICE_ENABLED=1 YOLO_CAMERA_AUTOSTART=0 bash scripts/stack.sh up chrome
 ```
 
 새 API는 `/api/robot/presets`의 목록·생성, `/{id}` 조회·수정, `/{id}/copy`, `/{id}/preview`와 `/{id}/execution-preview`, `/executions/approve`입니다. 실제 실행은 저장 revision과 일회용 승인에 연결합니다. 진행 상태는 기존 `/api/robot/pick/scenario/status`와 `/pick/moves/{approval_id}`에서 확인합니다. `/api/robot/preset-voice/{status,start,stop,test,approve,cancel}`는 명령 대기와 확인을 관리합니다. 음성 세션 서버의 `/api/voice/robot/events`는 세션·순번이 있는 최종 인식 이벤트를 읽기 전용으로 제공합니다.
@@ -598,7 +509,7 @@ YOLO UI 전체 검증은 다음 격리 서버에서 실행합니다. 이 서버�
 ```bash
 TASK_QA_DIR="$(mktemp -d /tmp/preset-yolo-qa.XXXXXX)"
 ROBOT_STATE_DIR="$TASK_QA_DIR" ROBOT_ROS_PC_IP='' ROBOT_ACCESS_BACKEND=ros \
-  .conda/coreml/bin/python -m uvicorn tests.preset_yolo_qa:create_qa_app --factory --host 127.0.0.1 --port 8012
+  bash scripts/python.sh chrome -m uvicorn tests.preset_yolo_qa:create_qa_app --factory --host 127.0.0.1 --port 8012
 node scripts/check_preset_yolo_ui.cjs
 ```
 

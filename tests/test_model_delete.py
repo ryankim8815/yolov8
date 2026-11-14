@@ -22,7 +22,7 @@ def test_delete_persists_hides_from_all_clients_and_blocks_reuse(tmp_path):
     with TestClient(create_app(config,factory,tmp_path)) as client:
         rt=client.app.state.pipeline;model=register(rt,'candidate');path=rt.store.root/'candidate.pt'
         rt.registry.rename(model['id'],'삭제할 모델')
-        rt.store.put('setting',{'id':'selected-coreml','model_id':model['id']})
+        rt.store.put('setting',{'id':'selected-chrome','model_id':model['id']})
         with client.websocket_connect('/ws/events') as channel:
             channel.receive_json()
             assert remove(client,model['id'],'삭제할 모델').json()=={'id':model['id'],'deleted':True}

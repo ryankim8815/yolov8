@@ -127,7 +127,7 @@ def accuracy(detector, paths, label_paths=None, note=None):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--backend", choices=["mps", "cpu", "coreml"], required=True)
+    parser.add_argument("--backend", choices=["cpu"], default="cpu")
     parser.add_argument("--mode", choices=["latency", "accuracy"], default="latency")
     parser.add_argument("--iterations", type=int, default=1000)
     parser.add_argument("--warmup", type=int, default=50)
@@ -136,7 +136,7 @@ def main():
     args = parser.parse_args()
     if args.iterations <= 0 or args.warmup < 0:
         parser.error("iterations must be positive and warmup non-negative")
-    model = ROOT / "models" / ("yolov8n.mlpackage" if args.backend == "coreml" else "yolov8n.pt")
+    model = ROOT / "models" / "yolov8n.pt"
     config = replace(Settings(), backend=args.backend, model_path=model, imgsz=args.imgsz,
                      confidence=.001 if args.mode == "accuracy" else .25, warmup=0)
     detector = Detector(config)

@@ -7,9 +7,8 @@ process.chdir(path.resolve(__dirname,'..'));
  try{
   const page=await browser.newPage({viewport:{width:1440,height:1050}}),errors=[],deletes=[];
   page.on('pageerror',e=>errors.push(e.message));
-  const model=(id,name,kind='custom')=>({id,name,kind,classes:[],formats:{cpu:{state:'ready'},mps:{state:'ready'}},version_number:kind==='custom'?1:null});
-  let snapshot={backend:'cpu',active_model_id:'active',models:[model('base','기본 모델','builtin'),model('active','현재 적용 모델'),model('candidate','삭제 대상 모델')]};
-  const measured=snapshot.models[2];measured.classes=[{id:0,name:'컵'}];measured.formats.mps.metrics={per_class:[{class_id:0,map50_95:.4}]};measured.formats.coreml={metrics:{per_class:[{class_id:0,map50_95:.39}]}};measured.training={retention:[{class_id:0,before_map50_95:.5,after_map50_95:.4,change_percentage_points:-10}]};
+  const model=(id,name,kind='custom')=>({id,name,kind,classes:[],formats:{chrome:{state:'ready'}},version_number:kind==='custom'?1:null});
+  let snapshot={backend:'chrome',active_model_id:'active',models:[model('base','기본 모델','builtin'),model('active','현재 적용 모델'),model('candidate','삭제 대상 모델')]};
   let fail=true,hold=false,release;
   await page.route('**/*',async route=>{
    const request=route.request(),u=new URL(request.url());assert.equal(u.origin,'http://models.test');
@@ -36,8 +35,6 @@ process.chdir(path.resolve(__dirname,'..'));
   await page.locator('[data-model-id=active]').waitFor();assert.equal(await button.isDisabled(),true);
   await select('base');assert.equal(await button.isDisabled(),true);assert.match(await page.locator('#model-delete-reason').textContent(),/기본 모델/);
   await select('candidate');assert.equal(await button.isEnabled(),true);
-  assert.deepEqual(await page.locator('#model-class-metrics tr').first().locator('th,td').allTextContents(),['#0 · 컵','50.0%','40.0%','39.0%','-10.0%p']);
-  assert.equal(await page.locator('#model-class-metrics td').last().evaluate(el=>getComputedStyle(el).display),'table-cell');
   await button.click();await dialog.waitFor({state:'visible'});
   assert.match(await page.locator('#model-dialog-note').textContent(),/삭제 대상 모델/);assert.match(await page.locator('#model-dialog-note').textContent(),/가중치 파일은 보존/);
   assert.equal(await page.locator('#cancel-model-change').evaluate(el=>el===document.activeElement),true);

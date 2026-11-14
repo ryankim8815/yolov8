@@ -12,4 +12,4 @@ if command -v docker >/dev/null && docker info >/dev/null 2>&1; then
   [[ -z "$driver" ]] || { echo "먼저 docker compose stop doosan-driver 로 Docker SDK를 종료하세요." >&2; exit 1; }
 fi
 echo "Mac SDK 상태: http://127.0.0.1:8011/api/robot/host-access/status (종료: Ctrl+C)"
-exec bash scripts/python.sh coreml -m app.robot_host_access
+exec bash scripts/python.sh chrome -m app.robot_host_access

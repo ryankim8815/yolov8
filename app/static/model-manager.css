@@ -39,7 +39,6 @@
 .profile td:nth-last-child(-n+2), .profile thead th:nth-last-child(-n+2) { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .usable { color: var(--registry-accent); }
 .registry-error { display: block; }
-.registry-decline { color: #ffb3a9; }
 .profile small.registry-error, #model-form-error { color: #ffb3a9; }
 #model-evaluation { margin: 10px 0 0; font-size: 12px; }
 .profile summary { cursor: pointer; font-size: 13px; }

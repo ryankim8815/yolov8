@@ -1,5 +1,4 @@
-"""Isolated UI fixture: fake PT files and no camera, microphone or training worker."""
-import sys
+"""Isolated UI fixture: ONNX class selection with an isolated dataset."""
 import tempfile
 from pathlib import Path
 from contextlib import asynccontextmanager
@@ -20,7 +19,7 @@ def create_qa_app():
             parent,base,extra,selection=fixtures(rt.store)
             for collection in rt.store.list('collection'):
                 rt.store.update('collection',collection['id'],created_at='2026-11-11T00:00:00+00:00')
-            rt.train_python=Path(sys.executable);rt._spawn=lambda *_:None
+            rt._spawn=lambda *_:None
             app.state.qa=dict(parent=parent,base=base,extra=extra,selection=selection)
             yield
     application.router.lifespan_context=lifespan

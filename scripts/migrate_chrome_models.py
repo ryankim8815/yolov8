@@ -1,7 +1,6 @@
 """One-time, CPU-only conversion of registered legacy YOLOv8n checkpoints to Chrome ONNX."""
 
 import argparse
-import json
 import tempfile
 from pathlib import Path
 
@@ -22,24 +21,27 @@ def main():
     store = Store(args.state)
     try:
         for model in store.list("model"):
-            fmt = model["formats"].get("mps", {})
-            if (
-                model.get("deleted_at")
-                or model["kind"] != "custom"
-                or fmt.get("state") != "ready"
-            ):
+            if model.get("deleted_at") or model["kind"] != "custom":
                 continue
+            # A legacy portable checkpoint may be filed under its old accelerator name.
+            candidates = sorted(model["formats"].items(), key=lambda item: item[0] != "cpu")
+            source = next(((key, fmt) for key, fmt in candidates if fmt.get("state") == "ready"
+                           and Path(fmt.get("path") or "").suffix.lower() == ".pt"), None)
+            if source is None:
+                continue
+            key, fmt = source
             path = Path(fmt["path"])
-            if digest(path) != fmt["sha256"]:
-                raise ValueError(f"{path}: 등록된 PT 해시와 다릅니다.")
             prior = model["formats"].get("chrome")
             if (
                 prior
+                and prior.get("state") == "ready"
                 and prior.get("source_sha256") == fmt["sha256"]
                 and Path(prior.get("path", "")).is_file()
                 and digest(prior["path"]) == prior["sha256"]
             ):
                 continue
+            if digest(path) != fmt["sha256"]:
+                raise ValueError(f"{path}: 등록된 PT 해시와 다릅니다.")
             dest = store.root / "chrome-models" / model["id"]
             dest.mkdir(parents=True, exist_ok=True)
             with tempfile.TemporaryDirectory(dir=dest) as work:
@@ -70,7 +72,7 @@ def main():
                 latest = store.get("model", model["id"])
                 if (
                     latest.get("deleted_at")
-                    or latest["formats"]["mps"]["sha256"] != fmt["sha256"]
+                    or latest["formats"][key]["sha256"] != fmt["sha256"]
                 ):
                     raise ValueError("기반 모델이 변경되었습니다.")
                 latest["formats"]["chrome"] = dict(

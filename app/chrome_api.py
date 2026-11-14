@@ -23,7 +23,7 @@ def local_socket(ws):
 
 
 def snapshot(rt, identifier):
-    if rt.settings.backend != "chrome" or rt.active_job != identifier:
+    if rt.active_job != identifier:
         raise DomainError("Chrome 학습 작업이 종료되었습니다.", 409)
     return rt.store.get("job", identifier)
 
@@ -31,8 +31,10 @@ def snapshot(rt, identifier):
 @router.get("/models/{identifier}")
 def model_bytes(identifier: str, request: Request):
     rt = request.app.state.pipeline
-    fmt = rt.registry.get(identifier)["formats"].get("chrome")
-    if not fmt or fmt["state"] != "ready":
+    if rt.settings.backend != "chrome":
+        raise DomainError("Chrome 실행 모드가 아닙니다.", 404)
+    fmt = rt.registry.get(identifier)["formats"]["chrome"]
+    if fmt["state"] != "ready" or not Path(fmt["path"]).is_file():
         raise DomainError("Chrome 모델이 준비되지 않았습니다.", 404)
     return FileResponse(fmt["path"], media_type="application/octet-stream")
 

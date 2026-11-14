@@ -1,6 +1,8 @@
 import argparse
 import json
-import subprocess
+import platform
+
+import psutil
 
 from app.capture import OpenCVCamera
 from app.config import Settings
@@ -11,13 +13,9 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--camera", action="store_true")
     args = parser.parse_args()
-    import torch
     result = environment()
-    result["mps_built"] = torch.backends.mps.is_built()
-    result["mps_available"] = torch.backends.mps.is_available()
-    for key in ("machdep.cpu.brand_string", "hw.memsize"):
-        probe = subprocess.run(["/usr/sbin/sysctl", "-n", key], capture_output=True, text=True)
-        result[key] = probe.stdout.strip() if probe.returncode == 0 else "unavailable"
+    result["processor"] = platform.processor()
+    result["memory_bytes"] = psutil.virtual_memory().total
     if args.camera:
         camera = None
         try:

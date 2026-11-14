@@ -19,10 +19,7 @@ def is_project_server(command, cwd):
         return False
     if not cwd or Path(cwd).resolve() != ROOT:
         return False
-    interpreters = {(ROOT / ".conda" / backend / "bin/python").resolve()
-                    for backend in ("mps", "coreml")}
-    interpreters.add((ROOT / ".venv-chrome/bin/python").resolve())
-    return Path(command[0]).resolve() in interpreters
+    return Path(command[0]).absolute() in {ROOT / ".venv-chrome/bin/python", ROOT / ".venv-cpu/bin/python"}
 
 
 def project_servers():
@@ -36,48 +33,8 @@ def project_servers():
     return matches
 
 
-def training_children(servers):
-    """Snapshot only our servers' actual descendants, before the parent exits."""
-    workers = []
-    interpreters = {(ROOT / ".conda" / backend / "bin/python").resolve()
-                    for backend in ("train", "coreml")}
-    for server in servers:
-        try:
-            for child in server.children(recursive=True):
-                command = child.cmdline()
-                if (len(command) >= 3 and command[1:3] == ["-m", "scripts.training_worker"]
-                        and Path(command[0]).resolve() in interpreters
-                        and Path(child.cwd()).resolve() == ROOT):
-                    workers.append(child)
-        except (psutil.NoSuchProcess, psutil.AccessDenied):
-            continue
-    return workers
-
-
-def finish_training_children(workers):
-    if not workers:
-        return
-    # Normally FastAPI's shutdown/EOF watchdog has already stopped these children.
-    # psutil retains each process's creation time, protecting against PID reuse.
-    for worker in workers:
-        try:
-            worker.terminate()
-        except psutil.NoSuchProcess:
-            pass
-    _, alive = psutil.wait_procs(workers, timeout=4)
-    for worker in alive:
-        try:
-            worker.kill()
-        except psutil.NoSuchProcess:
-            pass
-    _, remaining = psutil.wait_procs(alive, timeout=3) if alive else ([], [])
-    if remaining:
-        raise RuntimeError("Owned training workers did not exit")
-
-
 def stop_native():
     processes = project_servers()
-    workers = training_children(processes)
     for process in processes:
         try:
             print(f"Stopping native camera server (PID {process.pid})", flush=True)
@@ -85,7 +42,6 @@ def stop_native():
         except psutil.NoSuchProcess:
             pass
     _, alive = psutil.wait_procs(processes, timeout=12)
-    finish_training_children(workers)
     if alive:
         raise RuntimeError(f"Native server did not exit: {[p.pid for p in alive]}")
     print("Native camera server stopped." if processes else "No native camera server is running.",
@@ -150,10 +106,6 @@ def stop_child(server):
     if server is None or server.poll() is not None:
         return
     try:
-        workers = training_children([psutil.Process(server.pid)]) if isinstance(server.pid, int) else []
-    except psutil.NoSuchProcess:
-        workers = []
-    try:
         server.terminate()
         server.wait(timeout=12)
     except ProcessLookupError:
@@ -163,8 +115,6 @@ def stop_child(server):
         print("Native server shutdown timed out; terminating our child process.", flush=True)
         server.kill()
         server.wait(timeout=5)
-    finally:
-        finish_training_children(workers)
 
 
 def run_stack(backend):
@@ -206,7 +156,7 @@ def run_stack(backend):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("action", choices=("up", "down", "stop-native"))
-    parser.add_argument("--backend", choices=("chrome", "mps", "coreml", "cpu"), default="chrome")
+    parser.add_argument("--backend", choices=("chrome", "cpu"), default="chrome")
     args = parser.parse_args()
     try:
         if args.action == "up":

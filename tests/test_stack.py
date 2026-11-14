@@ -10,7 +10,7 @@ from scripts import stack
 
 class StackTests(unittest.TestCase):
     def test_only_this_projects_native_server_matches(self):
-        command = [str(stack.ROOT / ".conda/mps/bin/python"), "-m", "uvicorn", "app.main:app"]
+        command = [str(stack.ROOT / ".venv-chrome/bin/python"), "-m", "uvicorn", "app.main:app"]
         self.assertTrue(stack.is_project_server(command, str(stack.ROOT)))
         self.assertFalse(stack.is_project_server(command, "/tmp/another-project"))
         self.assertFalse(stack.is_project_server(["/usr/bin/python3", *command[1:]], str(stack.ROOT)))
@@ -53,9 +53,9 @@ class StackTests(unittest.TestCase):
                 context.enter_context(item)
             if start_error:
                 with self.assertRaises(type(start_error)):
-                    stack.run_stack("mps")
+                    stack.run_stack("chrome")
             else:
-                self.assertEqual(stack.run_stack("mps"), 0)
+                self.assertEqual(stack.run_stack("chrome"), 0)
         return gateway, process
 
     def test_container_stop_also_stops_native_child(self):
@@ -93,10 +93,10 @@ class StackTests(unittest.TestCase):
 
     def test_native_child_receives_compose_settings_with_shell_overrides(self):
         container_env = ["YOLO_VOICE_ENABLED=1", "YOLO_VOICE_BARGE_IN=0", "YOLO_STATE_DIR=/tmp/a $b=c",
-                         "YOLO_BACKEND=mps", "ROBOT_IP=110.120.1.56", "ROBOT_ROS_PC_IP=192.168.1.2",
+                         "YOLO_BACKEND=cpu", "ROBOT_IP=110.120.1.56", "ROBOT_ROS_PC_IP=192.168.1.2",
                          "ROBOT_ROSBRIDGE_PORT=9091",
                          "PATH=/container/bin", "GATEWAY_ONLY=yes"]
-        shell_env = {"PATH": "/mac/bin", "YOLO_VOICE_BARGE_IN": "1", "YOLO_BACKEND": "coreml"}
+        shell_env = {"PATH": "/mac/bin", "YOLO_VOICE_BARGE_IN": "1", "YOLO_BACKEND": "chrome"}
         with patch.dict(os.environ, shell_env, clear=True), \
              patch.object(stack.shutil, "which", return_value="/usr/bin/docker"), \
              patch.object(stack.subprocess, "run") as inspect:
@@ -109,18 +109,3 @@ class StackTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-
-
-def test_training_cleanup_only_matches_actual_owned_worker():
-    parent=Mock()
-    child=Mock()
-    child.cmdline.return_value=[str(stack.ROOT/".conda/train/bin/python"),"-m","scripts.training_worker","--request","test"]
-    child.cwd.return_value=str(stack.ROOT)
-    unrelated=Mock()
-    unrelated.cmdline.return_value=["python","-m","other_worker"]
-    parent.children.return_value=[child,unrelated]
-    assert stack.training_children([parent])==[child]
-    with patch.object(stack.psutil,"wait_procs",return_value=([child],[])):
-        stack.finish_training_children([child])
-    child.terminate.assert_called_once()
-    unrelated.terminate.assert_not_called()

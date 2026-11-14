@@ -1,13 +1,27 @@
 # YOLOv8n Chrome WebGPU PoC와 MPS/Core ML 비교
 
-2026-11-13 KST에 실제 Mac과 Chrome에서 구현·측정했다. **브라우저 추론은 가능하며, 이 장비에서는 WebGPU가 MPS보다 빨랐고 Core ML이 가장 빨랐다.**
+## 2026-11-14 ONNX 재검증
+
+Apple M1 Pro와 Chrome 157에서 동봉된 ONNX를 그대로 배포한 뒤 세 백엔드를 순차 재측정했다. 아래의 11월 13일 비교와 동일한 COCO128 이미지 128장, 640×640, batch 1, 라운드당 워밍업 30회 및 측정 256회, 총 3라운드를 사용했다. 시간은 전처리부터 결과 읽기·NMS·좌표 복원까지다.
+
+| 추론 경로 | 평균 ms | p50 ms | p95 ms | 이미지/초 |
+|---|---:|---:|---:|---:|
+| Chrome · ONNX Runtime Web · WebGPU FP32 | 25.95 | 25.41 | 29.11 | 38.53 |
+| PyTorch · MPS FP32 | 34.62 | 30.79 | 71.63 | 28.88 |
+| Core ML · FP16 · CPU_AND_NE | 7.39 | 7.31 | 7.99 | 135.26 |
+
+MPS의 탐지 597개 중 Chrome과 같은 클래스이고 박스 IoU가 0.9 이상인 탐지는 596개였다. Core ML은 589개였다. 라운드별 수치와 탐지 대응 결과는 [측정 JSON](webgpu-poc-results.json)의 `onnx_only_rerun`에 있다.
+
+운영 앱의 학습 검증에서는 재생 카메라와 별도 DB를 사용했다. Chrome 탭의 TensorFlow.js WebGPU로 새 클래스 1개를 학습했다(학습 8장, 검증 2장, batch 2, 10 epoch). 같은 탭에서 최적 ONNX를 재로드한 결과 검증 이미지에서 탐지 1개, 대시보드에 적용한 뒤 재생 프레임에서 탐지 1개를 확인했다. 이 ONNX를 기반으로 1 epoch 더 학습해 다른 해시의 v2를 등록했다. 별도 작업에서 학습 탭을 닫자 작업이 종료되고 미완성 버전은 등록되지 않았다. 이 소규모 시험은 학습·배포 동작을 검증하며 정확도나 학습 속도의 백엔드 비교에는 사용하지 않았다.
+
+## 2026-11-13 최초 비교
 
 ## 구현
 
 - `webgpu/`: 프레임워크 없이 실행하는 브라우저 UI. 샘플 이미지, 사용자 이미지, 카메라 탐지, 벤치마크와 JSON 다운로드.
-- `scripts/prepare_webgpu.py`: 기존 YOLOv8n 가중치의 사본을 FP32 ONNX로 변환. opset 17, 정적 640 입력, raw `[1,84,8400]`, NMS 제외. COCO128을 OpenCV로 한 번 디코딩해 공통 RGBA fixture를 생성한다.
+- `scripts/prepare_webgpu.py`는 저장소의 FP32 YOLOv8n ONNX를 검증하고 그대로 복사한다. 동봉 모델은 opset 17, 정적 640 입력, NMS 전 `[1,84,8400]` 출력이다. COCO128을 OpenCV로 한 번 디코딩해 공통 RGBA fixture를 생성한다.
 - `scripts/serve_webgpu.py`: 기본 `127.0.0.1:8018`의 정적 서버. UI와 준비된 모델·런타임·fixture만 제공하고 디렉터리 목록을 차단한다. 운영 애플리케이션을 import하거나 카메라·로봇을 열지 않는다.
-- ONNX Runtime Web 1.23.2를 로컬에서 제공한다. 준비 시 공식 npm 패키지의 SHA-512 integrity를 검증하고, 브라우저에서는 모델·fixture SHA-256을 검증한다. 실행 중 외부 CDN은 사용하지 않는다.
+- ONNX Runtime Web 1.23.2를 로컬에서 제공한다. 현재 준비 스크립트는 운영 앱과 같은 배포 파일의 고정 SHA-256을 검증한다. 브라우저에서도 모델과 fixture의 SHA-256을 검증한다.
 - 브라우저 전처리: 114 패딩 LetterBox, RGB/255, FP32 NCHW. 후처리: 클래스별 최고 점수, confidence 필터, class-aware NMS, 원본 좌표 복원·클리핑. YOLOv8 출력에는 별도 objectness 채널이 없다.
 - WebGPU EP를 명시하고 GPU 미지원 시 오류를 표시한다. 애플리케이션의 WASM 자동 재시도는 없다. ORT가 일부 shape/control 연산을 CPU에서 처리할 수 있으므로 모든 연산이 GPU에서 실행됐다는 의미는 아니다.
 - 실제 카메라는 사용자가 시작한 경우에만 요청한다. 프레임을 고정해 탐지 상자와 표시 이미지가 일치하도록 하고, 종료·탭 숨김·페이지 이탈 시 트랙을 정리한다.
@@ -67,15 +81,15 @@ WebGPU와 MPS는 `000000000143.jpg`에서 각각 1개가 대응되지 않았다.
 
 ## 실행·재현
 
-프로젝트 루트에서 실행한다. 기존 `.conda/mps`, `.conda/coreml`, `models/yolov8n.pt`, `models/yolov8n.mlpackage`, COCO128이 필요하다. 기존 환경과 모델을 변경하지 않도록 변환 의존성·런타임·ONNX·fixture는 `.cache/webgpu`에 둔다.
+프로젝트 루트에서 Chrome 환경을 준비한다. 브라우저 PoC에는 동봉된 ONNX와 COCO128을 사용한다.
 
 ```bash
-# 준비에만 네트워크가 필요하다. 기존 conda 패키지 버전은 유지한다.
-.conda/mps/bin/python -m pip install --no-deps --target .cache/webgpu/python -r requirements-webgpu-export.txt
-PYTHONPATH=.cache/webgpu/python .conda/mps/bin/python -m scripts.prepare_webgpu
+YOLO_PYTHON=python3.11 bash scripts/setup.sh chrome
+bash scripts/python.sh chrome -m scripts.prepare --dataset-only
+bash scripts/python.sh chrome -m scripts.prepare_webgpu
 
 # 이 터미널은 켜 두고 Chrome에서 http://localhost:8018 접속
-.conda/mps/bin/python -m scripts.serve_webgpu
+bash scripts/python.sh chrome -m scripts.serve_webgpu
 ```
 
 자동 측정에는 Node.js와 Playwright가 필요하다. 기존 설치가 있으면 `PLAYWRIGHT_MODULE`에 패키지 절대 경로를 지정할 수 있다. 이 장비에서는 Codex에 번들된 Node.js 24.22.1과 기존 Playwright 1.57.0을 사용했다. 새 설치 예시는 다음과 같다.
@@ -84,30 +98,25 @@ PYTHONPATH=.cache/webgpu/python .conda/mps/bin/python -m scripts.prepare_webgpu
 npm install --prefix .cache/webgpu/tools --save-exact playwright@1.57.0
 PLAYWRIGHT_MODULE="$PWD/.cache/webgpu/tools/node_modules/playwright" node scripts/benchmark_webgpu_browser.cjs
 
-# Chrome 측정이 끝난 후 순서대로 실행. GPU 접근 가능한 일반 터미널 필요.
-.conda/mps/bin/python -m scripts.benchmark_webgpu_native --backend mps
-.conda/coreml/bin/python -m scripts.benchmark_webgpu_native --backend coreml
-.conda/mps/bin/python -m scripts.compare_webgpu
 ```
 
-Chrome은 설치된 Google Chrome을 `channel: chrome`으로 연다. 별도 Chromium 다운로드나 WebGPU 강제 활성화 플래그는 사용하지 않는다. 기본 결과는 `artifacts/webgpu-poc/{webgpu,mps,coreml,comparison}.json`에 저장한다. 이 폴더는 기존 저장소 정책에 따라 Git에서 제외된다. 비교기는 원본 가중치, 이미지 해시, 설정, 반복 조건이 다르면 비교를 거부한다.
+Chrome은 설치된 Google Chrome을 `channel: chrome`으로 연다. 별도 Chromium 다운로드나 WebGPU 강제 활성화 플래그는 사용하지 않는다. 브라우저 측정 결과는 `artifacts/webgpu-poc/webgpu.json`에 저장한다. 이 폴더는 기존 저장소 정책에 따라 Git에서 제외된다.
 
 브라우저 실행기는 `WEBGPU_URL`, `WEBGPU_OUTPUT`, `WEBGPU_ITERATIONS`, `WEBGPU_WARMUP`, `WEBGPU_REPEATS`를 지원한다. 기본 3라운드 결과와 별도로 8회·1라운드의 UI 검증을 `acceptance.json`에 저장했다. 이 짧은 검증 결과를 성능 표에 섞지 않았다.
 
-320 입력 실험은 `scripts.prepare_webgpu --imgsz 320`으로 준비할 수 있지만, native 비교에는 같은 입력으로 별도 변환한 Core ML 모델이 필요하다. 현재 검증된 비교는 640 입력이다.
+다른 입력 크기나 브라우저에서 학습한 모델을 시험할 때는 `scripts.prepare_webgpu --model /path/to/best.onnx`로 해당 ONNX를 지정한다. 입력 크기와 클래스는 파일에서 읽는다. 위 네이티브 비교의 기준 모델은 동봉된 640 입력 YOLOv8n이다.
 
 ## 검증과 적용 판단
 
 - Node 단위 검사 5개 통과: raw head 해석, 클래스별 NMS, confidence/max_det, 좌표 복원·클리핑, padding 반올림, 백분위 통계.
-- Python 검사 2개 통과: 일대일·클래스별 대응, 잘못된 입력·반복 조건의 비교 거부.
+- 당시 Python 검사 2개 통과: 일대일·클래스별 대응, 잘못된 입력·반복 조건의 비교 거부.
 - 실제 Chrome: 샘플 추론, 벤치마크, JSON 생성, 데스크톱·390px 화면 검사 통과. 페이지 JavaScript 오류 없음, 추론 관련 요청은 동일 출처 GET만 사용.
 - 별도 UI 검증: 합성 canvas 스트림으로 카메라 시작·종료 및 트랙 해제, WebGPU 미지원 오류 표시 확인. 실제 카메라와 로봇은 사용하지 않았다.
 
 ```bash
 node --test tests/webgpu_yolo.test.mjs
-.conda/mps/bin/python -m unittest tests.test_webgpu_comparison
 ```
 
-웹캠 기반 독립 탐지나 Python 설치 없는 사용자 단말 실행에는 WebGPU PoC를 확장할 수 있다. 현재 Mac에서 최대 처리량이 우선이면 Core ML 경로를 유지하는 편이 낫다. RealSense 깊이·로봇 작업에 브라우저 탐지를 연결하려면 서버로 결과를 반환하는 API, 프레임 ID·카메라 세대 동기화, 신선도 검증, 탭 중단 처리가 추가로 필요하다. 이번 PoC는 해당 운영 경로를 변경하지 않는다.
+웹캠 기반 독립 탐지나 Python 설치 없는 사용자 단말 실행에는 WebGPU PoC를 확장할 수 있다. 위의 네이티브 성능 수치는 당시 구현의 측정 기록이다. RealSense 깊이·로봇 작업에 브라우저 탐지를 연결하려면 서버로 결과를 반환하는 API, 프레임 ID·카메라 세대 동기화, 신선도 검증, 탭 중단 처리가 추가로 필요하다. 이번 PoC는 해당 운영 경로를 변경하지 않는다.
 
 공식 참고: [ORT WebGPU](https://onnxruntime.ai/docs/tutorials/web/ep-webgpu.html), [ORT Web 배포](https://onnxruntime.ai/docs/tutorials/web/deploy.html), [Ultralytics ONNX export](https://docs.ultralytics.com/integrations/onnx).

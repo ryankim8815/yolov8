@@ -1,76 +1,56 @@
-"""Prepare a self-hosted, camera-free YOLOv8n browser benchmark.
-
-Use the existing MPS Python; ONNX can be installed separately with --target.
-No changes to the production server, model registry or native environments.
-"""
+"""Prepare the browser benchmark from an existing YOLOv8 detection ONNX and COCO128."""
 import argparse
-import base64
-import hashlib
-import io
 import json
 import shutil
-import tarfile
-import urllib.request
 from pathlib import Path
 
 from app.config import ROOT
 from scripts.common import digest, environment, write_json
+from scripts import prepare_chrome
 
-ORT_VERSION = "1.23.2"
 SITE = ROOT / ".cache/webgpu/site"
+# Provenance of the bundled graph used for the recorded native comparison.
+BUNDLED_ONNX_SHA = "0cd683ac65ca6afef0262e19d75e4b974bb8f2cab5a9b7b01c86d2489f0a8a55"
+BUNDLED_SOURCE_SHA = "f59b3d833e2ff32e194b5bb8e08d211dc7c5bdf144b90d2c8412c47ccfc83b36"
 
 
 def runtime():
-    record = SITE / "ort/package.json"
-    if record.exists() and json.loads(record.read_text())["version"] == ORT_VERSION:
-        return json.loads(record.read_text())
-    with urllib.request.urlopen(f"https://registry.npmjs.org/onnxruntime-web/{ORT_VERSION}", timeout=60) as response:
-        package = json.load(response)
-    with urllib.request.urlopen(package["dist"]["tarball"], timeout=60) as response:
-        blob = response.read()
-    integrity = "sha512-" + base64.b64encode(hashlib.sha512(blob).digest()).decode()
-    if integrity != package["dist"]["integrity"]:
-        raise ValueError("ONNX Runtime package integrity mismatch")
+    prepare_chrome.main()
     target = SITE / "ort"
     target.mkdir(parents=True, exist_ok=True)
-    # Copy flat dist files explicitly; never extract arbitrary archive paths.
-    with tarfile.open(fileobj=io.BytesIO(blob), mode="r:gz") as archive:
-        for member in archive.getmembers():
-            path = Path(member.name)
-            if member.isfile() and path.parent.as_posix() == "package/dist" and path.suffix in {".js", ".mjs", ".wasm"}:
-                (target / path.name).write_bytes(archive.extractfile(member).read())
-    result = {"name": "onnxruntime-web", "version": ORT_VERSION, "integrity": integrity}
-    write_json(record, result)
-    return result
+    assets = json.loads((ROOT / "app/chrome/vendor.json").read_text())
+    for name in assets:
+        if name.startswith("ort"):
+            shutil.copy2(ROOT / ".cache/chrome-runtime" / name, target / name)
+    return {"name": "onnxruntime-web", "version": "1.23.2"}
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--imgsz", type=int, default=640, choices=[320, 640])
+    from app.chrome_model import BUILTIN_ONNX, model_metadata
+    parser.add_argument("--model", type=Path, default=BUILTIN_ONNX)
+    parser.add_argument("--imgsz", type=int, help="Check the ONNX input size")
     parser.add_argument("--images", type=int, default=128)
     args = parser.parse_args()
     if not 1 <= args.images <= 128:
         parser.error("--images must be 1..128")
     import cv2
     import onnx
-    from ultralytics import YOLO
-    weights = ROOT / "models/yolov8n.pt"
+    if args.model.suffix.lower() != ".onnx" or not args.model.is_file():
+        parser.error("--model must be an existing .onnx file")
+    metadata = model_metadata(args.model)
+    size = metadata["size"]
+    if args.imgsz is not None and size != args.imgsz:
+        parser.error(f"Supply an ONNX with the requested static input size (this model uses {size})")
     paths = sorted((ROOT / "data/coco128/images/train2017").glob("*.jpg"))
-    if len(paths) != 128 or not weights.exists():
-        raise FileNotFoundError("Run scripts.prepare to obtain YOLOv8n and COCO128 first")
+    if len(paths) != 128:
+        raise FileNotFoundError("Run scripts.prepare --dataset-only to obtain COCO128 first")
     SITE.mkdir(parents=True, exist_ok=True)
-    # Export a private copy so existing model artifacts cannot be overwritten.
-    private_weights = SITE.parent / "yolov8n.pt"
-    shutil.copy2(weights, private_weights)
-    options = dict(format="onnx", imgsz=args.imgsz, batch=1, dynamic=False,
-                   device="cpu", opset=17, simplify=False, nms=False)
-    yolo = YOLO(str(private_weights), task="detect")
-    exported = Path(yolo.export(**options))
-    model = onnx.load(str(exported))
-    onnx.checker.check_model(model)
-    if [d.dim_value for d in model.graph.output[0].type.tensor_type.shape.dim][:2] != [1, 84]:
-        raise ValueError("Expected raw YOLOv8n COCO output [1,84,N]")
-    shutil.copy2(exported, SITE / "yolov8n.onnx")
+    onnx.checker.check_model(str(args.model))
+    destination_model = SITE / "yolov8n.onnx"
+    if args.model.resolve() != destination_model.resolve():
+        shutil.copy2(args.model, destination_model)
+    model_sha = digest(destination_model)
     fixtures = SITE / "fixtures"
     fixtures.mkdir(exist_ok=True)
     images = []
@@ -85,10 +65,11 @@ def main():
         images.append(dict(name=path.name, width=frame.shape[1], height=frame.shape[0],
                            url="/fixtures/" + destination.name, jpeg="/fixtures/" + path.name,
                            sha256=digest(destination), source_sha256=digest(path)))
-    manifest = dict(schema_version=1, model="/yolov8n.onnx", source_sha256=digest(weights),
-                    model_sha256=digest(SITE / "yolov8n.onnx"), model_bytes=(SITE / "yolov8n.onnx").stat().st_size,
-                    settings=dict(imgsz=args.imgsz, confidence=.25, iou=.45, max_det=100, batch=1, rect=False),
-                    names=yolo.names, images=images, runtime=runtime(), export_options=options,
+    manifest = dict(schema_version=1, model="/yolov8n.onnx",
+                    source_sha256=BUNDLED_SOURCE_SHA if model_sha == BUNDLED_ONNX_SHA else None,
+                    model_sha256=model_sha, model_bytes=destination_model.stat().st_size,
+                    settings=dict(imgsz=size, confidence=.25, iou=.45, max_det=100, batch=1, rect=False),
+                    names={c["id"]: c["name"] for c in metadata["classes"]}, images=images, runtime=runtime(),
                     environment=environment())
     write_json(SITE / "manifest.json", manifest)
     print(f"Prepared {len(images)} images at {SITE}")

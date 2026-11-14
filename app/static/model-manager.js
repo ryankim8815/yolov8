@@ -17,7 +17,7 @@ function createModelManager({api, activate, reload, message}) {
     timeZone: "Asia/Seoul", year: "numeric", month: "2-digit", day: "2-digit",
     hour: "2-digit", minute: "2-digit", hourCycle: "h23"
   });
-  const backends = {chrome: "Chrome WebGPU", mps: "MPS", coreml: "Core ML", cpu: "CPU"};
+  const backends = {chrome: "Chrome WebGPU", cpu: "CPU"};
   const kinds = {custom: "사용자 모델", builtin: "기본 모델", configured: "외부 모델"};
   let models = [], selectedId, activeId, backend, editId, editName, mode, submitting = false, dialogBlock = "";
   const find = id => models.find(model => model.id === id);
@@ -63,25 +63,20 @@ function createModelManager({api, activate, reload, message}) {
   function renderFormats(model) {
     const table = byId("model-formats");
     table.replaceChildren();
-    const keys = backend === "chrome" ? ["chrome"] : backend === "cpu" ? ["mps", "coreml", "cpu"] : ["mps", "coreml"];
-    for (const key of keys) {
-      const format = model.formats?.[key];
-      // User PT files can run on CPU, but their stored benchmark was measured on MPS.
-      const measured = key !== "cpu" || format?.runtime?.backend === "pytorch-cpu" || model.kind === "builtin";
-      const map = measured ? format?.metrics?.map50_95 : null;
-      const p95 = measured ? format?.latency?.predict_ms?.p95 : null;
-      const row = element("tr", "");
-      const state = format?.state;
-      const stateText = state === "ready" ? "사용 가능" : format?.error ? "검증 실패" : state ? "사용 불가" : "형식 없음";
-      const stateCell = element("td", stateText, state === "ready" ? "usable" : "");
-      if (format?.error) stateCell.append(element("small", format.error, "registry-error"));
-      row.append(element("th", backends[key] + (key === "chrome" ? " · ONNX" : key === "coreml" ? " · ML Package" : " · PT")), stateCell,
-        element("td", Number.isFinite(map) ? (100 * map).toFixed(1) + "%" : "미측정"),
-        element("td", Number.isFinite(p95) ? p95.toFixed(1) + " ms" : "미측정"));
-      table.append(row);
-    }
-    const benchmark = Object.values(model.formats || {}).find(f => f.evaluation_dataset);
-    const dataset = model.dataset_id ? "사용자 검증 세트 · " + model.dataset_id : benchmark?.evaluation_dataset;
+    const format = model.formats?.[backend];
+    const measured = backend === "chrome" || format?.runtime?.backend === "pytorch-cpu" || model.kind === "builtin";
+    const map = measured ? format?.metrics?.map50_95 : null;
+    const p95 = measured ? format?.latency?.predict_ms?.p95 : null;
+    const row = element("tr", "");
+    const state = format?.state;
+    const stateText = state === "ready" ? "사용 가능" : format?.error ? "검증 실패" : state ? "사용 불가" : "형식 없음";
+    const stateCell = element("td", stateText, state === "ready" ? "usable" : "");
+    if (format?.error) stateCell.append(element("small", format.error, "registry-error"));
+    row.append(element("th", backends[backend] + (backend === "chrome" ? " · ONNX" : " · PT")), stateCell,
+      element("td", Number.isFinite(map) ? (100 * map).toFixed(1) + "%" : "미측정"),
+      element("td", Number.isFinite(p95) ? p95.toFixed(1) + " ms" : "미측정"));
+    table.append(row);
+    const dataset = model.dataset_id ? "사용자 검증 세트 · " + model.dataset_id : format?.evaluation_dataset;
     byId("model-evaluation").textContent = "평가 데이터셋 · " + (dataset || "미기록");
   }
 
@@ -108,8 +103,7 @@ function createModelManager({api, activate, reload, message}) {
     if (backend === "chrome") {
       add("ONNX SHA-256", model.formats?.chrome?.sha256);
     } else {
-      add("PT SHA-256", model.formats?.mps?.sha256 || model.formats?.cpu?.sha256);
-      add("Core ML SHA-256", model.formats?.coreml?.sha256);
+      add("PT SHA-256", model.formats?.cpu?.sha256);
     }
     if (model.kind === "custom") {
       const raw = element("details", "");
@@ -119,18 +113,6 @@ function createModelManager({api, activate, reload, message}) {
       const extra = element("dd", "");
       extra.append(raw);
       values.append(element("dt", "실행 기록"), extra);
-    }
-  }
-
-  function renderClassPerformance(model) {
-    const pt=model.formats?.mps?.metrics?.per_class||[],coreml=model.formats?.coreml?.metrics?.per_class||[];
-    const comparison=model.training?.retention||[],body=byId('model-class-metrics');body.replaceChildren();
-    byId('model-class-performance').hidden=!pt.length&&!coreml.length;
-    const percent=value=>Number.isFinite(value)?(value*100).toFixed(1)+'%':'—';
-    for(const cls of model.classes||[]){
-      const before=comparison.find(row=>row.class_id===cls.id),after=pt.find(row=>row.class_id===cls.id),converted=coreml.find(row=>row.class_id===cls.id);
-      const delta=before?.change_percentage_points,tr=element('tr','');
-      tr.append(element('th','#'+cls.id+' · '+cls.name),element('td',percent(before?.before_map50_95)),element('td',percent(after?.map50_95)),element('td',percent(converted?.map50_95)),element('td',Number.isFinite(delta)?(delta>0?'+':'')+delta.toFixed(1)+'%p':'—',delta<0?'registry-decline':''));body.append(tr);
     }
   }
 
@@ -174,7 +156,6 @@ function createModelManager({api, activate, reload, message}) {
     }
     renderClasses();
     renderFormats(model);
-    renderClassPerformance(model);
     renderMetadata(model);
     const apply = byId("use-version");
     apply.disabled = submitting || model.id === activeId || model.formats?.[backend]?.state !== "ready";

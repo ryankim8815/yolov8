@@ -41,20 +41,43 @@ def attach_benchmarks(formats):
 
 
 class ModelRegistry:
-    def __init__(self, store):
+    def __init__(self, store, chrome_only=False):
         self.store = store
+        self.chrome_only = chrome_only
+
+    def _view(self, model):
+        if not self.chrome_only:
+            return {**model, "formats": {k: v for k, v in model.get("formats", {}).items() if k in {"chrome", "cpu"}}}
+        fmt = model.get("formats", {}).get("chrome", {})
+        if Path(fmt.get("path") or "").suffix.lower() != ".onnx":
+            return None
+        if fmt.get("state") == "ready" and not fmt.get("sha256"):
+            fmt = {**fmt, "state": "unavailable"}
+        return {**model, "formats": {"chrome": fmt}}
 
     def models(self):
         with self.store.lock:
             names = {a["model_id"]: a["name"] for a in self.store.list("model_alias")}
-            records=self.store.list("model");deleted={m['id']:names.get(m['id'],m.get('name',m['id'])) for m in records if m.get('deleted_at')}
-            return [{**model, "name": names.get(model["id"], model.get("name", model["id"])),
-                     **({'deleted_parent_name':deleted[model['parent_model_id']]} if model.get('parent_model_id') in deleted else {})}
-                    for model in records if not model.get('deleted_at')]
+            records = self.store.list("model")
+            deleted = {m["id"]: names.get(m["id"], m.get("name", m["id"]))
+                       for m in records if m.get("deleted_at")}
+            result = []
+            for record in records:
+                model = self._view(record)
+                if model is None or model.get("deleted_at"):
+                    continue
+                model["name"] = names.get(model["id"], model.get("name", model["id"]))
+                if model.get("parent_model_id") in deleted:
+                    model["deleted_parent_name"] = deleted[model["parent_model_id"]]
+                result.append(model)
+            return result
 
     def get(self,identifier):
         model=self.store.get('model',identifier)
         if model.get('deleted_at'):raise DomainError('삭제된 모델입니다.',404)
+        model = self._view(model)
+        if model is None:
+            raise DomainError("Chrome에 등록된 ONNX 모델이 없습니다.", 404)
         return model
 
     def delete(self,identifier,expected_name):
@@ -64,7 +87,7 @@ class ModelRegistry:
             alias=self.store.db.execute('SELECT name FROM model_aliases WHERE model_id=(SELECT id FROM models WHERE public_id=?)',(identifier,)).fetchone()
             name=alias[0] if alias else model.get('name') or identifier
             if expected_name!=name:raise DomainError('모델 이름이 변경되었습니다. 목록을 새로 불러온 뒤 삭제할 모델을 다시 확인하세요.',412)
-            write('model',{**model,'deleted_at':now()})
+            write('model',{**self.store.get('model', identifier),'deleted_at':now()})
             self.store.db.execute('DELETE FROM active_models WHERE model_id=(SELECT id FROM models WHERE public_id=?)',(identifier,))
             Packing.log(write,'모델',f'{name} · 모델 삭제 · {identifier}')
         return {'id':identifier,'deleted':True}
@@ -103,7 +126,7 @@ class ModelRegistry:
             return None
         parent_id = job.get("initial_model_id") or BUILTIN
         parent = models.get(parent_id, {})
-        if parent.get("formats", {}).get("mps", {}).get("sha256") == digest:
+        if any(fmt.get("sha256") == digest for fmt in parent.get("formats", {}).values()):
             return parent_id
         return None
 

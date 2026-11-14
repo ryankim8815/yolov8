@@ -1,13 +1,13 @@
 "use strict";
 (() => {
   const el=id=>document.getElementById(id);
-  let tab="live", ownedCollection=null, ownedObserved=false, records={models:[],jobs:[]}, backend="mps", samples=[], eventSocket;
+  let tab="live", ownedCollection=null, ownedObserved=false, records={models:[],jobs:[]}, backend=null, samples=[], eventSocket;
   let refreshPending=false, dataKey="", pendingCollectionStart=null;
   let classPlanner=null;
   const targetSku = location.search && new URLSearchParams(location.search).get("sku");
   let productLoaded = false;
   const reasons={saving:"사진 저장 중",interval:"저장 간격 대기",stabilizing:"대상 확인 중 (3프레임)",no_detection:"탐지된 물체 없음",outside_center:"물체를 중앙에 놓아주세요",ambiguous:"중앙에 물체 하나만 놓아주세요",low_confidence:"낮은 confidence",invalid_box:"잘못된 좌표",stale:"오래된 결과 · 저장 대기",queue_full:"저장 큐 포화 · 요청 생략",heartbeat_expired:"연결 유지 신호 만료 · 저장 중지",disk_error:"디스크 오류 · 저장 중지",user_stopped:"사진 저장 중지",camera_off:"카메라 꺼짐",stopped:"사진 저장 중지",server_shutdown:"서버 종료"};
-  const stages={queued:"대기",preparing:"준비",training:"학습",evaluating:"평가",exporting:"Core ML 변환·비교",completed:"완료",completed_with_warnings:"PT 완료 · Core ML 확인 필요",failed:"실패",cancelled:"취소됨",cancelling:"취소 중",interrupted:"서버 재시작으로 중단"};
+  const stages={queued:"대기",preparing:"준비",training:"학습",evaluating:"평가",exporting:"모델 저장",completed:"완료",completed_with_warnings:"경고와 함께 완료",failed:"실패",cancelled:"취소됨",cancelling:"취소 중",interrupted:"중단됨"};
   const terminal=new Set(["completed","completed_with_warnings","failed","cancelled","interrupted"]);
   function message(text,error=false){el("action-message").hidden=false;el("action-message").textContent=text;el("action-message").classList.toggle("failure",error);}
   async function api(path, method = "GET", body) {
@@ -37,8 +37,8 @@
     }
     if (initiallyEmpty && activeModelId) el("live-model").value = activeModelId;
     const base = records.models.find(m => m.kind === "builtin");
-    options("initial-model", records.models.filter(m => m.kind === "custom" && m.formats[backend==="chrome"?"chrome":"mps"]?.state === "ready"),
-      registryLabel, base ? base.name + " · 기본 가중치" : "YOLOv8n 사전 학습 가중치");
+    options("initial-model", records.models.filter(m => m.kind === "custom" && m.formats.chrome?.state === "ready"),
+      registryLabel, (base?.name || "YOLOv8n") + " · 기본 ONNX");
     classPlanner?.sync();
   }
 
@@ -66,7 +66,7 @@
   classPlanner=createTrainingClasses({api,node,onChange:updateDatasetState,getContext:()=>{
     const model=records.models.find(m=>m.id===el('initial-model').value)||records.models.find(m=>m.kind==='builtin');
     const initial=model?.id||'coco-yolov8n',dataset_id=datasetPicker.selected?.id;
-    return {dataset_id,initial_model_id:initial,model_key:JSON.stringify([model?.classes,model?.formats?.[backend==="chrome"?"chrome":"mps"]?.sha256]),values:{dataset_id,initial_model_id:initial}};
+    return {dataset_id,initial_model_id:initial,model_key:JSON.stringify([model?.classes,model?.formats?.chrome?.sha256]),values:{dataset_id,initial_model_id:initial}};
   }});
   el('initial-model').addEventListener('change',()=>classPlanner.sync());
   classPlanner.sync();
@@ -261,11 +261,9 @@
       patience: Number(el("train-patience").value)
     });
     message("학습 시작: " + job.id);
-    if (backend==="chrome") {
-      const {runJob}=await import("/static/chrome/client.mjs");
-      await runJob(job.id);
-      message("Chrome 학습 및 검증 완료");
-    }
+    const {runJob} = await import("/static/chrome/client.mjs");
+    await runJob(job.id);
+    message("Chrome 학습 및 검증 완료");
     await refresh();
   });
   function renderJobs(){el("jobs-list").replaceChildren();for(const j of records.jobs.slice().reverse()){const card=node("article",undefined,"record");card.append(node("h3",`${stages[j.state]||j.state} · ${j.created_at.slice(0,19)}`),node("p",j.id,"hint"));const p=j.progress;if(p){const bar=node("progress");bar.max=p.epochs||1;bar.value=p.epoch||0;card.append(bar,node("p",`epoch ${p.epoch??"—"}/${p.epochs??j.epochs} · batch ${j.batch}`),node("pre",JSON.stringify({loss:p.losses??{train:p.train_loss,validation:p.val_loss},metrics:p.metrics??{validation_images:p.validation_images,detections:p.detections}},null,2)));}if(j.error||j.warning)card.append(node("p",j.error||j.warning,"error"));const actions=node("div",undefined,"controls"),log=node("button","로그 보기");log.onclick=()=>api(`/api/training/jobs/${j.id}/log`).then(v=>{el("job-log").hidden=false;el("job-log").textContent=Object.entries(v).map(([k,text])=>`${k}\n${text}`).join("\n");}).catch(e=>message(e.message,true));actions.append(log);if(!terminal.has(j.state)){const cancel=node("button","작업 취소","danger");cancel.onclick=()=>api(`/api/training/jobs/${j.id}/cancel`,"POST").then(refresh).catch(e=>message(e.message,true));actions.append(cancel);}card.append(actions);el("jobs-list").append(card);}}

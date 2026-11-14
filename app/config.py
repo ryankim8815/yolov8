@@ -36,13 +36,14 @@ class Settings:
 
     def __post_init__(self):
         if self.model_path is None:
-            name = {
-                "chrome": "app/chrome/yolov8n.onnx",
-                "coreml": "models/yolov8n.mlpackage",
-            }.get(self.backend, "models/yolov8n.pt")
+            name = "app/chrome/yolov8n.onnx" if self.backend == "chrome" else "models/yolov8n.pt"
             object.__setattr__(self, "model_path", ROOT / name)
-        if self.backend not in {"chrome", "mps", "cpu", "coreml"}:
-            raise ValueError("YOLO_BACKEND must be chrome, mps, coreml or cpu")
+        if self.backend not in {"chrome", "cpu"}:
+            raise ValueError("YOLO_BACKEND must be chrome or cpu")
+        if self.backend == "chrome" and Path(self.model_path).suffix.lower() != ".onnx":
+            raise ValueError("Chrome의 YOLO_MODEL_PATH에는 .onnx 모델을 지정하세요.")
+        if self.backend == "cpu" and Path(self.model_path).suffix.lower() != ".pt":
+            raise ValueError("CPU 진단용 YOLO_MODEL_PATH에는 .pt 체크포인트를 지정하세요.")
         if self.camera_index < 0 or self.warmup < 0:
             raise ValueError("Camera index and warmup must be non-negative")
         if self.width <= 0 or self.height <= 0 or self.imgsz <= 0 or self.imgsz % 32:

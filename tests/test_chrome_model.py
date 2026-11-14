@@ -1,6 +1,7 @@
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import numpy as np
 
@@ -56,6 +57,62 @@ class ChromeModelTests(unittest.TestCase):
                     self.assertFalse(pipeline.model_ready)
                 finally:
                     runtime.stop()
+
+    def test_chrome_registry_uses_only_onnx_with_existing_native_records(self):
+        from fastapi.testclient import TestClient
+        from app.config import Settings
+        from app.main import create_app
+        from app.model_registry import BUILTIN
+        from app.runtime import artifact_hash
+        from app.store import DomainError, Store
+
+        state = Path(self.directory.name)
+        pt = state / "legacy.pt"
+        pt.write_bytes(b"legacy model")
+        native = {"state": "ready", "path": str(pt), "sha256": artifact_hash(pt)}
+        store = Store(state)
+        try:
+            store.put("model", {"id": BUILTIN, "formats": {"mps": native}})
+            store.put("model", {"id": "wrong", "kind": "custom", "formats": {"chrome": native}})
+            store.put("setting", {"id": "selected-chrome", "model_id": "wrong"})
+        finally:
+            store.close()
+
+        def onnx_hash(path):
+            self.assertEqual(Path(path).suffix, ".onnx")
+            return artifact_hash(path)
+
+        settings = Settings(camera_autostart=False)
+        with patch("app.runtime.artifact_hash", side_effect=onnx_hash), \
+             patch("app.runtime.attach_benchmarks", side_effect=AssertionError("native benchmark")), \
+             TestClient(create_app(settings, state_root=state)) as client:
+            rt = client.app.state.pipeline
+            self.assertEqual(rt.model_id, BUILTIN)
+            fmt = rt.registry.get(BUILTIN)["formats"]["chrome"]
+            rt.store.put("model", {"id": "both", "name": "both", "kind": "custom",
+                                   "formats": {"mps": native, "chrome": fmt}})
+            view = client.get("/api/models").json()["models"]
+            self.assertEqual({m["id"] for m in view}, {BUILTIN, "both"})
+            self.assertTrue(all(set(m["formats"]) == {"chrome"} for m in view))
+            self.assertEqual(rt.training_parent("both")["formats"], {"chrome": fmt})
+            self.assertEqual(client.get("/api/chrome/models/wrong").status_code, 404)
+            self.assertEqual(client.post("/api/models/wrong/activate").status_code, 404)
+            with self.assertRaises(DomainError):
+                rt.training_parent("wrong")
+            rt.registry.rename("both", "renamed")
+            rt.delete_model("both", "renamed")
+            for identifier in (BUILTIN, "both"):
+                self.assertEqual(rt.store.get("model", identifier)["formats"]["mps"]["sha256"], native["sha256"])
+
+    def test_config_rejects_non_onnx_and_detector_cannot_run_chrome_on_server(self):
+        from app.config import Settings
+        from app.detector import Detector
+
+        for path in ("model.pt", "model.mlpackage"):
+            with self.subTest(path=path), self.assertRaisesRegex(ValueError, "onnx"):
+                Settings(backend="chrome", model_path=Path(path))
+        with self.assertRaisesRegex(RuntimeError, "ONNX Runtime Web"):
+            Detector(Settings(backend="chrome")).load()
 
     def test_template_preserves_retained_class_and_has_raw_detector_shape(self):
         config = prepare_template(self.job)

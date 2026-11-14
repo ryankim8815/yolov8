@@ -131,7 +131,7 @@
         <div id="class-plan-rows" class="class-table-scroll"></div>
         <label class="class-confirm"><input type="checkbox" id="class-plan-confirm" disabled>최종 인식 클래스와 학습·검증 자료 구성을 확인했습니다.</label>
       </section>
-      <div class="form-grid"><label>Batch<input id="train-batch" type="number" value="4" min="1" max="16"></label><label>최대 epochs<input id="train-epochs" type="number" value="50" min="1" max="300"></label><label>Patience<input id="train-patience" type="number" value="10" min="1" max="100"></label><button id="train-start" disabled aria-describedby="class-plan-status">새 버전 학습 시작</button></div>
+      <div class="form-grid"><label>Batch<input id="train-batch" type="number" value="4" min="1" max="16"></label><label>최대 epochs<input id="train-epochs" type="number" value="50" min="1" max="300"></label><label>Patience<input id="train-patience" type="number" value="10" min="1" max="100"></label><button id="train-start" disabled aria-describedby="class-plan-status">Chrome 탭에서 새 버전 학습</button></div>
       <p class="hint">학습 중에는 이 탭을 열어 두세요. 메모리 부족 시 batch를 줄여 새 작업으로 재시도하세요.</p>
       <div id="jobs-list" class="record-list"></div><pre id="job-log" hidden></pre>
     </section>
@@ -144,7 +144,6 @@
           <dl class="registry-facts"><div><dt>생성일 · KST</dt><dd id="model-date"></dd></div><div><dt>기반 모델 · 초기 가중치</dt><dd id="model-parent"></dd></div><div><dt>아키텍처</dt><dd id="model-architecture"></dd></div></dl>
           <section><div class="registry-row"><h4>인식 클래스 <small id="class-count"></small></h4><input id="class-search" type="search" aria-label="클래스 이름 또는 ID" placeholder="클래스 이름 또는 ID" hidden></div><div id="model-classes" class="registry-chips"></div></section>
           <section><h4>실행 형식과 성능</h4><div class="registry-scroll"><table><thead><tr><th>실행 형식</th><th>사용 상태</th><th>mAP50–95</th><th>추론 p95</th></tr></thead><tbody id="model-formats"></tbody></table></div><p class="hint" id="model-evaluation"></p></section>
-          <section id="model-class-performance" hidden><h4>클래스별 검증 성능</h4><p class="hint">기반 PT와 학습 PT는 새 모델의 동일한 검증 자료로 비교합니다. 수치는 해당 자료에서의 결과이며, 기존 클래스 유지 여부를 확인한 뒤 모델을 적용하세요.</p><div class="registry-scroll"><table><thead><tr><th>인식 클래스</th><th>기반 PT mAP</th><th>학습 PT mAP</th><th>Core ML mAP</th><th>PT 변화</th></tr></thead><tbody id="model-class-metrics"></tbody></table></div></section>
           <details id="model-history"><summary>학습 이력 및 파일 정보</summary><dl id="model-metadata"></dl></details>
           <div class="registry-row registry-actions"><span>모델 적용은 연결된 모든 화면에 반영됩니다.</span><button id="use-version"></button></div>
           <div class="registry-row registry-delete"><div><strong>모델 삭제</strong><p id="model-delete-reason" class="hint"></p></div><button type="button" class="danger" id="delete-model" aria-describedby="model-delete-reason">삭제</button></div>

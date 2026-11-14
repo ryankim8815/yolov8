@@ -1,6 +1,7 @@
 import threading
 import time
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 from app.buffers import LatestSlot
@@ -33,15 +34,16 @@ class BufferTests(unittest.TestCase):
 
 class ConfigTests(unittest.TestCase):
     def test_invalid_configuration(self):
-        for options in ({"backend": "cuda"}, {"imgsz": 641}, {"confidence": 2},
+        for options in ({"backend": "cuda"}, {"backend": "coreml"}, {"backend": "mps"}, {"imgsz": 641}, {"confidence": 2},
+                        {"backend": "cpu", "model_path": Path("model.mlpackage")},
                         {"preview_fps": float("nan")}, {"camera_index": -1}):
             with self.subTest(options=options), self.assertRaises(ValueError):
                 Settings(**options)
 
-    def test_coreml_environment_path(self):
-        with patch.dict("os.environ", {"YOLO_BACKEND": "coreml", "YOLO_IMGSZ": "512"}, clear=True):
+    def test_chrome_environment_path(self):
+        with patch.dict("os.environ", {"YOLO_BACKEND": "chrome", "YOLO_IMGSZ": "512"}, clear=True):
             config = Settings.from_env()
-        self.assertEqual(config.model_path.name, "yolov8n.mlpackage")
+        self.assertEqual(config.model_path.name, "yolov8n.onnx")
         self.assertEqual(config.imgsz, 512)
 
 

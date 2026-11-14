@@ -269,5 +269,151 @@
     "synthetic_camera_start_stop": true,
     "unsupported_gpu_error": true
   },
-  "note": "Timing excludes image decode, network, camera and rendering. Full per-inference samples and boxes are in artifacts/webgpu-poc. Agreement is not ground-truth accuracy."
+  "note": "Timing excludes image decode, network, camera and rendering. Full per-inference samples and boxes are in artifacts/webgpu-poc. Agreement is not ground-truth accuracy.",
+  "onnx_only_rerun": {
+    "date": "2026-11-14",
+    "device": "Apple M1 Pro",
+    "chrome": "157.0.8103.52",
+    "adapter": {
+      "vendor": "apple",
+      "architecture": "metal-3",
+      "device": "",
+      "description": "",
+      "isFallbackAdapter": false
+    },
+    "model_sha256": "0cd683ac65ca6afef0262e19d75e4b974bb8f2cab5a9b7b01c86d2489f0a8a55",
+    "source_sha256": "f59b3d833e2ff32e194b5bb8e08d211dc7c5bdf144b90d2c8412c47ccfc83b36",
+    "images": 128,
+    "settings": {
+      "imgsz": 640,
+      "confidence": 0.25,
+      "iou": 0.45,
+      "max_det": 100,
+      "batch": 1,
+      "rect": false
+    },
+    "iterations_per_round": 256,
+    "warmup_per_round": 30,
+    "repeats": 3,
+    "timings": {
+      "webgpu": {
+        "pooled": {
+          "mean": 25.953893228434026,
+          "p50": 25.405000030994415,
+          "p95": 29.10599997639656,
+          "fps": 38.52986491076571
+        },
+        "rounds": [
+          {
+            "mean": 25.236855470575392,
+            "p50": 24.774999976158142,
+            "p95": 27.794999927282333,
+            "fps": 39.62458798268025
+          },
+          {
+            "mean": 26.738417965825647,
+            "p50": 25.990000009536743,
+            "p95": 30.442500054836273,
+            "fps": 37.39937049671747
+          },
+          {
+            "mean": 25.88640624890104,
+            "p50": 25.757499992847443,
+            "p95": 27.872500002384186,
+            "fps": 38.63031393330054
+          }
+        ],
+        "load_ms": 426.6749999523163
+      },
+      "mps": {
+        "pooled": {
+          "mean": 34.62051190885416,
+          "p50": 30.785792,
+          "p95": 71.63185645,
+          "fps": 28.8846104480694
+        },
+        "rounds": [
+          {
+            "mean": 41.030567730468746,
+            "p50": 33.348042,
+            "p95": 87.94684375,
+            "fps": 24.372073195989767
+          },
+          {
+            "mean": 31.9669352421875,
+            "p50": 29.997563,
+            "p95": 43.733509999999995,
+            "fps": 31.282323201264443
+          },
+          {
+            "mean": 30.86403275390625,
+            "p50": 29.4825,
+            "p95": 39.068239750000004,
+            "fps": 32.40017297718286
+          }
+        ],
+        "load_ms": 1298.7502500182018
+      },
+      "coreml": {
+        "pooled": {
+          "mean": 7.393373747395834,
+          "p50": 7.310021,
+          "p95": 7.99219375,
+          "fps": 135.25624892860716
+        },
+        "rounds": [
+          {
+            "mean": 7.365962421875,
+            "p50": 7.273353999999999,
+            "p95": 7.9526245,
+            "fps": 135.75958479373435
+          },
+          {
+            "mean": 7.40202326171875,
+            "p50": 7.327229,
+            "p95": 7.99184375,
+            "fps": 135.09819743092783
+          },
+          {
+            "mean": 7.41213555859375,
+            "p50": 7.323354,
+            "p95": 7.98834375,
+            "fps": 134.9138844122439
+          }
+        ],
+        "load_ms": 3441.7383749969304
+      }
+    },
+    "agreement_with_mps": {
+      "webgpu": {
+        "iou_threshold": 0.9,
+        "matched": 596,
+        "unmatched_reference": 1,
+        "unmatched_candidate": 1,
+        "reference_recall": 0.998324958123953,
+        "candidate_precision": 0.998324958123953,
+        "mean_matched_iou": 0.9991265005242304,
+        "mean_abs_confidence_difference": 0.0007790053550829024,
+        "note": "Prediction agreement with MPS, not ground-truth accuracy or mAP."
+      },
+      "coreml": {
+        "iou_threshold": 0.9,
+        "matched": 589,
+        "unmatched_reference": 8,
+        "unmatched_candidate": 8,
+        "reference_recall": 0.9865996649916248,
+        "candidate_precision": 0.9865996649916248,
+        "mean_matched_iou": 0.9909142815714085,
+        "mean_abs_confidence_difference": 0.005723089738693626,
+        "note": "Prediction agreement with MPS, not ground-truth accuracy or mAP."
+      }
+    },
+    "validation": {
+      "page_errors": [],
+      "requests": 137,
+      "all_requests_local_get": true,
+      "synthetic_camera_start_stop": true,
+      "unsupported_gpu_error": true
+    }
+  }
 }

@@ -36,14 +36,17 @@ def extract(archive, destination):
 
 def main():
     parser = argparse.ArgumentParser(description="Download YOLOv8n and COCO128 into the project")
-    parser.add_argument("--model-only", action="store_true")
+    subset = parser.add_mutually_exclusive_group()
+    subset.add_argument("--model-only", action="store_true")
+    subset.add_argument("--dataset-only", action="store_true")
     args = parser.parse_args()
-    model = ROOT / "models/yolov8n.pt"
-    if not model.exists():
-        download(MODEL_URL, model)
-    update_manifest("pytorch", {"path": str(model.relative_to(ROOT)), "sha256": digest(model),
-                                "source": MODEL_URL, "environment": environment()})
-    print(f"Model ready: {model}")
+    if not args.dataset_only:
+        model = ROOT / "models/yolov8n.pt"
+        if not model.exists():
+            download(MODEL_URL, model)
+        update_manifest("pytorch", {"path": str(model.relative_to(ROOT)), "sha256": digest(model),
+                                    "source": MODEL_URL, "environment": environment()})
+        print(f"Model ready: {model}")
     if not args.model_only:
         data = ROOT / "data"
         labels = data / "coco128/labels/train2017"

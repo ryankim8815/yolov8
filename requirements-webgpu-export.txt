@@ -1,3 +1,0 @@
-# Install with --target .cache/webgpu/python; use the existing .conda/mps environment.
-onnx==1.17.0
-protobuf==5.29.5

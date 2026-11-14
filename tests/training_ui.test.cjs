@@ -33,7 +33,7 @@ function harness(gatePath, failStop=false, datasets=[], failOnce=null, initialHa
       listeners.hashchange();
     }
   };
-  const model = {id:'base',name:'base',classes:[],formats:{mps:{state:'ready'}}};
+  const model = {id:'base',name:'base',classes:[],formats:{chrome:{state:'ready'}}};
   async function fetch(url, options={}) {
     calls.push({url,method:options.method||'GET',body:options.body && JSON.parse(options.body)});
     if(url===failOnce){failOnce=null;return {ok:false,json:async()=>({detail:'test read error'})};}
@@ -52,7 +52,7 @@ function harness(gatePath, failStop=false, datasets=[], failOnce=null, initialHa
     if(url==='/api/datasets')data=options.method==='POST'?datasets.at(-1):datasets.map(({items,...summary})=>summary);
     if(url.startsWith('/api/datasets/'))data=datasets.find(d=>d.id===url.slice('/api/datasets/'.length));
     if(url==='/api/training/jobs')data=options.method==='POST'?{id:'test-job'}:[];
-    if(url==='/api/models')data={backend:'mps',models:[model]};
+    if(url==='/api/models')data={backend:'chrome',models:[model]};
     if(url.startsWith('/api/training/class-options?')){
       const d=datasets.find(d=>d.id===new URLSearchParams(url.split('?')[1]).get('dataset_id'));
       data={initial_model_id:'coco-yolov8n',base_classes:[],data_classes:d.classes.map(c=>({...c,available:d.items.filter(i=>i.class_uuid===c.uuid).length,groups:2})),source_datasets:[{id:d.id,counts:d.counts}]};

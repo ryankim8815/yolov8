@@ -12,6 +12,10 @@ const assert=require('node:assert/strict'),fs=require('node:fs');
    if(request.method()==='POST'&&url.pathname==='/api/training/jobs')jobs.push(request.postDataJSON());
    return route.continue();});
   const state=await(await page.request.get(base+'/__qa/state')).json();
+  // This fixture checks submission only. The WebGPU integration suite executes the trainer.
+  await page.route('**/static/chrome/client.mjs', route => route.fulfill({
+    contentType: 'text/javascript', body: 'export function runJob() { return new Promise(() => {}); }'
+  }));
   await page.goto(base+'/training#jobs');
   await page.locator('#initial-model option[value=parent]').waitFor({state:'attached'});
   assert.equal(await page.locator('#train-start').isDisabled(),true);

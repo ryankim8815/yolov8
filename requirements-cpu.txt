@@ -1,0 +1,6 @@
+-r requirements-chrome.txt
+torch==2.7.0
+torchvision==0.22.0
+ultralytics==8.4.202
+pycocotools==2.0.11
+pyrealsense2-macosx==2.56.5; sys_platform == "darwin" and platform_machine == "arm64" and platform_release >= "24"
