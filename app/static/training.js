@@ -37,7 +37,7 @@
     }
     if (initiallyEmpty && activeModelId) el("live-model").value = activeModelId;
     const base = records.models.find(m => m.kind === "builtin");
-    options("initial-model", records.models.filter(m => m.kind === "custom" && m.formats.mps?.state === "ready"),
+    options("initial-model", records.models.filter(m => m.kind === "custom" && m.formats[backend==="chrome"?"chrome":"mps"]?.state === "ready"),
       registryLabel, base ? base.name + " · 기본 가중치" : "YOLOv8n 사전 학습 가중치");
     classPlanner?.sync();
   }
@@ -66,7 +66,7 @@
   classPlanner=createTrainingClasses({api,node,onChange:updateDatasetState,getContext:()=>{
     const model=records.models.find(m=>m.id===el('initial-model').value)||records.models.find(m=>m.kind==='builtin');
     const initial=model?.id||'coco-yolov8n',dataset_id=datasetPicker.selected?.id;
-    return {dataset_id,initial_model_id:initial,model_key:JSON.stringify([model?.classes,model?.formats?.mps?.sha256]),values:{dataset_id,initial_model_id:initial}};
+    return {dataset_id,initial_model_id:initial,model_key:JSON.stringify([model?.classes,model?.formats?.[backend==="chrome"?"chrome":"mps"]?.sha256]),values:{dataset_id,initial_model_id:initial}};
   }});
   el('initial-model').addEventListener('change',()=>classPlanner.sync());
   classPlanner.sync();
@@ -261,9 +261,14 @@
       patience: Number(el("train-patience").value)
     });
     message("학습 시작: " + job.id);
+    if (backend==="chrome") {
+      const {runJob}=await import("/static/chrome/client.mjs");
+      await runJob(job.id);
+      message("Chrome 학습 및 검증 완료");
+    }
     await refresh();
   });
-  function renderJobs(){el("jobs-list").replaceChildren();for(const j of records.jobs.slice().reverse()){const card=node("article",undefined,"record");card.append(node("h3",`${stages[j.state]||j.state} · ${j.created_at.slice(0,19)}`),node("p",j.id,"hint"));const p=j.progress;if(p){const bar=node("progress");bar.max=p.epochs||1;bar.value=p.epoch||0;card.append(bar,node("p",`epoch ${p.epoch??"—"}/${p.epochs??j.epochs} · batch ${j.batch}`),node("pre",JSON.stringify({loss:p.losses,metrics:p.metrics},null,2)));}if(j.error||j.warning)card.append(node("p",j.error||j.warning,"error"));const actions=node("div",undefined,"controls"),log=node("button","로그 보기");log.onclick=()=>api(`/api/training/jobs/${j.id}/log`).then(v=>{el("job-log").hidden=false;el("job-log").textContent=Object.entries(v).map(([k,text])=>`${k}\n${text}`).join("\n");}).catch(e=>message(e.message,true));actions.append(log);if(!terminal.has(j.state)){const cancel=node("button","작업 취소","danger");cancel.onclick=()=>api(`/api/training/jobs/${j.id}/cancel`,"POST").then(refresh).catch(e=>message(e.message,true));actions.append(cancel);}card.append(actions);el("jobs-list").append(card);}}
+  function renderJobs(){el("jobs-list").replaceChildren();for(const j of records.jobs.slice().reverse()){const card=node("article",undefined,"record");card.append(node("h3",`${stages[j.state]||j.state} · ${j.created_at.slice(0,19)}`),node("p",j.id,"hint"));const p=j.progress;if(p){const bar=node("progress");bar.max=p.epochs||1;bar.value=p.epoch||0;card.append(bar,node("p",`epoch ${p.epoch??"—"}/${p.epochs??j.epochs} · batch ${j.batch}`),node("pre",JSON.stringify({loss:p.losses??{train:p.train_loss,validation:p.val_loss},metrics:p.metrics??{validation_images:p.validation_images,detections:p.detections}},null,2)));}if(j.error||j.warning)card.append(node("p",j.error||j.warning,"error"));const actions=node("div",undefined,"controls"),log=node("button","로그 보기");log.onclick=()=>api(`/api/training/jobs/${j.id}/log`).then(v=>{el("job-log").hidden=false;el("job-log").textContent=Object.entries(v).map(([k,text])=>`${k}\n${text}`).join("\n");}).catch(e=>message(e.message,true));actions.append(log);if(!terminal.has(j.state)){const cancel=node("button","작업 취소","danger");cancel.onclick=()=>api(`/api/training/jobs/${j.id}/cancel`,"POST").then(refresh).catch(e=>message(e.message,true));actions.append(cancel);}card.append(actions);el("jobs-list").append(card);}}
   function events() {
     eventSocket = new WebSocket(`${location.protocol==="https:"?"wss":"ws"}://${location.host}/ws/events`);
     eventSocket.onmessage = event => {

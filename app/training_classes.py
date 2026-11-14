@@ -121,7 +121,7 @@ def resolve_plan(store,parent,dataset_id,selection):
                    groups=sum(any(s["class_id"]==row["uuid"] for s in group) for group in groups))
         if row["groups"]<2:errors.append(f"{row['name']}: 독립 촬영 환경 자료가 부족합니다 ({row['available']}장 · {row['groups']}개 독립 그룹).")
         if assigned and (not row["train"] or not row["val"]):errors.append(f"{row['name']}: 학습·검증 자료가 모두 필요합니다.")
-    public=dict(initial_model_id=parent["id"],initial_sha256=parent["formats"]["mps"]["sha256"],
+    public=dict(initial_model_id=parent["id"],initial_sha256=parent["formats"][parent.get("training_format","mps")]["sha256"],
         input_dataset_id=dataset_id,source_datasets=[dict(id=d["id"],manifest_sha256=d["manifest_sha256"],yaml_sha256=d["yaml_sha256"]) for d in datasets],
         selection=selection,classes=rows,counts={split:sum(s==split for _,s in assigned) for split in ("train","val")},
         ready=not errors,errors=list(dict.fromkeys(errors)))

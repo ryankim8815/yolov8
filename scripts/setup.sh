@@ -2,8 +2,13 @@
 set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
-backend="${1:-mps}"
-case "$backend" in mps|coreml|train) ;; *) echo "Usage: bash scripts/setup.sh [mps|coreml|train]" >&2; exit 2;; esac
+backend="${1:-chrome}"
+if [[ "$backend" == chrome ]]; then
+  "${YOLO_PYTHON:-python3}" -m venv "$ROOT_DIR/.venv-chrome"
+  "$ROOT_DIR/.venv-chrome/bin/python" -m pip install -r "$ROOT_DIR/requirements-chrome.txt"
+  exec "$ROOT_DIR/.venv-chrome/bin/python" "$ROOT_DIR/scripts/prepare_chrome.py"
+fi
+case "$backend" in mps|coreml|train) ;; *) echo "Usage: bash scripts/setup.sh [chrome|mps|coreml|train]" >&2; exit 2;; esac
 manager="${YOLO_CONDA_EXE:-}"
 if [[ -z "$manager" ]]; then
   for candidate in mamba conda "$HOME/miniforge3/bin/mamba" "$HOME/miniforge3/bin/conda"; do

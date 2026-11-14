@@ -1,8 +1,32 @@
-# YOLOv8 실시간 객체 탐지 서버
+# YOLOv8 탐지·학습 서버
 
-MacBook 카메라를 캡처하고, 브라우저에 탐지 영상과 객체 목록을 제공합니다. macOS 네이티브 **MPS / Core ML**을 지원하며 기본값은 YOLOv8n + MPS입니다. 환경은 **conda/mamba**로 관리합니다.
+기본 실행 방식은 Chrome WebGPU입니다. 대시보드에서 카메라 프레임을 ONNX Runtime Web으로 추론하고, 학습 화면에서는 TensorFlow.js WebGPU가 역전파와 가중치 갱신을 수행합니다. 서버는 카메라·RealSense, 사진과 라벨, 학습 작업 상태 및 모델 파일을 관리합니다.
 
-Docker Compose가 두산 E0509 로봇 UI와 ROS 2 서비스를 실행합니다. 카메라 기능을 함께 사용할 때는 Mac의 MPS/Core ML 추론 서버가 영상을 처리하고 Docker 게이트웨이가 HTTP·MJPEG·WebSocket을 중계합니다.
+## Chrome으로 실행
+
+Python 3.11과 WebGPU를 지원하는 데스크톱 Chrome을 사용하세요. 프로젝트 루트에서 다음 명령을 실행합니다.
+
+```bash
+YOLO_PYTHON=python3.11 bash scripts/setup.sh chrome
+bash scripts/start.sh
+```
+
+Chrome에서 [대시보드](http://localhost:8000)를 엽니다. 설치 시 브라우저 라이브러리를 내려받아 해시를 확인하며, 실행 중에는 같은 서버에서 라이브러리와 기본 YOLOv8n ONNX를 제공합니다. Chrome 실행 환경은 PyTorch, Core ML, Ultralytics, conda 설치가 필요하지 않습니다. Docker 게이트웨이·로봇과 함께 사용할 때는 `bash scripts/stack.sh up chrome`을 사용합니다. 다른 컴퓨터에서 접속하려면 HTTPS와 WebSocket 프록시를 구성하세요.
+
+카메라는 서버에 연결합니다. 활성 Chrome 탭 하나가 추론을 담당하며, 해당 탭을 닫거나 숨기면 다른 열린 탭이 연결할 수 있습니다. 수집·깊이·피킹에 쓰는 프레임 ID와 세대는 서버가 검증합니다. RealSense 드라이버와 로봇 연결 요구 사항은 장비에 따라 적용됩니다.
+
+[학습 화면](http://localhost:8000/training#jobs)에서 승인된 데이터셋, 유지·추가할 클래스, batch, epochs와 patience를 선택하고 **새 버전 학습 시작**을 누르세요. 탭을 열어 둬야 합니다. Chrome은 선택한 학습 분할 전체로 학습하며 검증 손실이 가장 낮은 epoch의 ONNX를 다시 로드해 검증 이미지에 추론합니다. 완료된 버전을 **모델 버전 → Chrome WebGPU에 적용**으로 선택합니다. 브라우저에서 만든 모델로 후속 학습도 가능합니다. 기존 등록 PT 모델은 내보내기 환경에서 한 번 `PYTHONPATH=.cache/webgpu/python .conda/mps/bin/python -m scripts.migrate_chrome_models`로 변환하면 기존 클래스·상품 연결을 유지한 채 Chrome에서 선택할 수 있습니다. 이 명령은 기존 Ultralytics 환경과 ONNX 내보내기 의존성을 사용합니다. 변환 이후의 학습·추론은 Chrome에서 실행합니다.
+
+Chrome 학습기는 융합된 YOLOv8n convolution 가중치 전체를 갱신합니다. Adam, 분류 BCE, IoU 및 DFL 손실과 gradient accumulation을 사용하며, Ultralytics 학습기의 augmentation·optimizer·CIoU 구현과는 차이가 있습니다. 장기 학습의 정확도와 수렴은 별도 평가가 필요합니다. 기본 학습률은 `0.0001`입니다. 입력 크기는 ONNX에 저장된 값을 사용합니다.
+
+실제 Chrome 통합 검증은 COCO128을 준비한 뒤 별도 터미널 두 개에서 실행합니다. Playwright와 데스크톱 Chrome이 필요합니다. 임시 상태와 재생 카메라로 새 클래스 학습, ONNX 등록, 화면에서 모델 전환, 후속 학습 및 탭 종료를 확인합니다.
+
+```bash
+YOLO_ROBOT_WEB_OWNER=compose bash scripts/python.sh chrome -m uvicorn tests.chrome_yolo_qa:create_qa_app --factory --host 127.0.0.1 --port 18280
+node scripts/check_chrome_yolo_ui.cjs
+```
+
+`CHROME_QA_RETAIN=1`로 테스트를 실행하면 기존 zebra 클래스를 유지한 전이 학습도 검증합니다. `CHROME_QA_EPOCHS=10`은 첫 학습을 10 epoch로 늘립니다. 각 실행은 새 QA 서버에서 시작합니다. 아래 MPS·Core ML 절은 명시적으로 해당 백엔드를 선택할 때의 설치 및 실행 방법입니다.
 
 ## 1. conda/mamba 환경 생성
 
@@ -41,7 +65,7 @@ bash scripts/python.sh coreml -m scripts.export_coreml
 Docker와 함께 사용한다면 다음 절의 **통합 실행**을 권장합니다. 이 절은 Mac 추론 서버만 단독 실행하는 방법입니다.
 
 ```bash
-# 기본 MPS
+# 명시적으로 MPS 사용
 bash scripts/start.sh mps
 
 # 위 서버를 Ctrl+C로 종료한 뒤 Core ML로 실행

@@ -3,6 +3,7 @@ import json
 import logging
 import os
 import subprocess
+import sys
 from pathlib import Path
 
 
@@ -11,7 +12,13 @@ class CameraPermissionError(RuntimeError):
 
 
 def camera_devices():
-    """Enumerate the Mac server's cameras without interrupting inference."""
+    """Enumerate the server's cameras without interrupting inference."""
+    if sys.platform.startswith("linux"):
+        return [
+            {"id": str(path), "name": path.name, "index": int(path.name[5:])}
+            for path in sorted(Path("/dev").glob("video[0-9]*"))
+            if path.name[5:].isdigit()
+        ]
     try:
         result = subprocess.run(
             ["/usr/bin/osascript", "-l", "JavaScript", str(Path(__file__).with_name("camera-devices.js"))],
@@ -73,7 +80,7 @@ class OpenCVCamera:
         self._cv2 = cv2
         # Resolve again on reconnect: plugging in another device can shift indices.
         self.index = camera_device(settings.camera_id)["index"] if settings.camera_id else settings.camera_index
-        self._camera = cv2.VideoCapture(self.index, cv2.CAP_AVFOUNDATION)
+        self._camera = cv2.VideoCapture(self.index, cv2.CAP_AVFOUNDATION if sys.platform == "darwin" else cv2.CAP_ANY)
         if not self._camera.isOpened():
             self._camera.release()
             raise RuntimeError("카메라를 열 수 없습니다. 인덱스와 macOS 카메라 권한을 확인하세요.")

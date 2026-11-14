@@ -66,11 +66,15 @@ class Runtime:
             path = ROOT / "models" / ("yolov8n.mlpackage" if backend == "coreml" else "yolov8n.pt")
             if path.exists():
                 formats[backend] = {"state": "ready", "path": str(path), "sha256": artifact_hash(path)}
+        from .chrome_model import BUILTIN_ONNX
+        formats["chrome"] = dict(state="ready",path=str(BUILTIN_ONNX),sha256=artifact_hash(BUILTIN_ONNX))
         attach_benchmarks(formats)
         self.store.put("model", {"id": BUILTIN, "name": "COCO80 · YOLOv8n", "classes": coco_classes(),
                                  "kind": "builtin", "formats": formats, "created_at": "builtin"})
         current = self.settings.model_path.resolve()
         default = ROOT / "models" / ("yolov8n.mlpackage" if self.settings.backend == "coreml" else "yolov8n.pt")
+        if self.settings.backend == "chrome":
+            default = BUILTIN_ONNX
         self.model_id = BUILTIN
         if current != default.resolve():
             self.model_id = "configured-" + __import__("hashlib").sha256(str(current).encode()).hexdigest()[:12]
@@ -81,8 +85,15 @@ class Runtime:
                 previous = {}
             # Paths can be reused for different weights. Cache labels by content.
             same = digest and previous.get("formats", {}).get(self.settings.backend, {}).get("sha256") == digest
+            classes = previous.get("classes", []) if same else []
+            if digest and self.settings.backend == "chrome":
+                from .chrome_model import model_metadata
+                try:
+                    classes = model_metadata(current)["classes"]
+                except Exception as exc:
+                    self.error = f"Chrome 모델 메타데이터 로드 실패: {exc}"
             self.store.put("model", {"id": self.model_id, "name": current.name, "kind": "configured",
-                                     "classes": previous.get("classes", []) if same else [],
+                                     "classes": classes,
                                      "formats": {self.settings.backend: {"state": "ready" if digest else "unavailable",
                                                  "path": str(current), "sha256": digest}},
                                      "created_at": previous.get("created_at") or now()})
@@ -101,8 +112,18 @@ class Runtime:
                 pass
 
     def _new_pipeline(self, settings, model_id, camera=True):
+        model_error = None
+        if settings.backend == "chrome":
+            from .chrome_model import model_metadata
+            try:
+                settings = replace(settings, imgsz=model_metadata(settings.model_path)["size"])
+            except Exception as exc:
+                model_error = f"Chrome 모델 로드 실패: {exc}"
         pipeline = self.factory(settings)
         pipeline.model_version = model_id
+        if settings.backend == "chrome":
+            pipeline.chrome_classes = self.registry.get(model_id)["classes"]
+            pipeline.fatal_error = model_error
         pipeline.capture_enabled = camera
         pipeline.result_callback = self.collector.submit
         if model_id.startswith("configured-"):
@@ -375,9 +396,11 @@ class Runtime:
 
     def training_parent(self, identifier):
         parent = self.registry.get(identifier or BUILTIN)
-        fmt = parent.get("formats", {}).get("mps", {})
+        backend = "chrome" if self.settings.backend == "chrome" else "mps"
+        fmt = parent.get("formats", {}).get(backend, {})
+        parent = {**parent, "training_format": backend}
         if parent.get("kind") not in {"builtin", "custom"} or fmt.get("state") != "ready" or not fmt.get("sha256") or not Path(fmt.get("path", "")).is_file():
-            raise DomainError("클래스와 해시가 등록된 기본·사용자 PT 모델을 선택하세요.", 422)
+            raise DomainError("클래스와 해시가 등록된 학습 가능한 기본·사용자 모델을 선택하세요.", 422)
         return parent
 
     def training_class_options(self, dataset_id, initial_model_id=None):
@@ -408,6 +431,15 @@ class Runtime:
                 verify_dataset(dataset)
             except (OSError, ValueError) as exc:
                 raise DomainError(f"데이터셋 스냅샷 검증 실패: {exc}", 422) from exc
+            if self.settings.backend == "chrome":
+                parent = self.training_parent(values.get("initial_model_id"))
+                fmt = parent["formats"]["chrome"]
+                if artifact_hash(fmt["path"]) != fmt["sha256"]:
+                    raise DomainError("기반 ONNX 해시가 변경되었습니다.",422)
+                if resolved:
+                    dataset = freeze_plan(self.store, resolved)
+                    values.update(dataset_id=dataset["id"],class_plan={**resolved[0],"output_dataset_id":dataset["id"]})
+                return self._create_chrome_job(values, dataset, fmt)
             initial = ROOT/"models/yolov8n.pt"
             if values.get("initial_model_id"):
                 parent = self.registry.get(values["initial_model_id"])
@@ -438,6 +470,35 @@ class Runtime:
             self.cancel_event.clear()
             self._spawn(self._job, job, python)
             return job
+
+    def _create_chrome_job(self, values, dataset, fmt):
+        from .chrome_model import prepare_template
+        identifier = uid("job")
+        directory = self.store.root/"jobs"/identifier
+        directory.mkdir(parents=True)
+        job = dict(**values, id=identifier, state="queued", created_at=now(), directory=str(directory),
+                   initial_weights=fmt["path"], initial_sha256=fmt["sha256"], model_id=uid("custom"),
+                   dataset=dataset)
+        config = prepare_template(job)
+        atomic_json(directory/"template.json", config)
+        atomic_json(directory/"request.json", job)
+        self.collector.stop("training")
+        self.store.put("job", job)
+        self.active_job, self.busy = identifier, "training"
+        def expire_unclaimed():
+            if self.stop_event.wait(30):
+                return
+            with self.lock:
+                if self.active_job == identifier and self.store.get("job",identifier)["state"]=="queued":
+                    self.finish_chrome_job(identifier,"interrupted","Chrome 학습 탭에 연결하지 못했습니다.")
+        self._spawn(expire_unclaimed)
+        return job
+
+    def finish_chrome_job(self, identifier, state, error=None):
+        with self.lock:
+            if self.active_job == identifier:
+                self.store.update("job", identifier, state=state, error=error, ended_at=now())
+                self.active_job = self.busy = None
 
     def _run_child(self, python, job, mode):
         directory = Path(job["directory"])
@@ -555,6 +616,9 @@ class Runtime:
                 return job
             if identifier != self.active_job:
                 raise DomainError("실행 중인 작업이 아닙니다")
+            if self.settings.backend == "chrome":
+                self.finish_chrome_job(identifier,"cancelled")
+                return self.store.get("job",identifier)
             self.cancel_event.set()
             return self.store.update("job", identifier, state="cancelling")
 

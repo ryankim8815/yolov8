@@ -17,7 +17,7 @@ function createModelManager({api, activate, reload, message}) {
     timeZone: "Asia/Seoul", year: "numeric", month: "2-digit", day: "2-digit",
     hour: "2-digit", minute: "2-digit", hourCycle: "h23"
   });
-  const backends = {mps: "MPS", coreml: "Core ML", cpu: "CPU"};
+  const backends = {chrome: "Chrome WebGPU", mps: "MPS", coreml: "Core ML", cpu: "CPU"};
   const kinds = {custom: "사용자 모델", builtin: "기본 모델", configured: "외부 모델"};
   let models = [], selectedId, activeId, backend, editId, editName, mode, submitting = false, dialogBlock = "";
   const find = id => models.find(model => model.id === id);
@@ -63,7 +63,7 @@ function createModelManager({api, activate, reload, message}) {
   function renderFormats(model) {
     const table = byId("model-formats");
     table.replaceChildren();
-    const keys = backend === "cpu" ? ["mps", "coreml", "cpu"] : ["mps", "coreml"];
+    const keys = backend === "chrome" ? ["chrome"] : backend === "cpu" ? ["mps", "coreml", "cpu"] : ["mps", "coreml"];
     for (const key of keys) {
       const format = model.formats?.[key];
       // User PT files can run on CPU, but their stored benchmark was measured on MPS.
@@ -75,7 +75,7 @@ function createModelManager({api, activate, reload, message}) {
       const stateText = state === "ready" ? "사용 가능" : format?.error ? "검증 실패" : state ? "사용 불가" : "형식 없음";
       const stateCell = element("td", stateText, state === "ready" ? "usable" : "");
       if (format?.error) stateCell.append(element("small", format.error, "registry-error"));
-      row.append(element("th", backends[key] + (key === "coreml" ? " · ML Package" : " · PT")), stateCell,
+      row.append(element("th", backends[key] + (key === "chrome" ? " · ONNX" : key === "coreml" ? " · ML Package" : " · PT")), stateCell,
         element("td", Number.isFinite(map) ? (100 * map).toFixed(1) + "%" : "미측정"),
         element("td", Number.isFinite(p95) ? p95.toFixed(1) + " ms" : "미측정"));
       table.append(row);
@@ -105,8 +105,12 @@ function createModelManager({api, activate, reload, message}) {
       const plan=model.training?.class_plan;
       if(plan)add("최종 클래스 구성",`기반 ${plan.selection.retained.length}개 유지 · 새 클래스 ${plan.selection.new_class_uuids.length}개 · 자료 ${plan.source_datasets.length}개 재사용`);
     }
-    add("PT SHA-256", model.formats?.mps?.sha256 || model.formats?.cpu?.sha256);
-    add("Core ML SHA-256", model.formats?.coreml?.sha256);
+    if (backend === "chrome") {
+      add("ONNX SHA-256", model.formats?.chrome?.sha256);
+    } else {
+      add("PT SHA-256", model.formats?.mps?.sha256 || model.formats?.cpu?.sha256);
+      add("Core ML SHA-256", model.formats?.coreml?.sha256);
+    }
     if (model.kind === "custom") {
       const raw = element("details", "");
       raw.append(element("summary", "평가·변환·환경 상세"), element("pre", JSON.stringify({

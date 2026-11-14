@@ -21,6 +21,7 @@ def is_project_server(command, cwd):
         return False
     interpreters = {(ROOT / ".conda" / backend / "bin/python").resolve()
                     for backend in ("mps", "coreml")}
+    interpreters.add((ROOT / ".venv-chrome/bin/python").resolve())
     return Path(command[0]).resolve() in interpreters
 
 
@@ -205,7 +206,7 @@ def run_stack(backend):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("action", choices=("up", "down", "stop-native"))
-    parser.add_argument("--backend", choices=("mps", "coreml", "cpu"), default="mps")
+    parser.add_argument("--backend", choices=("chrome", "mps", "coreml", "cpu"), default="chrome")
     args = parser.parse_args()
     try:
         if args.action == "up":

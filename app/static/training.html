@@ -132,7 +132,7 @@
         <label class="class-confirm"><input type="checkbox" id="class-plan-confirm" disabled>최종 인식 클래스와 학습·검증 자료 구성을 확인했습니다.</label>
       </section>
       <div class="form-grid"><label>Batch<input id="train-batch" type="number" value="4" min="1" max="16"></label><label>최대 epochs<input id="train-epochs" type="number" value="50" min="1" max="300"></label><label>Patience<input id="train-patience" type="number" value="10" min="1" max="100"></label><button id="train-start" disabled aria-describedby="class-plan-status">새 버전 학습 시작</button></div>
-      <p class="hint">MPS · 640 × 640 · workers 0 · RAM cache 끔. 메모리 부족 시 batch를 줄여 새 작업으로 재시도하세요.</p>
+      <p class="hint">학습 중에는 이 탭을 열어 두세요. 메모리 부족 시 batch를 줄여 새 작업으로 재시도하세요.</p>
       <div id="jobs-list" class="record-list"></div><pre id="job-log" hidden></pre>
     </section>
     <section id="models-page" hidden aria-labelledby="registry-heading">
@@ -159,5 +159,7 @@
     <details class="settings"><summary>실행 설정</summary><p id="settings-values">설정을 불러오는 중입니다.</p><small>현재 실행값입니다. 설정 변경은 서버 재시작 후 적용됩니다.</small></details>
     <div class="bottom"><span>최신 프레임 우선 처리 · 단일 카메라</span><a href="/docs" target="_blank" rel="noopener">API 문서 ↗</a></div>
   </main>
+<p id="chrome-worker-status" role="status" hidden></p>
+<script type="module" src="/static/chrome/client.mjs"></script>
 </body>
 </html>

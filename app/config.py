@@ -12,8 +12,8 @@ os.environ.setdefault("YOLO_AUTOINSTALL", "false")
 
 @dataclass(frozen=True)
 class Settings:
-    backend: str = "mps"
-    model_path: Path = ROOT / "models/yolov8n.pt"
+    backend: str = "chrome"
+    model_path: Path | None = None
     camera_index: int = 0
     camera_id: str | None = None
     width: int = 1280
@@ -35,8 +35,14 @@ class Settings:
     voice_barge_in: bool = False
 
     def __post_init__(self):
-        if self.backend not in {"mps", "cpu", "coreml"}:
-            raise ValueError("YOLO_BACKEND must be mps, coreml or cpu")
+        if self.model_path is None:
+            name = {
+                "chrome": "app/chrome/yolov8n.onnx",
+                "coreml": "models/yolov8n.mlpackage",
+            }.get(self.backend, "models/yolov8n.pt")
+            object.__setattr__(self, "model_path", ROOT / name)
+        if self.backend not in {"chrome", "mps", "cpu", "coreml"}:
+            raise ValueError("YOLO_BACKEND must be chrome, mps, coreml or cpu")
         if self.camera_index < 0 or self.warmup < 0:
             raise ValueError("Camera index and warmup must be non-negative")
         if self.width <= 0 or self.height <= 0 or self.imgsz <= 0 or self.imgsz % 32:
@@ -51,7 +57,7 @@ class Settings:
 
     @classmethod
     def from_env(cls):
-        backend = os.getenv("YOLO_BACKEND", "mps")
+        backend = os.getenv("YOLO_BACKEND", "chrome")
         autostart = os.getenv("YOLO_CAMERA_AUTOSTART", "1")
         if autostart not in {"0", "1"}:
             raise ValueError("YOLO_CAMERA_AUTOSTART must be 0 or 1")
@@ -61,7 +67,7 @@ class Settings:
         barge_in = os.getenv("YOLO_VOICE_BARGE_IN", "0")
         if barge_in not in {"0", "1"}:
             raise ValueError("YOLO_VOICE_BARGE_IN must be 0 or 1")
-        default_model = "yolov8n.mlpackage" if backend == "coreml" else "yolov8n.pt"
+        default_model = cls(backend=backend).model_path
         values = {
             "backend": backend,
             "voice_enabled": voice == "1",
@@ -69,7 +75,7 @@ class Settings:
             "camera_autostart": autostart == "1",
             "state_dir": Path(os.getenv("YOLO_STATE_DIR", str(ROOT / "state"))).expanduser().resolve(),
             "model_path_explicit": "YOLO_MODEL_PATH" in os.environ,
-            "model_path": Path(os.getenv("YOLO_MODEL_PATH", str(ROOT / "models" / default_model))).expanduser().resolve(),
+            "model_path": Path(os.getenv("YOLO_MODEL_PATH", str(default_model))).expanduser().resolve(),
         }
         fields = {
             "camera_index": ("CAMERA_INDEX", int), "width": ("WIDTH", int),

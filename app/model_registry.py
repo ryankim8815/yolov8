@@ -1,9 +1,8 @@
 """Display metadata and immutable version lineage for locally registered weights."""
 import json
-from importlib.metadata import distribution
+
 from pathlib import Path
 
-import yaml
 
 from .config import ROOT
 from .packing import Packing
@@ -13,9 +12,8 @@ BUILTIN = "coco-yolov8n"
 
 
 def coco_classes():
-    # Read the same COCO mapping shipped with the pinned Ultralytics installation.
-    path = distribution("ultralytics").locate_file("ultralytics/cfg/datasets/coco.yaml")
-    names = yaml.safe_load(path.read_text())["names"]
+    # The bundled ONNX uses this COCO class order.
+    names = {int(i): name for i,name in json.loads((ROOT / "app/chrome/coco.json").read_text()).items()}
     return [{"id": index, "name": name} for index, name in sorted(names.items())]
 
 

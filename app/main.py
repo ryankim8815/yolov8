@@ -9,7 +9,7 @@ from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.requests import ClientDisconnect
 
-from .config import Settings
+from .config import ROOT, Settings
 from .camera_views import DisplayMode
 from .camera_monitor import router as camera_monitor_router
 from .camera_marker_api import router as camera_marker_router
@@ -91,6 +91,15 @@ def create_app(settings=None, pipeline_factory=Pipeline, state_root=None):
 
     application = FastAPI(title="YOLOv8 Local Camera", version="0.1.0", lifespan=lifespan)
     install_online_speech_policy(application)
+    from .chrome_api import router as chrome_router
+    from .chrome_model import ASSETS
+    application.include_router(chrome_router)
+    application.mount("/chrome/vendor", StaticFiles(directory=ASSETS, check_dir=False), name="chrome-vendor")
+
+    @application.get("/chrome/yolo.mjs")
+    def chrome_yolo():
+        return FileResponse(ROOT / "webgpu/yolo.mjs", media_type="text/javascript")
+
     application.include_router(router())
     application.include_router(packing_router)
     application.include_router(kiosk_router)
