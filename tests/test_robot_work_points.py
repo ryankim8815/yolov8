@@ -94,7 +94,7 @@ class WorkPointTests(unittest.TestCase):
                 patch("app.robot_gripper.request_host") as hand:
             initial = self.client.get(url)
             self.assertEqual(initial.headers["Cache-Control"], "no-store")
-            self.assertEqual(initial.json(), dict(size_mm=[400,300,250], center_base_mm=[500,0,0], revision=None, updated_at=None))
+            self.assertEqual(initial.json(), dict(size_mm=[400,300,250], center_base_mm=[500,0,0], tcp_pose=None, clearance_mm=100, revision=None, updated_at=None))
             self.assertFalse(self.robot.parcel_box.path.exists())
             body = dict(size_mm=[400,300,250], center_base_mm=[500,0,-120], revision=None)
             response = self.client.put(url, json=body)

@@ -1,4 +1,4 @@
-"""Consume final transcripts from the Mac audio owner; browser text tests cannot approve hardware."""
+"""Consume final transcripts from the Chrome audio owner; browser text tests cannot approve hardware."""
 import asyncio
 import copy
 import json
@@ -20,17 +20,18 @@ from .store import DomainError
 from .voice_commands import normalized
 
 
-def native_voice(action, after=0, *, session_id=None):
+def native_voice(action, after=0, *, session_id=None, client_id=None):
     host="host.docker.internal" if os.getenv("ROBOT_BRIDGE_NETWORK")=="compose" else "127.0.0.1"
     conn=HTTPConnection(host,8000,timeout=3)
     try:
         headers={"Content-Type":"application/json"}
         if session_id:headers["X-Voice-Session"]=session_id
+        if client_id:headers["X-Voice-Client"]=client_id
         conn.request("GET" if action=="events" else "POST",f"/api/voice/robot/{action}"+(f"?after={after}" if action=="events" else ""),headers=headers)
         response=conn.getresponse();body=json.loads(response.read(262144))
         if response.status!=200:raise DomainError(body.get("detail") or "음성 서비스를 확인하세요.",response.status)
         return body
-    except (OSError,ValueError) as exc:raise DomainError("Mac 음성 서비스에 연결할 수 없습니다. YOLO_VOICE_ENABLED=1로 Mac 서버를 시작하고 한국어 모델을 확인하세요.",503) from exc
+    except (OSError,ValueError) as exc:raise DomainError("음성 세션 서버에 연결할 수 없습니다. YOLO_VOICE_ENABLED=1로 서버를 시작하고 Chrome에서 음성 대기를 시작하세요.",503) from exc
     finally:conn.close()
 
 
@@ -92,13 +93,16 @@ class PresetVoice:
                     pending=public,selection=selection,class_request=gate,needs_preparation=self.needs_preparation,simulation=self.simulation,move=move,stop_serial=self.stop_serial,
                     busy=self.engine.robot.picks.busy or self.engine.robot.hand.busy or self.engine.robot.pose_tests.snapshot()["busy"])
 
-    async def start(self,target):
+    async def start(self,target,*,client_id=None):
         async with self.lifecycle_lock:
             if self.session:
                 if target!=self.target:raise DomainError("음성 대기를 종료한 뒤 실행 대상을 변경하세요.")
+                if client_id:
+                    current=await asyncio.to_thread(native_voice,"start",client_id=client_id)
+                    if current["session_id"]!=self.session:raise DomainError("음성 세션이 변경되었습니다.",409)
                 return self.status()
             await self.release_native()
-            self.invalidate();generation=self.generation;native=await asyncio.to_thread(native_voice,"start")
+            self.invalidate();generation=self.generation;native=await asyncio.to_thread(native_voice,"start",**({"client_id":client_id} if client_id else {}))
             if generation!=self.generation:
                 self.release_session=native["session_id"];await self.release_native()
                 raise DomainError("음성 대기 시작이 취소되었습니다.")
@@ -136,17 +140,17 @@ class PresetVoice:
                  classes=copy.deepcopy(catalog["classes"]),after=max(sequence,self.cursor,head["cursor"]),phase="class")
         self.catalog_checked=time.monotonic();self.message="목록에 있는 클래스 이름 한 개를 말씀하세요. 이번 실행에만 사용합니다."
 
-    async def request_class(self,identifier,revision,target,step_id=None):
+    async def request_class(self,identifier,revision,target,step_id=None,*,client_id=None):
         self.engine.legacy.require_idle()
         p=self.engine.library.get(identifier)
         if revision!=p["revision"]:raise DomainError("프리셋이 변경되었습니다. 최신 설정을 불러오세요.",412)
         self.engine.detections.criteria(p)
-        await self.start(target)
+        await self.start(target,client_id=client_id)
         try:await self.begin_class(p,step_id)
         except DomainError as exc:self.invalidate(str(exc));raise
         return self.status()
 
-    async def request_preset(self,identifier,revision,target):
+    async def request_preset(self,identifier,revision,target,*,client_id=None):
         """Explicit selection can prepare a saved preset without adding an alias."""
         self.engine.legacy.require_idle();preset=self.engine.library.get(identifier)
         if revision!=preset['revision']:raise DomainError('프리셋이 변경되었습니다. 최신 경로를 불러오세요.',412)
@@ -155,11 +159,11 @@ class PresetVoice:
             missing=[(s['name'] or s['kind'])+'의 목표 좌표를 입력하세요.' for s in preset['steps'][start:end]
                      if s['kind'] in {'movej','movel','movec'} and s['source']=='explicit' and s['target'] is None]
             if missing:raise DomainError(' '.join(missing))
-            return await self.request_class(identifier,revision,target)
+            return await self.request_class(identifier,revision,target,client_id=client_id)
         recipe=self.engine.compile(preset,simulation=target=='simulation',defaults=target=='simulation',
                                   simulation_object=target=='simulation' and bool(preset['simulation_objects'][preset['region']]))
         if recipe['errors']:raise DomainError(' '.join(recipe['errors']))
-        await self.start(target);self.invalidate('선택한 프리셋의 경로를 확인하고 있습니다.')
+        await self.start(target,client_id=client_id);self.invalidate('선택한 프리셋의 경로를 확인하고 있습니다.')
         await self.make_pending(preset,recipe,self.generation,self.session,self.engine.legacy.versions(),self.engine.robot.floor.value['revision'])
         return self.status()
 
@@ -446,7 +450,7 @@ async def history(request:Request,after:int=Query(default=0,ge=0)):
     return voice(request).history.snapshot(after)
 
 @router.post("/start",dependencies=[Depends(local_json)])
-async def start(body:Listening,request:Request):return await voice(request).start(body.target)
+async def start(body:Listening,request:Request):return await voice(request).start(body.target,client_id=request.headers.get("x-voice-client"))
 
 @router.post("/stop",dependencies=[Depends(local_json)])
 async def stop(request:Request):return await voice(request).stop()
@@ -455,12 +459,12 @@ async def stop(request:Request):return await voice(request).stop()
 async def text_test(body:TextTest,request:Request):return await voice(request).test(body.text,body.snapshot_id,body.candidate_id,body.class_name)
 
 @router.post("/class-request",dependencies=[Depends(local_json)])
-async def class_request(body:ClassRequest,request:Request):return await voice(request).request_class(body.preset_id,body.revision,body.target,body.step_id)
+async def class_request(body:ClassRequest,request:Request):return await voice(request).request_class(body.preset_id,body.revision,body.target,body.step_id,client_id=request.headers.get("x-voice-client"))
 
 @router.post('/preset-request',dependencies=[Depends(local_json)])
 async def preset_request(body:ClassRequest,request:Request):
     if body.step_id is not None:raise DomainError('대시보드에서는 저장된 실행 범위 전체를 준비하세요.',422)
-    return await voice(request).request_preset(body.preset_id,body.revision,body.target)
+    return await voice(request).request_preset(body.preset_id,body.revision,body.target,client_id=request.headers.get("x-voice-client"))
 
 @router.post("/select",dependencies=[Depends(local_json)])
 async def select(body:VoiceSelection,request:Request):return await voice(request).select(body.request_id,body.candidate_id)

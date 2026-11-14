@@ -1,3 +1,4 @@
+import {prepareChromeVoice,chromeVoiceClientId} from "./chrome-voice.js";
 import { currentDestination, icon } from "./station-nav.js";
 import { demo, legacyUsers, record } from "./packing-demo.js";
 import { connectDashboardMonitor } from "./dashboard-monitor.js";
@@ -13,8 +14,8 @@ let form = "";
 let voiceOpen = false;
 let voiceStatus = null;
 let voiceSerial = 0;
-const voiceStates = {disabled: "음성 기능 꺼짐", idle: "호출 대기", preparing: "마이크 준비 중", preparing_reply: "Yuna 응답 준비 중",
-  permission: "Mac의 마이크 접근 창에서 허용을 눌러 주세요.", listening: "듣는 중", processing: "명령 처리 중", speaking: "Yuna 응답 중", stopping: "청취 중단 중", error: "음성 오류"};
+const voiceStates = {disabled: "음성 기능 꺼짐", idle: "호출 대기", preparing: "Chrome 온라인 인식·마이크 준비 중", preparing_reply: "Chrome 응답 준비 중",
+  permission: "Chrome의 마이크 접근 창에서 허용을 눌러 주세요.", listening: "듣는 중", processing: "명령 처리 중", speaking: "Chrome 응답 중", stopping: "청취 중단 중", error: "음성 오류"};
 let reply = "";
 let confirmingOrder = false;
 let station;
@@ -289,17 +290,19 @@ const voiceCommands = {
 async function updateVoice(action = "status") {
   const serial = ++voiceSerial;
   const previous = voiceStatus;
+  if(action==='wake'){voiceStatus={...previous,state:"preparing",can_stop:false,error:""};renderVoice();}
   if (action === "stop") {
     voiceStatus = {...previous, state: "stopping", can_stop: false};
     renderVoice();
   }
   try {
+    if(action==='wake')await prepareChromeVoice();
     if(action==='stop'&&previous?.context==='robot'&&previous.can_stop){
       const stopped=await fetch('/api/robot/preset-voice/stop',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
       if(!stopped.ok)throw Error('로봇 음성 대기 종료를 확인하지 못했습니다.');action='status';
     }
     const response = await fetch("/api/voice/" + action,
-      {method: action === "status" ? "GET" : "POST", cache: "no-store"});
+      {method: action === "status" ? "GET" : "POST", cache: "no-store",headers:action==='wake'?{'X-Voice-Client':chromeVoiceClientId()}:{} });
     const data = await response.json();
     if (!response.ok) throw new Error(data.detail || "음성 서버 연결을 확인하세요.");
     if (serial !== voiceSerial || JSON.stringify(data) === JSON.stringify(voiceStatus)) return;
@@ -320,7 +323,7 @@ function renderVoice() {
   const confirm = confirmingOrder ? `<div class="buttons">${button("confirm-order", "네, 주문해줘", "main-btn")}${button("discard-order", "취소")}</div>` : "";
   const status = voiceStatus || {};
   let stateLabel = voiceStates[status.state];
-  if (status.state === "speaking" && status.barge_in) stateLabel = "Yuna 응답 중 · 지금 말해도 됩니다";
+  if (status.state === "speaking" && status.barge_in) stateLabel = "Chrome 응답 중 · 지금 말해도 됩니다";
   if (status.state === "listening" && status.last_playback === "interrupted") stateLabel = "낭독 중단 · 듣는 중";
   const canWake = !status.can_stop && ["idle", "error"].includes(status.state);
   const hint = status.error || (status.state === "disabled" ? "YOLO_VOICE_ENABLED=1로 서버를 시작하세요." : "");
@@ -330,8 +333,8 @@ function renderVoice() {
       ${button("stop-listening", "청취 중단", "stop-btn", !status.can_stop)}</div>
     ${hint ? `<p>${escapeHtml(hint)}</p>` : ""}
     ${status.transcript ? `<p>작업자 · ${escapeHtml(status.transcript)}</p>` : ""}
-    ${status.reply ? `<p>Yuna · ${escapeHtml(status.reply)}</p>` : ""}
-    <h3>버튼으로 실행</h3><div class="buttons">${commands}</div>
+    ${status.reply ? `<p>Chrome · ${escapeHtml(status.reply)}</p>` : ""}
+    <p class="meta">Chrome 온라인 STT · 음성이 Google 음성 서비스로 전송될 수 있습니다. TTS는 Chrome 한국어 음성을 사용합니다.</p><h3>버튼으로 실행</h3><div class="buttons">${commands}</div>
     ${reply ? `<p class="reply" role="status">${escapeHtml(reply)}</p>` : ""}${confirm}`;
 }
 

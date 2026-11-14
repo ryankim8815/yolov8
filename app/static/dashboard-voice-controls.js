@@ -1,3 +1,4 @@
+import {prepareChromeVoice,chromeVoiceClientId} from "./chrome-voice.js";
 const esc=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
 export function connectDashboardVoiceControls(root,{signal,getContext,onRobotVoice}){
@@ -6,13 +7,13 @@ export function connectDashboardVoiceControls(root,{signal,getContext,onRobotVoi
   let native=null,robot=null,busy=false,nativeConnected=false;
   const fill=(node,html)=>{if(markup.get(node)!==html){node.innerHTML=html;markup.set(node,html);}};
   const notice=(text,error=false)=>{ui.message.textContent=text;ui.message.dataset.error=error;};
-  async function call(url,body={}){const response=await fetch(url,{method:'POST',cache:'no-store',headers:{'Content-Type':'application/json'},body:JSON.stringify(body),signal:AbortSignal.any([signal,AbortSignal.timeout(15000)])});const value=await response.json();if(!response.ok)throw Error(typeof value.detail==='string'?value.detail:'음성 요청을 처리하지 못했습니다.');return value;}
+  async function call(url,body={}){const response=await fetch(url,{method:'POST',cache:'no-store',headers:{'Content-Type':'application/json',...(chromeVoiceClientId()?{'X-Voice-Client':chromeVoiceClientId()}:{})},body:JSON.stringify(body),signal:AbortSignal.any([signal,AbortSignal.timeout(15000)])});const value=await response.json();if(!response.ok)throw Error(typeof value.detail==='string'?value.detail:'음성 요청을 처리하지 못했습니다.');return value;}
   function render(){
     const context=getContext(),p=context.preset,robotMode=ui.mode.value==='robot',listening=Boolean(native?.can_stop||robot?.listening||robot?.can_stop);
     ui.mode.disabled=busy||listening;button('start').disabled=busy||listening||!nativeConnected||native?.state==='disabled';button('stop').disabled=busy||!listening;
     button('prepare').hidden=!robotMode;button('prepare').disabled=busy||!p||!context.canPrepare||Boolean(robot?.busy)||Boolean(listening&&native?.context!=='robot')||Boolean(robot?.listening&&robot.target!=='simulation');
     const aliases=p?.voice_enabled?p.aliases||[]:[];
-    ui.hint.textContent=robotMode?(aliases.length?'등록 명령: '+aliases.join(' · '):'등록 명령이 없어도 선택 프리셋 실행 준비로 확인할 수 있습니다.')+' · 시뮬레이션 대상 · 승인 후 재생':native?.state==='disabled'?'Mac 음성 기능이 꺼져 있습니다. 음성 서비스를 켜세요.':'마이크로 재고 조회·주문 조회 등을 말씀하세요. 청취 종료는 실행 중인 로봇 작업을 중단하지 않습니다.';
+    ui.hint.textContent='Chrome 온라인 STT · 음성이 Google 음성 서비스로 전송될 수 있습니다. '+(robotMode?(aliases.length?'등록 명령: '+aliases.join(' · '):'등록 명령이 없어도 선택 프리셋 실행 준비로 확인할 수 있습니다.')+' · 시뮬레이션 대상 · 승인 후 재생':native?.state==='disabled'?'Chrome 음성 기능이 꺼져 있습니다. 음성 서비스를 켜세요.':'재고 조회·주문 조회 등을 말씀하세요. 청취 종료는 실행 중인 로봇 작업을 중단하지 않습니다.');
     const c=robot?.class_request,s=robot?.selection;
     let gate='';
     if(c){const phases={loading:'클래스 목록 조회 중',class:'클래스 이름 하나를 말씀하세요',detecting:'최신 YOLO 대상 확인 중',objects:'탐지 객체 선택',no_match:'선택한 클래스의 객체가 보이지 않습니다',preparation:'인식 자세 준비 필요',approval:'경로 확인 완료'};
@@ -29,9 +30,9 @@ export function connectDashboardVoiceControls(root,{signal,getContext,onRobotVoi
     try{
       let value;
       switch(b.dataset.voiceAction){
-        case'start':if(ui.mode.value==='robot'){value=await call('/api/robot/preset-voice/start',{target:'simulation'});robot=value;onRobotVoice(value);}else{native=await call('/api/voice/wake');nativeConnected=true;}notice('음성 대기를 시작했습니다.');break;
+        case'start':notice('Chrome 온라인 음성 인식을 준비하고 있습니다. 마이크 권한 요청을 허용하세요.');await prepareChromeVoice();if(ui.mode.value==='robot'){value=await call('/api/robot/preset-voice/start',{target:'simulation'});robot=value;onRobotVoice(value);}else{native=await call('/api/voice/wake');nativeConnected=true;}notice('음성 대기를 시작했습니다.');break;
         case'stop':if(robot?.listening||robot?.can_stop){robot=await call('/api/robot/preset-voice/stop');onRobotVoice(robot);}else native=await call('/api/voice/stop');notice('청취를 종료했습니다.');break;
-        case'prepare':case'retry':{const p=getContext().preset;if(!p)throw Error('프리셋을 선택하세요.');robot=await call('/api/robot/preset-voice/preset-request',{preset_id:p.id,revision:p.revision,target:'simulation'});onRobotVoice(robot);notice(p.object_source==='yolo'?'모델 클래스 이름 하나를 말씀하세요.':'경로를 확인하고 승인하세요.');break;}
+        case'prepare':case'retry':{notice('Chrome 온라인 음성 인식과 마이크를 준비하고 있습니다.');await prepareChromeVoice();const p=getContext().preset;if(!p)throw Error('프리셋을 선택하세요.');robot=await call('/api/robot/preset-voice/preset-request',{preset_id:p.id,revision:p.revision,target:'simulation'});onRobotVoice(robot);notice(p.object_source==='yolo'?'모델 클래스 이름 하나를 말씀하세요.':'경로를 확인하고 승인하세요.');break;}
         case'select':robot=await call('/api/robot/preset-voice/select',{request_id:robot.selection.request_id,candidate_id:b.dataset.candidate});onRobotVoice(robot);break;
         case'approve':await call('/api/robot/preset-voice/approve',{approval_id:robot.pending.approval_id});notice('승인한 가상 경로를 불러오고 있습니다.');break;
         case'cancel':robot=await call('/api/robot/preset-voice/cancel');onRobotVoice(robot);notice('실행 확인을 취소했습니다.');break;

@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 
 from app.datasets import build_dataset,verify_dataset,save_snapshot
 from app.main import create_app
+from app.migration import VERSION
 from app.store import Store,DomainError,sha256,atomic_json
 from app.training_classes import class_options,resolve_plan,freeze_plan
 from tests.fakes import settings
@@ -120,7 +121,7 @@ def test_v4_job_plan_upgrade_preserves_rows_and_backup(tmp_path):
             db.db.execute('PRAGMA user_version=4')
     with closing(Store(tmp_path)) as db:
         assert db.get('model','previous')['name']=='이전 모델'
-        assert db.db.execute('PRAGMA user_version').fetchone()[0]==5
+        assert db.db.execute('PRAGMA user_version').fetchone()[0]==VERSION
         assert len(list((tmp_path/'backups').glob('metadata-v4-*.sqlite3')))==1
 
 

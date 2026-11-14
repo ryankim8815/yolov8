@@ -18,6 +18,7 @@ from .kiosk import router as kiosk_router
 from .pipeline import Pipeline
 from .runtime import Runtime
 from .robot_web import install_robot_routes, robot_runtime
+from .speech_policy import install_online_speech_policy
 from .store import DomainError
 from .training_api import router
 from .voice import Voice, router as voice_router
@@ -89,6 +90,7 @@ def create_app(settings=None, pipeline_factory=Pipeline, state_root=None):
                 await asyncio.to_thread(pipeline.stop)
 
     application = FastAPI(title="YOLOv8 Local Camera", version="0.1.0", lifespan=lifespan)
+    install_online_speech_policy(application)
     application.include_router(router())
     application.include_router(packing_router)
     application.include_router(kiosk_router)

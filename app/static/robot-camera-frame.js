@@ -7,9 +7,9 @@ export function imagePixel(rect, size, clientX, clientY) {
   return x >= 0 && y >= 0 && x < size.width && y < size.height ? [x, y] : null;
 }
 
-export async function api(path, method = "GET", body, signal) {
+export async function api(path, method = "GET", body, signal, headers = {}) {
   const response = await fetch("/api/robot/" + path, {method, signal, cache: "no-store",
-    headers: body ? {"Content-Type": "application/json"} : {}, body: body && JSON.stringify(body)});
+    headers: {...(body ? {"Content-Type": "application/json"} : {}),...headers}, body: body && JSON.stringify(body)});
   let data;
   try { data = await response.json(); } catch { throw new Error("로봇 웹 서버에 연결할 수 없습니다."); }
   if (!response.ok) {

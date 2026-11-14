@@ -1,3 +1,4 @@
+import {prepareChromeVoice,chromeVoiceClientId} from "./chrome-voice.js";
 import {api} from './robot-camera-frame.js';
 import {endpointIK,poseFrame,simulationToolPose} from './robot-arm.js?v=joint-targets';
 import {connectPresetDetection} from './robot-preset-detection.js?v=voice-class';
@@ -42,7 +43,7 @@ export function connectPresets(root,arm,signal,playbackMount=null){
       <details data-p="simulation-errors" class="preset-simulation-errors" hidden><summary>경로 계산 오류 자세히 보기</summary><p data-p="simulation-error-detail"></p></details><p data-p="job" role="status" hidden></p>
     </section>
     <section class="preset-player" id="preset-options"><div class="panel-head"><h4>연결 상태 · 음성 실행</h4><a href="#preset-execution">3D 제어로 이동 ↑</a></div><section class="preset-readiness" aria-label="실행 준비 상태"><div class="preset-edit-head"><h5>서비스 연결 · 프리셋 준비 상태</h5><button type="button" data-action="refresh-readiness">상태 다시 확인</button></div><p data-p="native-status" role="status">카메라·음성 서비스 확인 중</p><p data-p="robot-status" role="status">실제 로봇 연결 확인 중</p><div data-p="requirements"></div><div class="pose-actions"><a href="/training#live">카메라 설정</a><a href="#manipulator">로봇 연결 상태</a></div></section>
-    <section class="preset-voice-console"><div class="preset-edit-head"><h4>음성 대기</h4><span data-p="mic-state" class="scenario-badge">청취 종료</span></div><div class="pose-actions"><button type="button" data-action="listen">음성 대기 시작</button><button type="button" data-action="unlisten">음성 대기 종료</button></div><p class="scenario-caption">마이크 입력은 Mac 음성 서비스를 사용합니다. 종료 전까지 연속 대기합니다. 청취 종료와 로봇 작업 중단은 별개입니다.</p><div data-p="class-gate" class="preset-class-gate" hidden></div><p data-p="transcript"></p><p data-p="voice-message" role="status"></p><div data-p="voice-selection" class="preset-pending preset-voice-selection" hidden></div><div data-p="voice-pending" class="preset-pending" hidden></div>
+    <section class="preset-voice-console"><div class="preset-edit-head"><h4>음성 대기</h4><span data-p="mic-state" class="scenario-badge">청취 종료</span></div><div class="pose-actions"><button type="button" data-action="listen">음성 대기 시작</button><button type="button" data-action="unlisten">음성 대기 종료</button></div><p class="scenario-caption">마이크 입력은 Chrome 한국어 온라인 음성 인식을 사용하며 음성이 Google 음성 서비스로 전송될 수 있습니다. localhost 또는 HTTPS에서 마이크를 허용하세요. 종료 전까지 연속 대기합니다. 청취 종료와 로봇 작업 중단은 별개입니다.</p><div data-p="class-gate" class="preset-class-gate" hidden></div><p data-p="transcript"></p><p data-p="voice-message" role="status"></p><div data-p="voice-selection" class="preset-pending preset-voice-selection" hidden></div><div data-p="voice-pending" class="preset-pending" hidden></div>
     <details class="preset-command-tests"><summary>고급 · 문장 입력 테스트</summary><label>문장 입력 테스트 · 실제 장비 실행 불가<input data-p="text" placeholder="등록한 명령을 입력하세요"></label><label data-p="test-class-field" hidden>테스트 클래스 · 현재 모델의 이름 한 개<input data-p="test-class" placeholder="예: 스팸 · 모의 입력 전용"></label><div class="pose-actions"><button type="button" data-action="text-test">명령 테스트</button><button type="button" data-action="test-play" disabled>테스트 결과 시뮬레이션</button></div><p data-p="test-result" role="status"></p><div data-p="test-targets" class="preset-detection-candidates"></div></details></section></section>
     <dialog data-p="dialog" aria-labelledby="preset-execution-title"><h3 id="preset-execution-title">실제 프리셋 실행 승인</h3><p data-p="approval-summary"></p><pre data-p="approval-path" class="scenario-hardware-path"></pre><p data-p="approval-status" role="status"></p><div class="pose-actions"><button type="button" data-action="cancel">승인 요청 취소</button><button type="button" data-action="approve">승인 후 실제 실행</button></div></dialog>`;
   const ui=Object.fromEntries([...root.querySelectorAll('[data-p]')].map(n=>[n.dataset.p,n]));
@@ -411,15 +412,17 @@ export function connectPresets(root,arm,signal,playbackMount=null){
     voiceBusy=true;pollEpoch++;clearTimeout(pollTimer);controls();
     try{
       if(voiceListening&&ui['voice-target'].value!==target)await api('preset-voice/stop','POST',{},signal);
+      ui['voice-message'].textContent='Chrome 온라인 음성 인식과 마이크를 준비하고 있습니다.';
+      await prepareChromeVoice();
       ui['voice-target'].value=target;
-      await api('preset-voice/class-request','POST',{preset_id:draft.id,revision:draft.revision,target,step_id:stepId},signal);
+      await api('preset-voice/class-request','POST',{preset_id:draft.id,revision:draft.revision,target,step_id:stepId},signal,{'X-Voice-Client':chromeVoiceClientId()});
       await poll();ui['class-gate'].scrollIntoView({block:'center',behavior:'smooth'});
     }finally{voiceBusy=false;controls();if(!signal.aborted&&!pollTimer)pollTimer=setTimeout(poll,700);}
   }
   async function listening(start){
     if(voiceBusy)return;
     voiceBusy=true;pollEpoch++;clearTimeout(pollTimer);pollTimer=null;controls();
-    try{await api('preset-voice/'+(start?'start':'stop'),'POST',start?{target:ui['voice-target'].value}:{},signal);await poll();}
+    try{if(start){ui['voice-message'].textContent='Chrome 온라인 음성 인식을 준비하고 있습니다. 마이크를 허용하세요.';await prepareChromeVoice();}await api('preset-voice/'+(start?'start':'stop'),'POST',start?{target:ui['voice-target'].value}:{},signal,start?{'X-Voice-Client':chromeVoiceClientId()}:{});await poll();}
     finally{voiceBusy=false;controls();if(!signal.aborted&&!pollTimer)pollTimer=setTimeout(poll,700);}
   }
   async function testSentence(binding={}){

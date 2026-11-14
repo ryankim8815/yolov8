@@ -2,14 +2,13 @@
 import os
 import time
 import asyncio
-import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
 from unittest.mock import patch
 
 import numpy as np
 from fastapi import Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, HTMLResponse
 
 from app.camera_views import SensorFrame
 from app.main import create_app
@@ -17,7 +16,6 @@ from app.pipeline import Pipeline
 from app.robot_preset_config import MotionPreset
 from app.robot_work_points import ParcelBoxInput
 from app.store import atomic_json
-from app.voice import Voice
 from app.pick_plane import CameraFrame
 from app import robot_pick
 from tests.fakes import settings,Detector
@@ -39,17 +37,8 @@ def create_qa_app():
         def predict(self,frame):return [dict(class_id=0,label='테스트 상품',confidence=.96,xyxy=[70,70,140,160])]+([dict(class_id=0,label='테스트 상품',confidence=.94,xyxy=[160,70,200,150])] if fault['multiple'] else [])
     def factory(config):return Pipeline(config,camera_factory=Camera,detector_factory=D)
     devices=[dict(index=0,id='qa-depth-camera',name='QA RGB-D 카메라'),dict(index=1,id='qa-rgb-camera',name='QA 컬러 카메라')]
-    # Never connect this fixture to the production rosbridge or Mac voice helper.
+    # Never connect this fixture to production hardware. Browser audio is mocked by UI tests.
     with patch.dict(os.environ,{'YOLO_ROBOT_WEB_OWNER':''}):app=create_app(settings(voice_enabled=True),factory,state)
-    helper=state/'fake-voice.py'
-    helper.write_text('''import sys,json,signal
-signal.signal(signal.SIGINT,signal.SIG_IGN)
-for line in sys.stdin:
- c=json.loads(line)
- events={'listen':['listening'],'speak':['spoken'],'speak_listen':['playback_started','reply_finished']}.get(c['action'],[])
- for event in events:print(json.dumps(dict(event=event,session=c['session'],turn=c['turn'])),flush=True)
-''')
-    def fake_voice(packing,enabled,**options):return Voice(packing,enabled,(sys.executable,'-u',str(helper)),**options)
     def catalog():
         rt=app.state.pipeline
         return dict(model_version=rt.model_id,model_name='격리 YOLO 모델',classes=[dict(id=0,name='테스트 상품'),dict(id=1,name='다른 상품')],ready=True,state='ready',camera=rt.status()['camera'])
@@ -58,13 +47,13 @@ for line in sys.stdin:
     @asynccontextmanager
     async def lifespan(application):
         loop=asyncio.get_running_loop()
-        async def bridge(action,after=0,session_id=None):
+        async def bridge(action,after=0,session_id=None,client_id=None):
             voice=application.state.voice
-            if action=='start':await voice.wake(context='robot')
+            if action=='start':await voice.wake(context='robot',client_id=client_id)
             if action=='stop':await voice.stop(session_only=True,expected_session=session_id,expected_context='robot')
             return dict(**voice.status(),cursor=voice.robot_sequence,events=[e for e in voice.robot_events if e['sequence']>after and e['session_id']==voice.session])
-        def native(action,after=0,*,session_id=None):return asyncio.run_coroutine_threadsafe(bridge(action,after,session_id),loop).result(8)
-        with patch.dict(os.environ,{'YOLO_ROBOT_WEB_OWNER':''}),patch('app.main.Voice',fake_voice),patch('app.capture.camera_devices',lambda:devices),patch('app.runtime.camera_device',lambda identifier:next(d for d in devices if d['id']==identifier)),patch('app.robot_preset_voice.native_voice',native),patch('app.robot_presets.read_yolo_catalog',catalog),patch('app.robot_pick.read_camera',camera):
+        def native(action,after=0,*,session_id=None,client_id=None):return asyncio.run_coroutine_threadsafe(bridge(action,after,session_id,client_id),loop).result(8)
+        with patch.dict(os.environ,{'YOLO_ROBOT_WEB_OWNER':''}),patch('app.capture.camera_devices',lambda:devices),patch('app.runtime.camera_device',lambda identifier:next(d for d in devices if d['id']==identifier)),patch('app.robot_preset_voice.native_voice',native),patch('app.robot_presets.read_yolo_catalog',catalog),patch('app.robot_pick.read_camera',camera):
             async with original(application):
                 robot=application.state.robot
                 robot.hand.table=dict(revision='qa-width',points=[dict(position=0,width_mm=80),dict(position=700,width_mm=0)])
@@ -101,6 +90,14 @@ for line in sys.stdin:
         if request.method!='GET' and path.startswith('/api/') and not (safe_voice or safe_packing or safe_camera or safe_preview):
             return JSONResponse({'detail':'격리 모드 · 실제 장치·마이크·저장 명령 차단'},403)
         return await call_next(request)
+    @app.get('/__qa/file-voice')
+    async def file_voice():
+        return HTMLResponse('<button id="start">File-only Chrome STT test</button>',headers={'Permissions-Policy':'microphone=()'})
+
+    @app.get('/__qa/voice-fixture')
+    async def voice_fixture():
+        return {'fixture':'isolated-dashboard'}
+
     @app.post('/__qa/state')
     async def change(request:Request):
         body=await request.json();fault.update({k:body[k] for k in fault if k in body})

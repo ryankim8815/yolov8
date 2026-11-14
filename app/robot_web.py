@@ -9,6 +9,7 @@ from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 from .robot import RobotMonitor, RobotSettings, router
+from .speech_policy import install_online_speech_policy
 from .store import DomainError
 
 STATIC = Path(__file__).parent / "static"
@@ -59,6 +60,7 @@ def create_robot_app():
             yield
 
     application = FastAPI(title="Vision Lab · E0509", lifespan=lifespan)
+    install_online_speech_policy(application)
 
     @application.middleware("http")
     async def revalidate_frontend(request, call_next):

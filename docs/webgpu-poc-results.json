@@ -1,0 +1,273 @@
+{
+  "timings": {
+    "webgpu": {
+      "pooled": {
+        "mean": 24.267923176599044,
+        "p50": 24.024999976158142,
+        "p95": 25.669750034809113,
+        "fps": 41.206657558743025
+      },
+      "rounds": [
+        {
+          "mean": 24.560429687146097,
+          "p50": 24.187499940395355,
+          "p95": 26.002500027418137,
+          "fps": 40.71590003669024
+        },
+        {
+          "mean": 24.265390623826534,
+          "p50": 24.03000009059906,
+          "p95": 25.78999999165535,
+          "fps": 41.210958253360474
+        },
+        {
+          "mean": 23.977949218824506,
+          "p50": 23.770000100135803,
+          "p95": 25.375,
+          "fps": 41.70498447861105
+        }
+      ],
+      "load_ms": 427.289999961853
+    },
+    "mps": {
+      "pooled": {
+        "mean": 30.781036191406248,
+        "p50": 28.275541500000003,
+        "p95": 44.73848519999998,
+        "fps": 32.48753530523413
+      },
+      "rounds": [
+        {
+          "mean": 36.9665486875,
+          "p50": 29.470333,
+          "p95": 84.09288575,
+          "fps": 27.05148399039328
+        },
+        {
+          "mean": 27.862914546874997,
+          "p50": 28.132354,
+          "p95": 33.589865,
+          "fps": 35.88999988919524
+        },
+        {
+          "mean": 27.51364533984375,
+          "p50": 27.9398335,
+          "p95": 31.64189575,
+          "fps": 36.34560188765154
+        }
+      ],
+      "load_ms": 1114.3448749789968
+    },
+    "coreml": {
+      "pooled": {
+        "mean": 7.269832420572917,
+        "p50": 7.163958,
+        "p95": 7.824646049999999,
+        "fps": 137.55475259238403
+      },
+      "rounds": [
+        {
+          "mean": 7.297473175781249,
+          "p50": 7.205875000000001,
+          "p95": 7.8028855,
+          "fps": 137.03373426829248
+        },
+        {
+          "mean": 7.29614824609375,
+          "p50": 7.162042,
+          "p95": 7.95148975,
+          "fps": 137.05861863968912
+        },
+        {
+          "mean": 7.215875839843751,
+          "p50": 7.113542,
+          "p95": 7.72111475,
+          "fps": 138.58331576027416
+        }
+      ],
+      "load_ms": 3265.5001669190824
+    }
+  },
+  "webgpu_mean_latency_ratio": {
+    "mps": 0.7884050109844711,
+    "coreml": 3.338168168488064
+  },
+  "agreement_with_mps": {
+    "webgpu": {
+      "iou_threshold": 0.9,
+      "matched": 596,
+      "unmatched_reference": 1,
+      "unmatched_candidate": 1,
+      "reference_recall": 0.998324958123953,
+      "candidate_precision": 0.998324958123953,
+      "mean_matched_iou": 0.9991265005242304,
+      "mean_abs_confidence_difference": 0.0007790053550829024,
+      "examples": [
+        {
+          "image": "000000000143.jpg",
+          "unmatched_reference": 1,
+          "unmatched_candidate": 1
+        }
+      ],
+      "note": "Prediction agreement with MPS, not ground-truth accuracy or mAP."
+    },
+    "coreml": {
+      "iou_threshold": 0.9,
+      "matched": 589,
+      "unmatched_reference": 8,
+      "unmatched_candidate": 8,
+      "reference_recall": 0.9865996649916248,
+      "candidate_precision": 0.9865996649916248,
+      "mean_matched_iou": 0.9909142815714085,
+      "mean_abs_confidence_difference": 0.005723089738693626,
+      "examples": [
+        {
+          "image": "000000000009.jpg",
+          "unmatched_reference": 0,
+          "unmatched_candidate": 1
+        },
+        {
+          "image": "000000000030.jpg",
+          "unmatched_reference": 0,
+          "unmatched_candidate": 1
+        },
+        {
+          "image": "000000000077.jpg",
+          "unmatched_reference": 1,
+          "unmatched_candidate": 0
+        },
+        {
+          "image": "000000000109.jpg",
+          "unmatched_reference": 2,
+          "unmatched_candidate": 0
+        },
+        {
+          "image": "000000000110.jpg",
+          "unmatched_reference": 1,
+          "unmatched_candidate": 1
+        },
+        {
+          "image": "000000000133.jpg",
+          "unmatched_reference": 1,
+          "unmatched_candidate": 0
+        },
+        {
+          "image": "000000000196.jpg",
+          "unmatched_reference": 0,
+          "unmatched_candidate": 1
+        },
+        {
+          "image": "000000000257.jpg",
+          "unmatched_reference": 1,
+          "unmatched_candidate": 1
+        },
+        {
+          "image": "000000000294.jpg",
+          "unmatched_reference": 0,
+          "unmatched_candidate": 1
+        },
+        {
+          "image": "000000000328.jpg",
+          "unmatched_reference": 0,
+          "unmatched_candidate": 1
+        },
+        {
+          "image": "000000000531.jpg",
+          "unmatched_reference": 0,
+          "unmatched_candidate": 1
+        },
+        {
+          "image": "000000000542.jpg",
+          "unmatched_reference": 1,
+          "unmatched_candidate": 0
+        },
+        {
+          "image": "000000000564.jpg",
+          "unmatched_reference": 1,
+          "unmatched_candidate": 0
+        }
+      ],
+      "note": "Prediction agreement with MPS, not ground-truth accuracy or mAP."
+    }
+  },
+  "settings": {
+    "imgsz": 640,
+    "confidence": 0.25,
+    "iou": 0.45,
+    "max_det": 100,
+    "batch": 1,
+    "rect": false
+  },
+  "images": 128,
+  "source_sha256": "f59b3d833e2ff32e194b5bb8e08d211dc7c5bdf144b90d2c8412c47ccfc83b36",
+  "iterations_per_round": 256,
+  "warmup_per_round": 30,
+  "repeats": 3,
+  "recorded_date_kst": "2026-11-13",
+  "hardware": {
+    "chip": "Apple M1 Pro",
+    "memory_bytes": 17179869184,
+    "macos": "27.0"
+  },
+  "environments": {
+    "webgpu": {
+      "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/157.0.0.0 Safari/537.36",
+      "hardwareConcurrency": 8,
+      "crossOriginIsolated": true,
+      "secureContext": true,
+      "adapter": {
+        "vendor": "apple",
+        "architecture": "metal-3",
+        "device": "",
+        "description": "",
+        "isFallbackAdapter": false
+      },
+      "runtime": {
+        "name": "onnxruntime-web",
+        "version": "1.23.2",
+        "integrity": "sha512-T09JUtMn+CZLk3mFwqiH0lgQf+4S7+oYHHtk6uhaYAAJI95bTcKi5bOOZYwORXfS/RLZCjDDEXGWIuOCAFlEjg=="
+      },
+      "chrome_version": "157.0.8103.52",
+      "headless": false
+    },
+    "mps": {
+      "recorded_at": "2026-11-13T01:57:50.421678+00:00",
+      "python": "3.11.18",
+      "architecture": "arm64",
+      "macos": "27.0",
+      "packages": {
+        "torch": "2.7.0",
+        "torchvision": "0.22.0",
+        "ultralytics": "8.4.202",
+        "numpy": "1.26.4",
+        "opencv-python": "4.11.0.86",
+        "fastapi": "0.162.0"
+      },
+      "machine": "arm"
+    },
+    "coreml": {
+      "recorded_at": "2026-11-13T01:58:24.642883+00:00",
+      "python": "3.11.18",
+      "architecture": "arm64",
+      "macos": "27.0",
+      "packages": {
+        "torch": "2.7.0",
+        "torchvision": "0.22.0",
+        "ultralytics": "8.4.202",
+        "coremltools": "9.0",
+        "numpy": "1.26.4",
+        "opencv-python": "4.11.0.86",
+        "fastapi": "0.162.0"
+      },
+      "machine": "arm"
+    }
+  },
+  "acceptance": {
+    "page_errors": [],
+    "requests": 137,
+    "all_requests_local_get": true,
+    "synthetic_camera_start_stop": true,
+    "unsupported_gpu_error": true
+  },
+  "note": "Timing excludes image decode, network, camera and rendering. Full per-inference samples and boxes are in artifacts/webgpu-poc. Agreement is not ground-truth accuracy."
+}

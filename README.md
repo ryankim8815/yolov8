@@ -69,48 +69,45 @@ RealSense를 macOS에서 사용할 때 `failed to set power state` 또는 USB �
 
 **카메라는 Mac 추론 서버가 소유합니다.** 단독 실행한 서버는 브라우저를 닫거나 Docker 컨테이너를 내려도 계속 실행됩니다. 해당 터미널에서 `Ctrl+C`를 누르거나 다른 터미널에서 `bash scripts/stop.sh`를 실행하면 서버를 정상 종료하고 카메라를 해제합니다. 종료 스크립트는 이 프로젝트의 conda 인터프리터·작업 폴더·Uvicorn 실행 인자가 모두 일치하는 프로세스만 종료합니다.
 
-### Mac 패킹 음성 대화
+### Chrome 패킹·로봇 음성 대화
 
-Apple Silicon, macOS 27, macOS 27 SDK가 포함된 Xcode Command Line Tools가 필요합니다. FastAPI가 Mac에서 Swift 프로그램 하나를 실행하고, 이 프로그램이 기본 마이크와 스피커를 사용합니다. 대시보드를 닫아도 서버가 실행 중이면 대화할 수 있습니다.
+STT와 TTS는 데스크톱 Chrome의 Web Speech API를 사용합니다. Swift 프로그램이나 macOS 27 SDK는 필요하지 않습니다. 서버는 최종 인식문에 대한 명령 처리, 세션·턴 검증, 주문 확인과 로봇 실행 승인을 담당합니다.
 
-1. 저장소 루트에서 아래 명령을 실행합니다. 기존 서버가 실행 중이면 해당 터미널에서 정상 종료한 뒤 음성을 활성화하여 다시 시작합니다. 한국어 인식 모델 설치는 최초 한 번이며 다운로드가 필요할 수 있습니다.
+1. `YOLO_VOICE_ENABLED=1 bash scripts/start.sh mps`로 서버를 시작합니다. Core ML은 `mps` 대신 `coreml`, Docker 통합은 `YOLO_VOICE_ENABLED=1 bash scripts/stack.sh up mps`를 사용합니다.
+2. 최신 데스크톱 Chrome에서 `http://localhost:8000` 또는 Docker의 `http://localhost:8080`을 엽니다. `127.0.0.1`도 가능합니다. 다른 장비에서 IP 주소로 접속할 때는 HTTPS가 필요합니다.
+3. **음성 명령 → 대화 시작**, 대시보드 **음성 대기 시작**, 또는 로봇 이동 프리셋의 **음성 대기 시작**을 누릅니다. 사용자 허용에 따라 기본 STT는 Chrome 온라인 인식을 사용합니다. 음성이 Google 음성 서비스로 전송될 수 있으며 인터넷 연결이 필요합니다. Chrome의 마이크 권한을 허용하고 한국어 읽기 음성을 설치하세요. 지원되지 않는 브라우저·음성·권한은 화면에 오류로 표시됩니다.
+4. “재고 알려줘”, “주문 내역 알려줘”, “예시 주문해줘” 등을 말합니다. 예시 주문은 같은 대화에서 “주문 확정”으로 확인합니다. 로봇 프리셋은 등록한 명령, 클래스 선택, 기존 승인 절차를 그대로 사용합니다.
+5. **청취 종료**를 누르면 인식과 낭독이 중단되고 주문 확정 대기가 해제됩니다. 포장 대화는 6초 무응답 또는 “대화 종료”로 끝납니다. 로봇 모드는 무응답 시 다시 듣고, “음성 대기 종료”로 종료합니다. 청취 종료와 실행 중인 로봇 작업 중단은 별개입니다.
 
-   ```bash
-   bash scripts/build_voice.sh
-   .cache/voice/packing-voice --install-ko
-   YOLO_VOICE_ENABLED=1 bash scripts/start.sh mps
-   ```
+기본 STT는 `processLocally=false`와 `Permissions-Policy: on-device-speech-recognition=()`로 Chrome 온라인 인식을 사용합니다. 설치된 로컬 모델이 우선 선택되지 않도록 페이지 정책을 적용하며, 프록시에서도 이 헤더를 유지해야 합니다. 브라우저에서 모노 마이크 트랙을 명시적으로 얻어 인식기에 전달하고, 에코 제거는 끄고 노이즈 억제·자동 게인을 사용합니다. 인식 종료·취소·오류 때 트랙을 해제하고, 권한 허용이 뒤늦게 도착해도 취소된 세션은 다시 시작하지 않습니다. 기본 실행에서 로컬 언어팩은 설치하지 않습니다. `local:true` 진단 옵션은 로컬 인식을 허용하는 별도 문서에서만 사용할 수 있으며 운영 페이지에서는 비활성화됩니다. TTS는 Chrome의 `speechSynthesis`에서 한국어 음성을 선택하며 가능한 경우 로컬 음성을 우선합니다. 사용 가능한 음성은 운영체제·Chrome에 따라 다릅니다. 낭독 중에는 마이크 인식을 중지하고 낭독이 끝난 뒤 다음 턴을 시작합니다. 기존 `YOLO_VOICE_BARGE_IN` 환경변수는 호환성을 위해 파싱하지만 Chrome에서는 적용하지 않습니다(`barge_in=false`).
 
-   Core ML 서버는 마지막 인자를 `coreml`로 바꿉니다. Docker 중계까지 사용할 때는 세 번째 명령 대신 `YOLO_VOICE_ENABLED=1 bash scripts/stack.sh up mps`를 실행합니다.
-2. 대시보드 **음성 명령 → 대화 시작**을 누릅니다. macOS가 요청하면 마이크를 허용합니다. 권한을 거절했던 경우 **시스템 설정 → 개인정보 보호 및 보안 → 마이크**에서 서버를 실행한 앱(예: 터미널)의 권한을 켜고 서버를 다시 시작합니다. 시스템의 한국어 Yuna 음성이 누락된 경우 손쉬운 사용의 말하기 음성에서 설치합니다.
-3. Mac **단축어** 앱에서 ‘패킹 대화 시작’ 단축어를 만듭니다. URL을 `http://127.0.0.1:8000/api/voice/wake`로 설정하고 **URL 콘텐츠 가져오기 → 방법 → POST**를 선택합니다. 단축어를 한 번 실행해 로컬 연결 권한을 허용합니다. **시스템 설정 → 손쉬운 사용 → 음성 단축어**에서 이 단축어를 선택하고 원하는 이름(예: “패킹 도우미”)을 본인의 목소리로 등록합니다. [Apple의 음성 단축어 안내](https://support.apple.com/ko-kr/guide/mac-help/mchlf4548bb6/mac)
-4. “패킹 도우미”라고 부르고 준비음이 끝나면 “재고 알려줘”라고 말합니다. Yuna가 다 읽은 뒤 다시 이름을 부르지 않고 “주문 내역 알려줘”라고 말할 수 있습니다. 피킹은 “멈춰”, “피킹 재개해줘”로 제어합니다. “예시 주문해줘”는 124번 주문의 품목을 읽고, 같은 대화에서 “주문 확정” 또는 “네, 주문해줘”라고 말하면 접수합니다. “취소”는 대기 중인 주문을 취소합니다.
-5. 말끝 무음은 보통 0.8초, “생수하고…”처럼 이어지는 말은 1.5초 기다립니다. “대화 종료” 또는 6초 동안 후속 발화가 없으면 마이크를 해제합니다. 서버 종료는 `Ctrl+C`입니다. 상태 확인은 `curl http://127.0.0.1:8000/api/voice/status`, 수동 호출은 `curl -X POST http://127.0.0.1:8000/api/voice/wake`입니다. 대시보드는 같은 API의 상태와 최근 인식문·응답을 표시합니다. 이 텍스트는 서버 메모리에만 보관합니다.
+음성은 시작한 탭의 마이크·스피커를 사용합니다. 탭을 닫거나 연결이 끊기면 해당 세션과 미확정 주문·로봇 승인이 해제됩니다. 동시에 한 탭만 음성을 사용할 수 있습니다. 대기 중인 탭이 백그라운드에서 정지해도 서버는 하트비트가 20초 동안 없으면 세션을 종료합니다. 단축어 또는 `POST /api/voice/wake`만으로 브라우저 마이크 권한을 얻거나 탭 없이 대화할 수 없습니다.
 
-**Yuna의 답변 도중 말하기**는 `YOLO_VOICE_BARGE_IN`으로 선택합니다. `1`이면 Mac 스피커의 재생음을 에코 제거에 사용하면서 작업자의 말을 듣습니다. 말소리가 이어지면 Yuna의 음량을 먼저 낮춥니다. 첫 단어가 인식되면 낭독을 멈추고, 발화가 끝나면 최종 인식문으로 명령을 처리합니다. 예를 들어 Yuna가 재고를 읽는 도중 “주문 조회”라고 말할 수 있습니다. `0`(기본값)이면 낭독이 끝난 뒤 다음 말을 듣습니다. 두 모드 모두 답변이 끝난 뒤 6초 동안 후속 발화를 기다립니다.
+`GET /api/voice/status`에서 `provider=chrome`, `browser_connected`, `state`를 확인할 수 있습니다. `/api/voice/browser` WebSocket은 같은 출처의 Chrome 연결만 받고, 세션·턴이 맞는 최종 인식 이벤트만 처리합니다. 시작 요청은 `X-Voice-Client` 연결 ID에 묶어 다른 탭이 연결을 가져간 뒤 이전 탭의 요청이 새 마이크로 전달되지 않도록 합니다. 대화 내역은 기존 `voice-history.json`과 `robot-voice-history.json`에 저장합니다. `native/voice`와 `scripts/build_voice.sh`는 이전 구현 참고용이며 실행 경로에서 사용하지 않습니다.
+
+음성 관련 검증:
 
 ```bash
-bash scripts/build_voice.sh
-YOLO_VOICE_ENABLED=1 YOLO_VOICE_BARGE_IN=1 bash scripts/start.sh mps
+bash scripts/python.sh mps -m pytest tests/test_voice.py tests/test_preset_voice_class.py tests/test_dashboard_actions.py
+node --test tests/chrome_voice.test.cjs
 ```
 
-Docker 통합 실행에서는 같은 두 변수를 프로젝트 루트의 `.env`에 적고 스택을 재시작합니다. `GET /api/voice/status`의 `barge_in`으로 적용값을 확인할 수 있습니다. `last_playback`은 직전 낭독이 발화로 중단되면 `interrupted`, 끝까지 재생되면 `finished`입니다.
-
-**음성 명령 → 청취 중단**을 누르면 현재 대화를 종료하고 마이크를 해제합니다. Yuna가 답변 중이면 낭독도 멈추고, 확정 대기 중인 주문은 취소합니다. **대화 시작**을 누르거나 호출어를 말하면 새 대화가 시작됩니다. 단축어에서도 `POST /api/voice/stop`을 사용할 수 있습니다.
-
-파일로 먼저 검사하려면 운영 데이터와 마이크를 사용하지 않고 예시 문장을 합성해 전사할 수 있습니다.
+브라우저 통합 검증은 운영 데이터 대신 임시 상태·가상 장치만 사용하는 서버를 띄워 실행합니다. Playwright가 설치된 Node 환경을 사용하세요.
 
 ```bash
-voice_sample_dir=$(mktemp -d)
-say -v Yuna -o "$voice_sample_dir/query.aiff" '재고 알려줘'
-say -v Yuna -o "$voice_sample_dir/order.aiff" '주문 내역 알려줘'
-.cache/voice/packing-voice --transcribe-file "$voice_sample_dir/query.aiff"
-
-# 마이크 속도로 파일을 입력해 첫 음절, 말끝 대기, 낭독 중 끼어들기와 최종 전사를 검사합니다.
-xcrun swiftc -parse-as-library -target arm64-apple-macos27.0 -module-cache-path .cache/voice/modules \
-  native/voice/Recognition.swift tests/voice_turns.swift -o "$voice_sample_dir/check-turn"
-"$voice_sample_dir/check-turn" "$voice_sample_dir/query.aiff" "$voice_sample_dir/order.aiff"
+ROBOT_STATE_DIR="$(mktemp -d /tmp/chrome-voice-qa.XXXXXX)" ROBOT_ACCESS_BACKEND=ros ROBOT_ROS_PC_IP='' YOLO_ROBOT_WEB_OWNER='' \
+  bash scripts/python.sh mps -m uvicorn tests.dashboard_qa:create_qa_app --factory --host 127.0.0.1 --port 8016
+# 다른 터미널: 합성 이벤트로 주문·대시보드·로봇 화면, 취소와 페이지 종료 검증
+node scripts/check_chrome_voice_ui.cjs
+# 선택: 무음 구간을 포함해 합성한 “재고 알려줘” PCM WAV를 가짜 마이크로 입력
+VOICE_TEST_WAV=/tmp/chrome-voice-input.wav node scripts/check_chrome_voice_native.cjs
 ```
+
+`check_chrome_voice_native.cjs`는 별도 임시 Chrome 프로필에서 WAV 트랙을 입력하는 진단 스크립트입니다. 실제 마이크는 문서 정책으로 차단하고 오디오 출력 노드나 낭독을 실행하지 않으며, 기본 STT는 위 온라인 설정을 따릅니다. 운영 상태 폴더나 실제 로봇에는 연결하지 않습니다.
+
+**재개 후 검증:** Chrome 157에서 합성 WAV를 실제 온라인 STT에 전달하여 “재고 알려 줘” 최종 인식문과 같은 서버 세션의 재고 응답을 확인했습니다. 같은 방식의 명시적 마이크 트랙을 실제 구현에 반영한 뒤 실제 마이크·스피커 입력에서도 동일 결과와 응답 전 마이크 해제를 확인했습니다. 기존 낭독(TTS) 테스트는 사용자 요청에 따라 완료로 유지하고 실제 낭독은 반복하지 않았습니다. UI 검사와 실제 음성 검사는 같은 서버에서 동시에 실행하지 않습니다. 오류·권한 거절·취소 후 늦은 콜백·탭 전환 및 연결 ID 처리는 회귀 테스트로 확인합니다.
+
+개발용 실제 오디오 검증은 사용자의 명시적 허용을 받은 뒤에만 실행하세요. `scripts/check_chrome_voice_real_audio.cjs`는 위 임시 QA 서버에서만 사용하며, `VOICE_TEST_REAL_AUDIO=1`과 합성 문장 WAV 경로를 요구합니다. 실제 마이크가 주변 음성을 들을 수 있으며 스피커에는 합성 테스트 음원만 한 번 재생하고 TTS 낭독은 실행하지 않습니다. `VOICE_TEST_VOLUME`(0~50)을 지정하면 테스트 중에만 출력 음량을 변경하고 종료 시 기존 출력 음량·음소거 상태로 복구합니다. 운영 데이터와 실제 로봇에는 연결하지 않습니다.
 
 ## 4. Docker 이미지 빌드 및 Compose 실행
 
@@ -549,13 +546,13 @@ Smoke test의 모델은 `artifacts/training-smoke-*/`의 별도 레지스트리�
 - 연속 청취는 Mac의 기존 한국어 인식 프로그램을 재사용하며 주문·재고 대화와 동시에 마이크를 점유하지 않습니다. 청취 종료는 마이크와 미승인 요청만 종료합니다. 진행 중인 로봇은 좌측 **로봇 중단** 또는 실제 마이크의 `로봇 중단`으로 별도 중단하며 자동 재개하지 않습니다.
 - 그리퍼의 벌림 기준은 직접 입력·객체 권장 벌림·대기 벌림 중 선택합니다. 자동 기준은 객체 크기나 대기 벌림을 바꾸면 다시 계산됩니다. 음성 세션의 종료 응답이 확인되지 않으면 **음성 대기 종료**로 재시도하며, 이전 세션의 종료 요청은 새 마이크 세션을 닫지 않습니다.
 
-Mac 음성 서비스는 다음과 같이 실행합니다. 마이크 권한과 한국어 모델이 준비되지 않았으면 화면의 오류 안내를 따르세요. 아래 실행은 카메라를 자동 시작하지 않으며 마이크도 **음성 대기 시작**을 누를 때 열립니다.
+음성 세션 서버는 다음과 같이 실행합니다. Chrome의 마이크 권한과 한국어 로컬 언어팩이 준비되지 않았으면 화면의 오류 안내를 따르세요. 아래 실행은 카메라를 자동 시작하지 않으며 마이크도 **음성 대기 시작**을 누를 때 열립니다.
 
 ```bash
 YOLO_VOICE_ENABLED=1 YOLO_CAMERA_AUTOSTART=0 bash scripts/stack.sh up coreml
 ```
 
-새 API는 `/api/robot/presets`의 목록·생성, `/{id}` 조회·수정, `/{id}/copy`, `/{id}/preview`와 `/{id}/execution-preview`, `/executions/approve`입니다. 실제 실행은 저장 revision과 일회용 승인에 연결합니다. 진행 상태는 기존 `/api/robot/pick/scenario/status`와 `/pick/moves/{approval_id}`에서 확인합니다. `/api/robot/preset-voice/{status,start,stop,test,approve,cancel}`는 명령 대기와 확인을 관리합니다. Mac의 `/api/voice/robot/events`는 세션·순번이 있는 최종 인식 이벤트를 읽기 전용으로 제공합니다.
+새 API는 `/api/robot/presets`의 목록·생성, `/{id}` 조회·수정, `/{id}/copy`, `/{id}/preview`와 `/{id}/execution-preview`, `/executions/approve`입니다. 실제 실행은 저장 revision과 일회용 승인에 연결합니다. 진행 상태는 기존 `/api/robot/pick/scenario/status`와 `/pick/moves/{approval_id}`에서 확인합니다. `/api/robot/preset-voice/{status,start,stop,test,approve,cancel}`는 명령 대기와 확인을 관리합니다. 음성 세션 서버의 `/api/voice/robot/events`는 세션·순번이 있는 최종 인식 이벤트를 읽기 전용으로 제공합니다.
 
 격리 UI 검증은 임시 `ROBOT_STATE_DIR`, `ROBOT_ROS_PC_IP=''`, `ROBOT_ACCESS_BACKEND=ros`로 포트 8012에 로봇 웹을 실행한 뒤 `scripts/check_robot_presets_ui.cjs`를 사용합니다. 이 검증은 실제 장비·마이크 명령을 차단하며 프리셋 저장, 단계·묶음 편집, 음성 문장 테스트, 가변 경로 재생, 모의 실행 승인, 입력 잠금과 모바일 배치를 검사합니다. `tests/test_preset_regressions.py`는 수동 목표 이관, 중단과 늦은 음성 응답의 경합, 마이크 소유권·종료 재시도를 모의 장비로 확인합니다.
 
@@ -570,7 +567,7 @@ YOLO_VOICE_ENABLED=1 YOLO_CAMERA_AUTOSTART=0 bash scripts/stack.sh up coreml
 - 탐지 결과는 저장 프리셋과 분리된 30초 스냅샷입니다. 승인에는 프리셋 내용·revision, 카메라 세션·입력·해상도, 모델, 작업면 보정, 공통 장비 설정과 중단 세대를 연결합니다. 실행 시작·접근·하강 전에 같은 대상인지 다시 확인하며 파지 접촉이 끝난 뒤에는 카메라 없이 나머지 이송을 수행합니다. 대상 이동·필요 벌림 증가·모델 변경·통신 단절로 중단한 작업은 자동 재개하지 않습니다.
 - 등록한 프리셋 음성 명령도 **클래스 발화 → YOLO 대상 확인 → 최종 승인** 순서를 따릅니다. 복수 후보는 실행 카드에서 선택한 뒤 화면 승인 또는 새로운 `로봇 실행` 발화로 재확인합니다. 클래스 선택과 승인은 각각 30초 이내에 진행하며 취소·청취 종료·중단·설정 또는 모델/클래스 목록 변경 시 이전 선택을 폐기합니다. 새 실행과 실행 범위·대상 변경에는 새 클래스 발화가 필요합니다. **문장 입력 테스트**에는 클래스 이름을 별도로 입력하며 시뮬레이션 경로만 계산합니다. 실제 승인이나 마이크의 확인 대기를 변경하지 않습니다.
 
-`GET /api/robot/presets/sources/yolo`는 활성 모델의 클래스 목록을 조회합니다. `POST /api/robot/preset-voice/class-request`에 `preset_id`, 저장 `revision`, `target`(`simulation`/`hardware`), 선택적인 `step_id`를 보내면 마이크 클래스 선택을 시작합니다. 클래스 ID나 인식 문장은 이 API에서 받지 않으며 Mac 서비스의 최종 인식 이벤트만 선택 증거를 만듭니다. `execution-preview`는 같은 프리셋·실행 대상·범위·청취 세션에 연결된 음성 선택과 서버 소유 `snapshot_id`·`candidate_id`가 필요하고, 실제 승인은 일회용입니다. 모델과 클래스 목록은 승인 직전 다시 확인합니다. 음성 확인 방식은 일반 승인 API로 우회할 수 없습니다. `recognition-preview`는 별도의 인식 자세 준비 승인을 만듭니다. 후보 선택은 `/api/robot/preset-voice/select`를 사용합니다. `/api/robot/preset-voice/test`의 `class_name`은 시뮬레이션 전용이며 실제 실행 증거를 만들지 않습니다. 기존 `detections`와 `preview`의 읽기 전용 진단은 유지하고 클라이언트 XYZ 입력으로 실제 목표를 만들지 않습니다.
+`GET /api/robot/presets/sources/yolo`는 활성 모델의 클래스 목록을 조회합니다. `POST /api/robot/preset-voice/class-request`에 `preset_id`, 저장 `revision`, `target`(`simulation`/`hardware`), 선택적인 `step_id`를 보내면 마이크 클래스 선택을 시작합니다. 클래스 ID나 인식 문장은 이 API에서 받지 않으며 Chrome 연결의 최종 인식 이벤트만 선택 증거를 만듭니다. `execution-preview`는 같은 프리셋·실행 대상·범위·청취 세션에 연결된 음성 선택과 서버 소유 `snapshot_id`·`candidate_id`가 필요하고, 실제 승인은 일회용입니다. 모델과 클래스 목록은 승인 직전 다시 확인합니다. 음성 확인 방식은 일반 승인 API로 우회할 수 없습니다. `recognition-preview`는 별도의 인식 자세 준비 승인을 만듭니다. 후보 선택은 `/api/robot/preset-voice/select`를 사용합니다. `/api/robot/preset-voice/test`의 `class_name`은 시뮬레이션 전용이며 실제 실행 증거를 만들지 않습니다. 기존 `detections`와 `preview`의 읽기 전용 진단은 유지하고 클라이언트 XYZ 입력으로 실제 목표를 만들지 않습니다.
 
 YOLO UI 전체 검증은 다음 격리 서버에서 실행합니다. 이 서버는 모의 카메라·모의 음성 인식을 사용하며 SDK와 실제 실행 API를 차단합니다. 두 번째 명령은 별도 터미널에서 실행합니다.
 
@@ -588,3 +585,7 @@ UI 통합 회귀 검증은 `scripts/check_robot_presets_ui.cjs`, `scripts/check_
 `scripts/check_preset_controls_ui.cjs`는 격리 서버에서 다중 화면의 실행 대상 동기화, 일시정지 상태의 재생 제어 링크·새로고침, 미설정 좌표 안내, 명시적 저장 자세/TCP 복사, 현재 TCP 읽기와 저장 분리, 원본 revision 충돌, 서비스 단절·복구, 모바일 배치를 검증합니다. 모든 SDK·마이크 요청은 모의 처리합니다. 반복 재생 완료 검사는 재생 회차와 상태를 함께 비교하여 이전 재생의 완료 표시를 소비하지 않습니다.
 
 프리셋 설정 재배치의 회귀 검사는 `tests/test_preset_settings.py`와 `scripts/check_preset_settings_ui.cjs`로 수행합니다. 오프라인 가상 테스트의 회귀 검사는 같은 8012 QA 서버에서 `scripts/check_preset_offline_ui.cjs`로 수행하며, 카메라·음성·SDK 연결을 모두 차단하고 바닥·선반 전체 재생, 일시정지·위치 확인·취소, 저장 전 단일 단계, 320px 배치와 저장값 보존을 확인합니다. 화면 검사는 SDK·카메라·마이크가 차단된 8012 QA 서버에서 실행하며 이전 브라우저 값 불러오기, 독립 저장·복제, 실제 실행과 모의 객체 분리, 320px 배치를 확인합니다.
+
+## Chrome WebGPU 추론 PoC
+
+YOLOv8n을 Chrome의 ONNX Runtime Web + WebGPU로 실행하는 독립 PoC를 제공합니다. 샘플·이미지·카메라 탐지와 브라우저 벤치마크를 지원합니다. 준비·실행 명령, 기존 MPS/Core ML과의 실제 측정 결과 및 한계는 [WebGPU PoC 보고서](docs/webgpu-poc.md)에 정리했습니다. 버전 관리 가능한 측정 요약은 [결과 JSON](docs/webgpu-poc-results.json)에 있습니다. 운영 서버·모델·로봇 설정은 변경하지 않습니다.

@@ -166,7 +166,7 @@ def test_continuous_native_voice_is_domain_isolated():
         async def drain(self):pass
     class Process:stdin=Stream()
     async def run():
-        v=Voice(None,True);v.session='native';v.context='robot';v.process=Process();v.state='listening';v.turn=1
+        v=Voice(None,True);v.session='native';v.context='robot';v.commands=asyncio.Queue();v.state='listening';v.turn=1
         event=dict(event='final',session='native',turn=1,text='로봇 이동')
         await v.event(event)
         assert v.robot_sequence==1 and v.turn==2 and v.state=='preparing'

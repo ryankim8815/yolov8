@@ -12,7 +12,7 @@ export function connectDashboardConversation(root,{signal,onRobotVoice=()=>{},on
     let previous=ui.empty;
     for(const m of list){let node=shown.get(m.id);if(!node){node=document.createElement('article');node.className='dashboard-chat-turn';node.dataset.role=m.role;
       const meta=document.createElement('div'),who=document.createElement('span'),stamp=document.createElement('time'),bubble=document.createElement('p');meta.className='dashboard-chat-meta';bubble.className='dashboard-chat-bubble';
-      who.textContent=(m.role==='user'?(m.source==='button'?'사용자 · 버튼 입력':'사용자 · 최종 인식'):m.role==='system'?'상태 안내':m.context==='robot'?'로봇 안내':m.source==='button'?'시스템 응답':'Yuna 응답')+' · '+(m.context==='robot'?'로봇 명령':'주문·재고');stamp.dateTime=m.created_at;stamp.textContent=time(m.created_at);bubble.textContent=m.text;meta.append(who,stamp);node.append(meta,bubble);shown.set(m.id,node);added++;}
+      who.textContent=(m.role==='user'?(m.source==='button'?'사용자 · 버튼 입력':'사용자 · 최종 인식'):m.role==='system'?'상태 안내':m.context==='robot'?'로봇 안내':m.source==='button'?'시스템 응답':'Chrome 응답')+' · '+(m.context==='robot'?'로봇 명령':'주문·재고');stamp.dateTime=m.created_at;stamp.textContent=time(m.created_at);bubble.textContent=m.text;meta.append(who,stamp);node.append(meta,bubble);shown.set(m.id,node);added++;}
       if(previous.nextElementSibling!==node)ui.log.insertBefore(node,previous.nextElementSibling);previous=node;
     }
     ui.empty.hidden=list.length>0;
